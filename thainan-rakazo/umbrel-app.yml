@@ -1,0 +1,40 @@
+manifestVersion: 1
+id: thainan-rakazo
+name: Rakazo
+tagline: Self-hosted AI agents with computer use
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-rakazo/icon.png
+category: AI
+version: "edge"
+port: 5173
+description: >-
+  Rakazo is a self-hosted agent platform with optional local Docker “computers”.
+  
+  
+  This package uses the official published images (ghcr.io/elie222/rakazo/app and
+  computer:edge). The supervisor mounts the host Docker socket to spawn bot
+  computers — that is root-equivalent on the host; only install if you trust this
+  stack on your Umbrel.
+  
+  
+  First open: register — the first user becomes the deployment owner. Optional:
+  set OPENROUTER_API_KEY (or connect a model in the UI) for LLM access.
+  
+  
+  Heavy: Postgres + API + worker + supervisor; each bot computer defaults to 2 GB
+  RAM / 2 CPUs. Needs Docker Engine 26+ for volume subpaths.
+  
+  
+  Secrets are baked for LAN use; keep ENCRYPTION_KEY stable across upgrades.
+developer: elie222
+website: https://github.com/elie222/rakazo
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/elie222/rakazo
+support: https://github.com/elie222/rakazo/issues
+gallery: []
+releaseNotes: >-
+  Initial Umbrel packaging using published GHCR images (edge) with local Docker computers.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

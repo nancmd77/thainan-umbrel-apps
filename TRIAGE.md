@@ -22,6 +22,8 @@
 | Bugsink | `thainan-bugsink` | 8000 | SECRET_KEY, DB password, CREATE_SUPERUSER (baked) |
 | InvoiceShelf | `thainan-invoiceshelf` | 8090 | None for SQLite; set APP_URL to match how you browse; APP_URL must match browser URL |
 | Spliit | `thainan-spliit` | 3003 | — |
+| Readest | `thainan-readest` | 3050 | Heavy Supabase+MinIO stack behind nginx; baked JWT/DB/MinIO secrets; set public URLs if not using DEVICE_DOMAIN_NAME |
+| Rakazo | `thainan-rakazo` | 5173 | Published GHCR images; **docker.sock** on supervisor (privileged); baked secrets; optional OPENROUTER_API_KEY |
 
 ## SKIP
 
@@ -29,8 +31,6 @@
 |---|---|
 | Proton Pass | Proprietary cloud-only server; clients are OSS but there is no self-hostable Pass server. Do not substitute Vaultwarden unless asked. |
 | Anytype (any-sync) | Self-host is a multi-node sync network (no browser UI). Clients need client.yml; too complex / wrong UX for Umbrel Open button. |
-| Readest | Official Docker needs full Supabase stack (Postgres, Kong, GoTrue, PostgREST, MinIO) — too heavy/fragile for simplest Umbrel packaging. |
 | Novu | Self-hostable but heavy multi-service stack (Mongo, Redis, workers, etc.); skipped for simplest packaging. |
-| Rakazo | Compose requires docker.sock, local image builds, and sandbox supervisor — not suitable as a normal Umbrel community app. |
 | treg | No published Docker image; Python/uv install only. |
 | Billmora | Laravel hosting-billing platform; no simple published Docker image found (release/PHP install path). |
