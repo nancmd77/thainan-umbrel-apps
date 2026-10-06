@@ -1,0 +1,18 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-9router_web_1
+      APP_PORT: 20128
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: decolua/9router:latest
+    restart: on-failure
+    environment:
+      DATA_DIR: /app/data
+      PORT: "20128"
+      HOSTNAME: "0.0.0.0"
+      INITIAL_PASSWORD: "782fb323d3fc"
+      JWT_SECRET: "08eee69a9bca023de5cf6e6522db46cf3f9bf38c27bf68d4a64adee863c21c6b"
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/data

@@ -1,0 +1,20 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-trek_web_1
+      APP_PORT: 3000
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: mauriceboe/trek:latest
+    restart: on-failure
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      ENCRYPTION_KEY: "5cb8a194cb55ac589502b688259788778ad07f248c47363eec16ccd09cac459f"
+      TZ: America/Sao_Paulo
+      TRUST_PROXY: "1"
+      ALLOW_INTERNAL_NETWORK: "true"
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/data
+      - ${APP_DATA_DIR}/data/uploads:/app/uploads

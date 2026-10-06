@@ -1,0 +1,13 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-crawl4ai_web_1
+      APP_PORT: 11235
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: unclecode/crawl4ai:latest
+    restart: on-failure
+    shm_size: 1gb
+    environment:
+      CRAWL4AI_API_TOKEN: "a5eebcbfeb29dcd97ee56c575b0b6ff5e662833b99c8858c1bd13eea144576e1"

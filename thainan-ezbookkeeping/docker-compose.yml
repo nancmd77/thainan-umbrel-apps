@@ -1,0 +1,20 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-ezbookkeeping_web_1
+      APP_PORT: 8080
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: mayswind/ezbookkeeping:latest
+    restart: on-failure
+    user: "1000:1000"
+    environment:
+      EBK_SERVER_HTTP_PORT: "8080"
+      EBK_SECURITY_SECRET_KEY: "b0ee84c200ae7c3aa56b38cb6d1ab0a4f9919248069683c9ecd18a81464dd7ec"
+      EBK_SERVER_DOMAIN: "${DEVICE_DOMAIN_NAME}"
+      EBK_SERVER_ROOT_URL: "http://${DEVICE_DOMAIN_NAME}:8085/"
+    volumes:
+      - ${APP_DATA_DIR}/data/db:/ezbookkeeping/data
+      - ${APP_DATA_DIR}/data/storage:/ezbookkeeping/storage
+      - ${APP_DATA_DIR}/data/log:/ezbookkeeping/log

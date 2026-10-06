@@ -1,0 +1,18 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-inkvoice_web_1
+      APP_PORT: 3000
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: ghcr.io/pigontech/inkvoice:latest
+    restart: on-failure
+    environment:
+      JWT_SECRET: "702c6684ffaa9f3454f8801af41f050188a9bf4c9e66a3b19fdf09067f96380e"
+      DATABASE_PATH: /app/data/invoice.db
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      COOKIE_SECURE: "false"
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/data

@@ -1,0 +1,35 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-bugsink_web_1
+      APP_PORT: 8000
+      PROXY_AUTH_ADD: "false"
+  db:
+    image: postgres:17-alpine
+    restart: on-failure
+    environment:
+      POSTGRES_USER: bugsinkuser
+      POSTGRES_PASSWORD: "acb91a7d2016fc5b"
+      POSTGRES_DB: bugsink
+    volumes:
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bugsinkuser -d bugsink"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  web:
+    image: bugsink/bugsink:2
+    restart: on-failure
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SECRET_KEY: "f131afb142e0cabcf7c466eb14721caccd3f0fadbf347c504fe8e99249209b77"
+      CREATE_SUPERUSER: "admin@umbrel.local:changeme-bugsink"
+      PORT: "8000"
+      DATABASE_URL: "postgresql://bugsinkuser:acb91a7d2016fc5b@thainan-bugsink_db_1:5432/bugsink"
+      BEHIND_HTTPS_PROXY: "false"
+      USE_X_FORWARDED_HOST: "true"
+      BASE_URL: "http://${DEVICE_DOMAIN_NAME}:8000"

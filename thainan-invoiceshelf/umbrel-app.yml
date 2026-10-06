@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-invoiceshelf
+name: InvoiceShelf
+tagline: Open-source invoicing & estimates
+icon: https://invoiceshelf.com/favicon.ico
+category: Finance
+version: "1.0.0"
+port: 8090
+description: >-
+  InvoiceShelf is an open-source invoicing platform (fork lineage of Invoice Ninja / Crater).
+
+  Complete the install wizard on first open. APP_URL uses your Umbrel device domain — if you access via IP or custom domain, update APP_URL, SESSION_DOMAIN, and SANCTUM_STATEFUL_DOMAINS in compose to match.
+developer: InvoiceShelf
+website: https://invoiceshelf.com/
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/InvoiceShelf/InvoiceShelf
+support: https://github.com/InvoiceShelf/InvoiceShelf/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

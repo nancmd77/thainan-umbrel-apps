@@ -1,0 +1,22 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-yuvomi_web_1
+      APP_PORT: 3000
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: ghcr.io/ulsklyc/yuvomi:latest
+    restart: on-failure
+    environment:
+      NODE_ENV: production
+      DB_PATH: /data/yuvomi.db
+      BACKUP_DIR: /backups
+      SESSION_SECRET: "092506bd0e73a06c2e6cf8758e6b05f4783fed1c999a7c83e736f40fd935d3ba"
+      DB_ENCRYPTION_KEY: "70ea61ac4669373b26f803b13390375a2b70768dd3ad2d9beb55227cd2c30615"
+      SESSION_SECURE: "false"
+      TRUST_PROXY: "1"
+      TZ: America/Sao_Paulo
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}/data/backups:/backups

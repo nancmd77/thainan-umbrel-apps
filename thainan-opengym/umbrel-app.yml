@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-opengym
+name: openGym
+tagline: Self-hosted gym and body-weight tracker
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opengym/icon.svg
+category: Productivity
+version: "1.0.0"
+port: 8088
+description: >-
+  openGym is a self-hosted workout tracker with passkeys, weekly plans, and guided workouts.
+
+  First start downloads exercise media (~140 MB). Passkeys need HTTPS + matching RP_ID/ORIGIN for phone use; on plain HTTP localhost/LAN, guest mode still works.
+
+  Set RP_ID and ORIGIN in compose when you put it behind a real HTTPS domain.
+developer: DuarteSantos8
+website: https://github.com/DuarteSantos8/openGym
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/DuarteSantos8/openGym
+support: https://github.com/DuarteSantos8/openGym/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-yuvomi
+name: Yuvomi
+tagline: Self-hosted family planner
+icon: https://yuvomi.cloud/favicon.ico
+category: Productivity
+version: "1.0.0"
+port: 3100
+description: >-
+  Yuvomi is a self-hosted family planner for tasks, calendar, shopping, meals, and budgets.
+
+  Create the admin account on first open. SESSION_SECRET and DB_ENCRYPTION_KEY are baked for LAN — keep them stable across upgrades or encrypted data becomes unreadable.
+developer: ulsklyc
+website: https://yuvomi.cloud/
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/ulsklyc/yuvomi
+support: https://github.com/ulsklyc/yuvomi/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

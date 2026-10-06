@@ -1,0 +1,29 @@
+manifestVersion: 1
+id: thainan-freellmapi
+name: FreeLLMAPI
+tagline: OpenAI-compatible proxy over free LLM tiers
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-freellmapi/icon.svg
+category: AI
+version: "0.13.3"
+port: 3001
+description: >-
+  FreeLLMAPI is a self-hosted OpenAI-compatible proxy that stacks free tiers of many LLM providers behind one /v1 endpoint, with smart routing, failover, and encrypted keys.
+
+  Open the dashboard, add provider keys, then use the generated freellmapi key with any OpenAI-compatible client.
+
+  Note: If you already run FreeLLMAPI via Portainer on this host, installing this Umbrel app would conflict on the same role — use one or the other.
+
+  Required: ENCRYPTION_KEY is pre-set in compose (change before exposing beyond LAN).
+developer: tashfeenahmed
+website: https://github.com/tashfeenahmed/freellmapi
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/tashfeenahmed/freellmapi
+support: https://github.com/tashfeenahmed/freellmapi/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

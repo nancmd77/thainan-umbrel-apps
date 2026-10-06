@@ -1,0 +1,16 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-openhuman_web_1
+      APP_PORT: 7788
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: ghcr.io/tinyhumansai/openhuman-core:latest
+    restart: on-failure
+    environment:
+      OPENHUMAN_APP_ENV: production
+      OPENHUMAN_CORE_TOKEN: "90176289e9e3856edf70512c"
+      BACKEND_URL: "http://${DEVICE_DOMAIN_NAME}:7788"
+    volumes:
+      - ${APP_DATA_DIR}/data:/home/openhuman/.openhuman

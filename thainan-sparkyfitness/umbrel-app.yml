@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-sparkyfitness
+name: SparkyFitness
+tagline: Self-hosted fitness and nutrition tracker
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-sparkyfitness/icon.svg
+category: Productivity
+version: "1.0.0"
+port: 3004
+description: >-
+  SparkyFitness is a self-hosted fitness tracker with workouts, nutrition, and optional AI integrations.
+
+  Create an account on first open. DB and auth secrets are baked into the compose for LAN use — rotate them if you expose the app publicly. Set SPARKY_FITNESS_FRONTEND_URL to your public URL if accessing via domain.
+developer: CodeWithCJ
+website: https://github.com/CodeWithCJ/SparkyFitness
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/CodeWithCJ/SparkyFitness
+support: https://github.com/CodeWithCJ/SparkyFitness/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

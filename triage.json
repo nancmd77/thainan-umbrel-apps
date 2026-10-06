@@ -1,0 +1,206 @@
+{
+  "INCLUDE": [
+    {
+      "id": "thainan-freellmapi",
+      "slug": "freellmapi",
+      "name": "FreeLLMAPI",
+      "port": 3001,
+      "secrets": [
+        "ENCRYPTION_KEY (baked; rotate if exposing beyond LAN)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-9router",
+      "slug": "9router",
+      "name": "9Router",
+      "port": 20128,
+      "secrets": [
+        "Optional: INITIAL_PASSWORD, JWT_SECRET"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-opengym",
+      "slug": "opengym",
+      "name": "openGym",
+      "port": 8088,
+      "secrets": [
+        "RP_ID / ORIGIN for HTTPS passkeys"
+      ],
+      "notes": "Passkeys need HTTPS domain"
+    },
+    {
+      "id": "thainan-sparkyfitness",
+      "slug": "sparkyfitness",
+      "name": "SparkyFitness",
+      "port": 3004,
+      "secrets": [
+        "SPARKY_FITNESS_DB_PASSWORD, SPARKY_FITNESS_API_ENCRYPTION_KEY, BETTER_AUTH_SECRET (baked)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-hindsight",
+      "slug": "hindsight",
+      "name": "Hindsight",
+      "port": 9999,
+      "secrets": [
+        "HINDSIGHT_API_LLM_API_KEY (set before real use)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-openhuman",
+      "slug": "openhuman",
+      "name": "OpenHuman",
+      "port": 7788,
+      "secrets": [
+        "OPENHUMAN_CORE_TOKEN (baked)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-yuvomi",
+      "slug": "yuvomi",
+      "name": "Yuvomi",
+      "port": 3100,
+      "secrets": [
+        "SESSION_SECRET, DB_ENCRYPTION_KEY (baked; keep stable)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-redlib",
+      "slug": "redlib",
+      "name": "Redlib",
+      "port": 8081,
+      "secrets": [],
+      "notes": ""
+    },
+    {
+      "id": "thainan-silverbullet",
+      "slug": "silverbullet",
+      "name": "SilverBullet",
+      "port": 3002,
+      "secrets": [
+        "Optional SB_USER=username:password"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-trek",
+      "slug": "trek",
+      "name": "TREK",
+      "port": 3010,
+      "secrets": [
+        "ENCRYPTION_KEY (baked); optional ADMIN_EMAIL/ADMIN_PASSWORD"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-langflow",
+      "slug": "langflow",
+      "name": "Langflow",
+      "port": 7860,
+      "secrets": [
+        "Optional LANGFLOW_SUPERUSER / LANGFLOW_SUPERUSER_PASSWORD"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-crawl4ai",
+      "slug": "crawl4ai",
+      "name": "Crawl4AI",
+      "port": 11235,
+      "secrets": [
+        "CRAWL4AI_API_TOKEN (baked)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-wallos",
+      "slug": "wallos",
+      "name": "Wallos",
+      "port": 8282,
+      "secrets": [],
+      "notes": ""
+    },
+    {
+      "id": "thainan-inkvoice",
+      "slug": "inkvoice",
+      "name": "Inkvoice",
+      "port": 3020,
+      "secrets": [
+        "JWT_SECRET (baked); optional ADMIN_USER/ADMIN_PASS"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-ezbookkeeping",
+      "slug": "ezbookkeeping",
+      "name": "ezBookkeeping",
+      "port": 8085,
+      "secrets": [],
+      "notes": ""
+    },
+    {
+      "id": "thainan-bugsink",
+      "slug": "bugsink",
+      "name": "Bugsink",
+      "port": 8000,
+      "secrets": [
+        "SECRET_KEY, DB password, CREATE_SUPERUSER (baked)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thainan-invoiceshelf",
+      "slug": "invoiceshelf",
+      "name": "InvoiceShelf",
+      "port": 8090,
+      "secrets": [
+        "None for SQLite; set APP_URL to match how you browse"
+      ],
+      "notes": "APP_URL must match browser URL"
+    },
+    {
+      "id": "thainan-spliit",
+      "slug": "spliit",
+      "name": "Spliit",
+      "port": 3003,
+      "secrets": [],
+      "notes": ""
+    }
+  ],
+  "SKIP": [
+    {
+      "name": "Proton Pass",
+      "reason": "Proprietary cloud-only server; clients are OSS but there is no self-hostable Pass server. Do not substitute Vaultwarden unless asked."
+    },
+    {
+      "name": "Anytype (any-sync)",
+      "reason": "Self-host is a multi-node sync network (no browser UI). Clients need client.yml; too complex / wrong UX for Umbrel Open button."
+    },
+    {
+      "name": "Readest",
+      "reason": "Official Docker needs full Supabase stack (Postgres, Kong, GoTrue, PostgREST, MinIO) \u2014 too heavy/fragile for simplest Umbrel packaging."
+    },
+    {
+      "name": "Novu",
+      "reason": "Self-hostable but heavy multi-service stack (Mongo, Redis, workers, etc.); skipped for simplest packaging."
+    },
+    {
+      "name": "Rakazo",
+      "reason": "Compose requires docker.sock, local image builds, and sandbox supervisor \u2014 not suitable as a normal Umbrel community app."
+    },
+    {
+      "name": "treg",
+      "reason": "No published Docker image; Python/uv install only."
+    },
+    {
+      "name": "Billmora",
+      "reason": "Laravel hosting-billing platform; no simple published Docker image found (release/PHP install path)."
+    }
+  ]
+}

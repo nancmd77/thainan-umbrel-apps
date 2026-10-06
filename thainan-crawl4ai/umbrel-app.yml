@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-crawl4ai
+name: Crawl4AI
+tagline: Self-hosted LLM-friendly web crawler API
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-crawl4ai/icon.svg
+category: AI
+version: "1.0.0"
+port: 11235
+description: >-
+  Crawl4AI is a self-hosted web crawler API designed for LLM pipelines (MCP supported).
+
+  API token is required for non-loopback access — a token is baked into the compose. Use Authorization: Bearer <token> for API calls. /health stays open.
+developer: unclecode
+website: https://docs.crawl4ai.com
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/unclecode/crawl4ai
+support: https://github.com/unclecode/crawl4ai/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

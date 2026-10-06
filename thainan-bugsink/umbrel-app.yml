@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-bugsink
+name: Bugsink
+tagline: Self-hosted error tracking (Sentry-compatible)
+icon: https://www.bugsink.com/static/bugsink-logo.svg
+category: Developer
+version: "1.0.0"
+port: 8000
+description: >-
+  Bugsink is a self-hosted error tracking platform compatible with Sentry SDKs.
+
+  A Django superuser is created from CREATE_SUPERUSER (email:password) on first boot — change it. Database password and SECRET_KEY are baked.
+developer: bugsink
+website: https://www.bugsink.com
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/bugsink/bugsink
+support: https://github.com/bugsink/bugsink/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: "admin@umbrel.local"
+defaultPassword: "changeme-bugsink"

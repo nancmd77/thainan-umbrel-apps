@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-langflow
+name: Langflow
+tagline: Visual framework for building AI flows
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-langflow/icon.svg
+category: AI
+version: "1.0.0"
+port: 7860
+description: >-
+  Langflow is a visual low-code tool for building and testing LLM applications and agents.
+
+  Data persists under the app data directory. For production, set LANGFLOW_AUTO_LOGIN=false and a strong superuser password.
+developer: langflow-ai
+website: https://www.langflow.org
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/langflow-ai/langflow
+support: https://github.com/langflow-ai/langflow/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

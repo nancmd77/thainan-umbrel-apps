@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-openhuman
+name: OpenHuman
+tagline: OpenHuman core — self-hosted tiny humans runtime
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openhuman/icon.svg
+category: AI
+version: "1.0.0"
+port: 7788
+description: >-
+  OpenHuman Core is the headless self-hosted runtime for Tiny Humans / OpenHuman.
+
+  Exposes HTTP on port 7788. Set OPENHUMAN_CORE_TOKEN for API auth. Pair with the OpenHuman client apps using your Umbrel host URL.
+developer: tinyhumansai
+website: https://tinyhumans.gitbook.io/openhuman
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/tinyhumansai/openhuman
+support: https://github.com/tinyhumansai/openhuman/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
