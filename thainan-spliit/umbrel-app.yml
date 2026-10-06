@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-spliit
 name: Spliit
 tagline: Share expenses with friends (Splitwise-like)
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-spliit/icon.svg
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-spliit/icon.png
 category: Finance
 version: "1.0.0"
 port: 3003

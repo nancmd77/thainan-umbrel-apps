@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-bugsink
 name: Bugsink
 tagline: Self-hosted error tracking (Sentry-compatible)
-icon: https://www.bugsink.com/static/bugsink-logo.svg
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-bugsink/icon.png
 category: Developer
 version: "1.0.0"
 port: 8000

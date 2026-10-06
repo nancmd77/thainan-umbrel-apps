@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-trek
 name: TREK
 tagline: Self-hosted travel planner
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-trek/icon.svg
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-trek/icon.png
 category: Productivity
 version: "1.0.0"
 port: 3010

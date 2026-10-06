@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-invoiceshelf
 name: InvoiceShelf
 tagline: Open-source invoicing & estimates
-icon: https://invoiceshelf.com/favicon.ico
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-invoiceshelf/icon.png
 category: Finance
 version: "1.0.0"
 port: 8090
