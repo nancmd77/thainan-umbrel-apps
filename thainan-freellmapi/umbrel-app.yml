@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-freellmapi
 name: FreeLLMAPI
 tagline: OpenAI-compatible proxy over free LLM tiers
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-freellmapi/icon.svg
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-freellmapi/icon.png
 category: AI
 version: "0.13.3"
 port: 3001

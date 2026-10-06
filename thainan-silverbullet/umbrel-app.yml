@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-silverbullet
 name: SilverBullet
 tagline: Creative space for notes — Markdown PKM
-icon: https://silverbullet.md/.client/logo.png
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-silverbullet/icon.png
 category: Productivity
 version: "1.0.0"
 port: 3002

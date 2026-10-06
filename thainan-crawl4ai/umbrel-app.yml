@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-crawl4ai
 name: Crawl4AI
 tagline: Self-hosted LLM-friendly web crawler API
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-crawl4ai/icon.svg
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-crawl4ai/icon.png
 category: AI
 version: "1.0.0"
 port: 11235

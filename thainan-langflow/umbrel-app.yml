@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-langflow
 name: Langflow
 tagline: Visual framework for building AI flows
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-langflow/icon.svg
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-langflow/icon.png
 category: AI
 version: "1.0.0"
 port: 7860

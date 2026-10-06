@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-hindsight
 name: Hindsight
 tagline: Agent memory API with control-plane UI
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-hindsight/icon.svg
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-hindsight/icon.png
 category: AI
 version: "1.0.0"
 port: 9999
