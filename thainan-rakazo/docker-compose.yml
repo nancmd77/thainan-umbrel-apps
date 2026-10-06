@@ -1,0 +1,170 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-rakazo_web_1
+      APP_PORT: 5173
+      PROXY_AUTH_ADD: "false"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: on-failure
+    environment:
+      POSTGRES_USER: rakazo
+      POSTGRES_PASSWORD: "44e262c577d9c45620fedfa1a89cb269"
+      POSTGRES_DB: rakazo
+    volumes:
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rakazo -d rakazo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  computer:
+    image: ghcr.io/elie222/rakazo/computer:edge
+    command: ["true"]
+    network_mode: none
+    restart: "no"
+
+  data-init:
+    image: busybox:1
+    command: ["chown", "-R", "1000:1000", "/data"]
+    network_mode: none
+    restart: "no"
+    volumes:
+      - ${APP_DATA_DIR}/data/app:/data
+
+  supervisor:
+    image: ghcr.io/elie222/rakazo/app:edge
+    restart: on-failure
+    command: ["pnpm", "--filter", "@rakazo/sandbox-supervisor", "start"]
+    init: true
+    user: root
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SUPERVISOR_HOST: "0.0.0.0"
+      SUPERVISOR_PORT: "7091"
+      DOCKER_SOCKET: /var/run/docker.sock
+      RAKAZO_COMPUTER_IMAGE: ghcr.io/elie222/rakazo/computer:edge
+      RAKAZO_COMPUTER_MEMORY: "2g"
+      RAKAZO_COMPUTER_CPUS: "2"
+      RAKAZO_COMPUTER_PIDS_LIMIT: "2048"
+      SANDBOX_COMMAND_TIMEOUT_MS: "300000"
+      SANDBOX_SUPERVISOR_TOKEN: "6d09b5df98e0d87fc186247b5e0915c7a3d42df7ab35e92befd590e7d3d6a45d"
+      SANDBOX_SCREEN_NETWORK: isolated
+      SANDBOX_COMPUTER_EGRESS: open
+      LOG_LEVEL: info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${APP_DATA_DIR}/data/app:/data
+    depends_on:
+      computer:
+        condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:7091/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  api:
+    image: ghcr.io/elie222/rakazo/app:edge
+    restart: on-failure
+    command:
+      - bash
+      - -lc
+      - pnpm --filter @rakazo/db exec prisma migrate deploy && pnpm --filter @rakazo/api start
+    init: true
+    environment:
+      NODE_ENV: production
+      API_HOST: "0.0.0.0"
+      BETTER_AUTH_SECRET: "9fc3ab933bc09a4374425964fe6ef1083c29e09602d48d44425821f0bb1246be"
+      ENCRYPTION_KEY: "0bd04ea5e66abd88e79697a1cb1f48a3cf3c1283fcf8ff687827027b70a9f0da"
+      SCREEN_PROXY_SECRET: "bca9600fc00e3e09aa5e66c3a6de7578fded9b678723a187dd9861f8292b9d62"
+      SANDBOX_SUPERVISOR_TOKEN: "6d09b5df98e0d87fc186247b5e0915c7a3d42df7ab35e92befd590e7d3d6a45d"
+      BETTER_AUTH_URL: "http://${DEVICE_DOMAIN_NAME}:5173"
+      WEB_ORIGIN: "http://${DEVICE_DOMAIN_NAME}:5173"
+      API_URL: "http://${DEVICE_DOMAIN_NAME}:5173"
+      RAKAZO_HOST: "${DEVICE_DOMAIN_NAME}"
+      DATABASE_URL: "postgres://rakazo:44e262c577d9c45620fedfa1a89cb269@postgres:5432/rakazo"
+      DATA_DIR: /data
+      SANDBOX_PROVIDER: docker
+      SANDBOX_SUPERVISOR_URL: http://supervisor:7091
+      WAKEUP_DRIVER: graphile
+      AGENT_RUNTIME: pi
+      SIGNUPS_ENABLED: "true"
+      SIGNUP_ALLOWLIST: ""
+      LOG_LEVEL: info
+    volumes:
+      - ${APP_DATA_DIR}/data/app:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      data-init:
+        condition: service_completed_successfully
+      supervisor:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  worker:
+    image: ghcr.io/elie222/rakazo/app:edge
+    restart: on-failure
+    command: ["pnpm", "--filter", "@rakazo/worker", "start"]
+    init: true
+    environment:
+      NODE_ENV: production
+      BETTER_AUTH_SECRET: "9fc3ab933bc09a4374425964fe6ef1083c29e09602d48d44425821f0bb1246be"
+      ENCRYPTION_KEY: "0bd04ea5e66abd88e79697a1cb1f48a3cf3c1283fcf8ff687827027b70a9f0da"
+      SCREEN_PROXY_SECRET: "bca9600fc00e3e09aa5e66c3a6de7578fded9b678723a187dd9861f8292b9d62"
+      SANDBOX_SUPERVISOR_TOKEN: "6d09b5df98e0d87fc186247b5e0915c7a3d42df7ab35e92befd590e7d3d6a45d"
+      DATABASE_URL: "postgres://rakazo:44e262c577d9c45620fedfa1a89cb269@postgres:5432/rakazo"
+      DATA_DIR: /data
+      SANDBOX_PROVIDER: docker
+      SANDBOX_SUPERVISOR_URL: http://supervisor:7091
+      WAKEUP_DRIVER: graphile
+      AGENT_RUNTIME: pi
+      LOG_LEVEL: info
+    volumes:
+      - ${APP_DATA_DIR}/data/app:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      data-init:
+        condition: service_completed_successfully
+      supervisor:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  web:
+    image: ghcr.io/elie222/rakazo/app:edge
+    restart: on-failure
+    command: ["pnpm", "--filter", "@rakazo/web", "preview", "--host", "0.0.0.0", "--port", "5173"]
+    init: true
+    environment:
+      NODE_ENV: production
+      API_PROXY_TARGET: http://api:3100
+      RAKAZO_HOST: "${DEVICE_DOMAIN_NAME}"
+      RAKAZO_IMAGE_TAG: edge
+      SCREEN_PROXY_SECRET: "bca9600fc00e3e09aa5e66c3a6de7578fded9b678723a187dd9861f8292b9d62"
+    depends_on:
+      api:
+        condition: service_healthy

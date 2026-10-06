@@ -1,0 +1,34 @@
+manifestVersion: 1
+id: thainan-readest
+name: Readest
+tagline: Modern ebook reader with sync and library
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-readest/icon.png
+category: Files & Productivity
+version: "1.0.0"
+port: 3050
+description: >-
+  Readest is a modern ebook reader. This package runs the official self-host stack
+  (client + Supabase-compatible Auth/REST + Postgres + MinIO) behind one nginx
+  gateway on port 3050 so Umbrel can proxy a single origin.
+  
+  
+  First open: create an account (email autoconfirm enabled for LAN). SELF_HOSTED=true
+  unlocks premium self-host features.
+  
+  
+  Heavy stack (expect ~1–2 GB RAM). Persist data under the app data directory.
+  If you use a custom domain/HTTPS, change SITE-equivalent URLs in docker-compose.yml
+  (SUPABASE_PUBLIC_URL, API_BASE_URL, S3_PUBLIC_ENDPOINT, GoTrue URLs) to match.
+developer: Readest
+website: https://readest.com
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/readest/readest
+support: https://github.com/readest/readest/issues
+gallery: []
+releaseNotes: >-
+  Initial Umbrel packaging of the official Docker self-host stack with nginx gateway.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
