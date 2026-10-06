@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-inkvoice
+name: Inkvoice
+tagline: Self-hosted invoicing
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-inkvoice/icon.svg
+category: Finance
+version: "1.0.0"
+port: 3020
+description: >-
+  Inkvoice is a lightweight self-hosted invoicing app (SQLite).
+
+  Default admin credentials follow the image defaults unless you set ADMIN_USER/ADMIN_PASS. JWT_SECRET is baked and must stay stable.
+developer: pigontech
+website: https://docs.inkvoice.app/
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/pigontech/inkvoice
+support: https://github.com/pigontech/inkvoice/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

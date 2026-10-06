@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-hindsight
+name: Hindsight
+tagline: Agent memory API with control-plane UI
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-hindsight/icon.svg
+category: AI
+version: "1.0.0"
+port: 9999
+description: >-
+  Hindsight is a self-hosted agent memory system (API on 8888, UI on 9999).
+
+  Set HINDSIGHT_API_LLM_API_KEY to your OpenAI-compatible API key (or point HINDSIGHT_API_LLM_BASE_URL at a local LLM). Without an LLM key, memory features will not work.
+
+  Umbrel opens the control-plane UI (port 9999).
+developer: vectorize-io
+website: https://hindsight.vectorize.io
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/vectorize-io/hindsight
+support: https://github.com/vectorize-io/hindsight/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-spliit
+name: Spliit
+tagline: Share expenses with friends (Splitwise-like)
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-spliit/icon.svg
+category: Finance
+version: "1.0.0"
+port: 3003
+description: >-
+  Spliit is a free, open-source alternative to Splitwise for sharing group expenses.
+
+  No account required on the public mode — create a group and share the link.
+developer: spliit-app
+website: https://spliit.app
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/spliit-app/spliit
+support: https://github.com/spliit-app/spliit/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-9router
+name: 9Router
+tagline: Self-hosted AI gateway for coding tools
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-9router/icon.svg
+category: AI
+version: "1.0.0"
+port: 20128
+description: >-
+  9Router is a self-hosted AI router that connects coding tools (Claude Code, Cursor, Copilot, Codex, etc.) to many providers with fallback and token savings.
+
+  Open the UI on first launch. Optionally set INITIAL_PASSWORD and JWT_SECRET in the compose for VPS use (defaults exist for LAN).
+developer: decolua
+website: https://9router.com
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/decolua/9router
+support: https://github.com/decolua/9router/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

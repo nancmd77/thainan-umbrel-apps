@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-wallos
+name: Wallos
+tagline: Personal subscription tracker
+icon: https://raw.githubusercontent.com/ellite/Wallos/master/images/siteicons/wallos.png
+category: Finance
+version: "1.0.0"
+port: 8282
+description: >-
+  Wallos is an open-source personal subscription tracker with categories, multi-currency, and notifications.
+
+  Register your account on first open.
+developer: ellite
+website: https://github.com/ellite/Wallos
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/ellite/Wallos
+support: https://github.com/ellite/Wallos/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

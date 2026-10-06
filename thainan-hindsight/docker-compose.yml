@@ -1,0 +1,18 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-hindsight_web_1
+      APP_PORT: 9999
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    restart: on-failure
+    shm_size: 1gb
+    environment:
+      HINDSIGHT_API_WORKER_ID: hindsight-umbrel
+      # Set your LLM key (OpenAI or compatible). Example:
+      # HINDSIGHT_API_LLM_API_KEY: sk-...
+      # HINDSIGHT_API_LLM_BASE_URL: http://host.docker.internal:11434/v1
+    volumes:
+      - ${APP_DATA_DIR}/data/pg0:/home/hindsight/.pg0

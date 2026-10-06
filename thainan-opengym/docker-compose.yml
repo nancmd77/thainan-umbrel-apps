@@ -1,0 +1,42 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-opengym_web_1
+      APP_PORT: 80
+      PROXY_AUTH_ADD: "false"
+  media:
+    image: alpine/git:latest
+    restart: "no"
+    volumes:
+      - ${APP_DATA_DIR}/data/media/img:/out/img
+      - ${APP_DATA_DIR}/data/media/gif:/out/gif
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$(ls -A /out/img 2>/dev/null)" ]; then
+          git clone --depth 1 https://github.com/hasaneyldrm/exercises-dataset /tmp/ds
+          cp /tmp/ds/images/*.jpg /out/img/ && cp /tmp/ds/videos/*.gif /out/gif/
+        fi
+  api:
+    image: ghcr.io/duartesantos8/opengym-api:latest
+    restart: on-failure
+    environment:
+      PORT: "3000"
+      DATA_DIR: /data
+      TRUST_PROXY: "1"
+      RP_NAME: openGym
+      RP_ID: localhost
+      ORIGIN: http://localhost
+    volumes:
+      - ${APP_DATA_DIR}/data/userdata:/data
+  web:
+    image: ghcr.io/duartesantos8/opengym-web:latest
+    restart: on-failure
+    depends_on:
+      - api
+    environment:
+      BACKEND: api
+    volumes:
+      - ${APP_DATA_DIR}/data/media/img:/usr/share/nginx/html/img:ro
+      - ${APP_DATA_DIR}/data/media/gif:/usr/share/nginx/html/gif:ro

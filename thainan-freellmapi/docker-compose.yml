@@ -1,0 +1,16 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-freellmapi_web_1
+      APP_PORT: 3001
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: ghcr.io/tashfeenahmed/freellmapi:latest
+    restart: on-failure
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      ENCRYPTION_KEY: "REMOVIDO-SEGREDO"
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/server/data

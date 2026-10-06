@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-trek
+name: TREK
+tagline: Self-hosted travel planner
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-trek/icon.svg
+category: Productivity
+version: "1.0.0"
+port: 3010
+description: >-
+  TREK is a self-hosted travel planner for trips, itineraries, and bookings.
+
+  Create the first admin account on first boot (or set ADMIN_EMAIL / ADMIN_PASSWORD). ENCRYPTION_KEY is baked and should stay stable.
+developer: liketrek
+website: https://github.com/liketrek/TREK
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/liketrek/TREK
+support: https://github.com/liketrek/TREK/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

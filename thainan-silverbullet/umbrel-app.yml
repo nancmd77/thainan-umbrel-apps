@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-silverbullet
+name: SilverBullet
+tagline: Creative space for notes — Markdown PKM
+icon: https://silverbullet.md/.client/logo.png
+category: Productivity
+version: "1.0.0"
+port: 3002
+description: >-
+  SilverBullet is a self-hosted Markdown knowledge base and creative notes space.
+
+  Space data is stored under the app data directory. Optional SB_USER=user:pass enables basic auth.
+developer: silverbulletmd
+website: https://silverbullet.md
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/silverbulletmd/silverbullet
+support: https://github.com/silverbulletmd/silverbullet/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
