@@ -28,6 +28,7 @@ services:
       RP_NAME: openGym
       RP_ID: localhost
       ORIGIN: http://localhost
+      PASSWORD_LOGIN: "1"
     volumes:
       - ${APP_DATA_DIR}/data/userdata:/data
   web:
