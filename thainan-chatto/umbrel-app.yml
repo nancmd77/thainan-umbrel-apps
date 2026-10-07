@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-chatto
+name: Chatto
+tagline: Self-hosted team & community chat
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-chatto/icon.png
+category: Social
+version: "1.0.0"
+port: 4000
+description: >-
+  Chatto is an open-source team and community chat app.
+
+  This Umbrel package runs the official image with embedded NATS (single container).
+  Voice/video (LiveKit) and SMTP are off by default — enable later if you need them.
+  On first start it runs `chatto init` into persistent config, then serves on port 4000.
+developer: chattocorp
+website: https://chatto.run
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/chattocorp/chatto
+support: https://github.com/chattocorp/chatto/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store (embedded NATS, no LiveKit).
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

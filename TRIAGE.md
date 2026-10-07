@@ -24,6 +24,9 @@
 | Spliit | `thainan-spliit` | 3003 | — |
 | Readest | `thainan-readest` | 3050 | Heavy Supabase+MinIO stack behind nginx; baked JWT/DB/MinIO secrets; set public URLs if not using DEVICE_DOMAIN_NAME |
 | Rakazo | `thainan-rakazo` | 5173 | Published GHCR images; **docker.sock** on supervisor (privileged); baked secrets; optional OPENROUTER_API_KEY |
+| Chatwoot | `thainan-chatwoot` | 3000 | SECRET_KEY_BASE + Postgres/Redis passwords baked; first boot runs db:chatwoot_prepare |
+| Fluxer | `thainan-fluxer` | 3005 | Heavy official stack (proxy mode :8080); baked .env secrets; exports.sh sets DOMAIN from DEVICE_DOMAIN_NAME; needs several GB RAM |
+| Chatto | `thainan-chatto` | 4000 | Single image + embedded NATS; LiveKit/SMTP off; `chatto init` on first start |
 
 ## SKIP
 

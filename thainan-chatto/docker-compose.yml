@@ -1,0 +1,35 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-chatto_web_1
+      APP_PORT: 4000
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    image: ghcr.io/chattocorp/chatto:latest
+    restart: on-failure
+    entrypoint: ["/bin/sh","-c"]
+    command:
+      - |
+        set -eu
+        if [ ! -f /config/chatto.toml ]; then
+          /chatto init -c /config/chatto.toml
+        fi
+        exec /usr/local/bin/docker-entrypoint.sh start -c /config/chatto.toml
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      CHATTO_NATS_EMBEDDED_ENABLED: "true"
+      CHATTO_WEBSERVER_PORT: "4000"
+      CHATTO_WEBSERVER_URL: "http://${DEVICE_DOMAIN_NAME}:4000"
+      CHATTO_WEBSERVER_COOKIE_SIGNING_SECRET: "REMOVIDO-SEGREDO"
+      CHATTO_WEBSERVER_COOKIE_ENCRYPTION_SECRET: "REMOVIDO-SEGREDO"
+      CHATTO_CORE_SECRET_KEY: "REMOVIDO-SEGREDO"
+      CHATTO_CORE_ASSETS_SIGNING_SECRET: "REMOVIDO-SEGREDO"
+      CHATTO_LIVEKIT_ENABLED: "false"
+      CHATTO_SMTP_ENABLED: "false"
+      CHATTO_LOG_LEVEL: info
+    volumes:
+      - ${APP_DATA_DIR}/config:/config
+      - ${APP_DATA_DIR}/data:/data
