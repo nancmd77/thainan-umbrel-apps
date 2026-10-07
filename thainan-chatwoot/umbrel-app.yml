@@ -1,0 +1,26 @@
+manifestVersion: 1
+id: thainan-chatwoot
+name: Chatwoot
+tagline: Open-source customer engagement suite
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-chatwoot/icon.png
+category: Social
+version: "4.12.1"
+port: 3000
+description: >-
+  Chatwoot is an open-source customer support platform (live chat, email, social channels).
+
+  First open creates the setup wizard. FRONTEND_URL follows your Umbrel address on port 3000.
+  Needs Postgres + Redis (bundled). Allow a few minutes on first start for DB prepare.
+developer: chatwoot
+website: https://www.chatwoot.com
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/chatwoot/chatwoot
+support: https://github.com/chatwoot/chatwoot/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

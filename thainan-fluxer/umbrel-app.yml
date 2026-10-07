@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-fluxer
+name: Fluxer
+tagline: Open-source Discord-style chat for communities
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-fluxer/icon.png
+category: Social
+version: "1.0.0"
+port: 3005
+description: >-
+  Fluxer is a free open-source instant messaging and VoIP platform for friends, groups, and communities.
+
+  Heavy multi-service stack (API, gateway, Postgres, Valkey, NATS, Meilisearch, SeaweedFS, LiveKit, Caddy edge).
+  Packaged in reverse-proxy mode on port 3005 for Umbrel. Expect several GB of RAM — stop other heavy apps if needed.
+  First boot can take several minutes while images pull and services become healthy.
+developer: fluxerapp
+website: https://fluxer.app
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/fluxerapp/fluxer
+support: https://github.com/fluxerapp/fluxer/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging (official self-host stack, HTTP edge on :8080 behind Umbrel app_proxy).
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

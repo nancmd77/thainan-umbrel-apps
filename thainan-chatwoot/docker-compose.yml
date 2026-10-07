@@ -1,0 +1,84 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-chatwoot_rails_1
+      APP_PORT: 3000
+      PROXY_AUTH_ADD: "false"
+
+  rails:
+    image: chatwoot/chatwoot:v4.12.1
+    restart: on-failure
+    depends_on:
+      - postgres
+      - redis
+    entrypoint: docker/entrypoints/rails.sh
+    command:
+      - sh
+      - -c
+      - bundle exec rails db:chatwoot_prepare && bundle exec rails s -p 3000 -b 0.0.0.0
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+      SECRET_KEY_BASE: "e9d742e78dcdbf60910b637eddbc0baf450d42a7f3b35264e82127cbebe4134c6058b81ad2417e071ac6b761f99142f52a6d721b0795fd887962d21ec5e5b4cc"
+      FRONTEND_URL: "http://${DEVICE_DOMAIN_NAME}:3000"
+      FORCE_SSL: "false"
+      ENABLE_ACCOUNT_SIGNUP: "true"
+      DEFAULT_LOCALE: pt_BR
+      ACTIVE_STORAGE_SERVICE: local
+      POSTGRES_HOST: thainan-chatwoot_postgres_1
+      POSTGRES_PORT: "5432"
+      POSTGRES_DATABASE: chatwoot
+      POSTGRES_USERNAME: postgres
+      POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
+      REDIS_URL: "redis://:bd3eba2d8a374c8b63af2504b556f6ea@thainan-chatwoot_redis_1:6379"
+      RAILS_LOG_TO_STDOUT: "true"
+    volumes:
+      - ${APP_DATA_DIR}/data/storage:/app/storage
+
+  sidekiq:
+    image: chatwoot/chatwoot:v4.12.1
+    restart: on-failure
+    depends_on:
+      - postgres
+      - redis
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+      SECRET_KEY_BASE: "e9d742e78dcdbf60910b637eddbc0baf450d42a7f3b35264e82127cbebe4134c6058b81ad2417e071ac6b761f99142f52a6d721b0795fd887962d21ec5e5b4cc"
+      FRONTEND_URL: "http://${DEVICE_DOMAIN_NAME}:3000"
+      FORCE_SSL: "false"
+      POSTGRES_HOST: thainan-chatwoot_postgres_1
+      POSTGRES_PORT: "5432"
+      POSTGRES_DATABASE: chatwoot
+      POSTGRES_USERNAME: postgres
+      POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
+      REDIS_URL: "redis://:bd3eba2d8a374c8b63af2504b556f6ea@thainan-chatwoot_redis_1:6379"
+      RAILS_LOG_TO_STDOUT: "true"
+    volumes:
+      - ${APP_DATA_DIR}/data/storage:/app/storage
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: on-failure
+    environment:
+      POSTGRES_DB: chatwoot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
+    volumes:
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chatwoot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:alpine
+    restart: on-failure
+    command: ["redis-server", "--requirepass", "bd3eba2d8a374c8b63af2504b556f6ea"]
+    volumes:
+      - ${APP_DATA_DIR}/data/redis:/data
