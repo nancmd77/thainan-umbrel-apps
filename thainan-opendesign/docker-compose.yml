@@ -7,6 +7,7 @@ services:
       PROXY_AUTH_ADD: "false"
   web:
     image: ghcr.io/nexu-io/od:latest
+    user: "0:0"
     restart: on-failure
     environment:
       NODE_ENV: production
@@ -18,8 +19,3 @@ services:
       OD_ALLOWED_ORIGINS: http://${DEVICE_DOMAIN_NAME}:7456,http://${DEVICE_DOMAIN_NAME},https://${DEVICE_DOMAIN_NAME}:7456
     volumes:
       - ${APP_DATA_DIR}/data:/app/.od
-    read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true

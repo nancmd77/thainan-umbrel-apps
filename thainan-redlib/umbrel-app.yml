@@ -4,10 +4,13 @@ name: Redlib
 tagline: Private front-end for Reddit
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-redlib/icon.png
 category: Social
-version: "1.0.0"
+version: "1.0.1"
 port: 8081
 description: >-
   Redlib is an alternative private front-end for Reddit. No account required.
+
+  Note: if the container crash-loops with OAuth Unauthorized, Reddit is blocking
+  Redlib's client spoof — the HTTP port never opens until upstream recovers.
 developer: redlib-org
 website: https://github.com/redlib-org/redlib
 submitter: Thainan Caldeira
@@ -16,7 +19,7 @@ repo: https://github.com/redlib-org/redlib
 support: https://github.com/redlib-org/redlib/issues
 gallery: []
 releaseNotes: >-
-  Initial packaging for Thainan Umbrel Community App Store.
+  Document Reddit OAuth crash-loop (port never opens until upstream works).
 dependencies: []
 path: ""
 defaultUsername: ""
