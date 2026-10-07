@@ -4,13 +4,15 @@ name: openGym
 tagline: Self-hosted gym and body-weight tracker
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opengym/icon.png
 category: Productivity
-version: "1.0.1"
+version: "1.0.2"
 port: 8088
 description: >-
   openGym is a self-hosted workout tracker with passkeys, weekly plans, and guided workouts.
 
-  First start downloads exercise media (~140 MB). Password login is enabled for LAN HTTP.
-  Passkeys still need HTTPS + matching RP_ID/ORIGIN (set those in compose behind a real domain).
+  First start downloads exercise media (~140 MB). Password login is on for LAN HTTP.
+  ORIGIN/RP_ID follow the Umbrel hostname (DEVICE_DOMAIN_NAME:8088). Open the app
+  with that same host in the address bar, or sign-in/sync get "cross-origin request refused".
+  Passkeys still need HTTPS + matching RP_ID/ORIGIN on a real domain.
 
 developer: DuarteSantos8
 website: https://github.com/DuarteSantos8/openGym
@@ -20,7 +22,7 @@ repo: https://github.com/DuarteSantos8/openGym
 support: https://github.com/DuarteSantos8/openGym/issues
 gallery: []
 releaseNotes: >-
-  Enable PASSWORD_LOGIN so profiles work on plain HTTP LAN (passkeys stay HTTPS-only).
+  Set ORIGIN/RP_ID to DEVICE_DOMAIN_NAME:8088 so LAN HTTP sign-in matches the browser origin.
 dependencies: []
 path: ""
 defaultUsername: ""
