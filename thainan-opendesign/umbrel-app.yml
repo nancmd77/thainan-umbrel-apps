@@ -4,7 +4,7 @@ name: OpenDesign
 tagline: Collaborative design agent workspace (Claude Design alternative)
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opendesign/icon.png
 category: Productivity
-version: "1.0.0"
+version: "1.0.1"
 port: 7456
 description: >-
   OpenDesign is an open-source collaborative design agent workspace: prototypes,
@@ -23,7 +23,7 @@ repo: https://github.com/nexu-io/open-design
 support: https://github.com/nexu-io/open-design/issues
 gallery: []
 releaseNotes: >-
-  Initial packaging for Thainan Umbrel Community App Store (official Docker image).
+  Fix volume write (EACCES on /app/.od) by running as root on Umbrel data dir.
 dependencies: []
 path: ""
 defaultUsername: "open-design"
