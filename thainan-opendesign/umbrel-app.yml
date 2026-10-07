@@ -1,0 +1,30 @@
+manifestVersion: 1
+id: thainan-opendesign
+name: OpenDesign
+tagline: Collaborative design agent workspace (Claude Design alternative)
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opendesign/icon.png
+category: Productivity
+version: "1.0.0"
+port: 7456
+description: >-
+  OpenDesign is an open-source collaborative design agent workspace: prototypes,
+  decks, images, and more via coding agents or BYOK APIs.
+
+  First open shows a browser sign-in dialog. Username: open-design. Password: the
+  OD_API_TOKEN baked in this package (also shown as the app default password).
+  Set ALLOWED_ORIGINS to your Umbrel host:7456 if the UI refuses API calls.
+  Needs outbound pull of ghcr.io/nexu-io/od. Local agent CLIs are not bundled.
+
+developer: nexu-io
+website: https://open-design.ai
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nexu-io/open-design
+support: https://github.com/nexu-io/open-design/issues
+gallery: []
+releaseNotes: >-
+  Initial packaging for Thainan Umbrel Community App Store (official Docker image).
+dependencies: []
+path: ""
+defaultUsername: "open-design"
+defaultPassword: "d4cf4687e71ceb11c67f619a629db0394c3d3448a99603fbfe7e6362c64911ab"

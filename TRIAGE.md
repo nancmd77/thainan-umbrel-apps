@@ -27,6 +27,7 @@
 | Chatwoot | `thainan-chatwoot` | 3000 | SECRET_KEY_BASE + Postgres/Redis passwords baked; first boot runs db:chatwoot_prepare |
 | Fluxer | `thainan-fluxer` | 3005 | Heavy official stack (proxy mode :8080); baked .env secrets; exports.sh sets DOMAIN from DEVICE_DOMAIN_NAME; needs several GB RAM |
 | Chatto | `thainan-chatto` | 4000 | Single image + embedded NATS; LiveKit/SMTP off; `chatto init` on first start |
+| OpenDesign | `thainan-opendesign` | 7456 | OD_API_TOKEN baked; login user `open-design` + token; image `ghcr.io/nexu-io/od` |
 
 ## SKIP
 

@@ -1,0 +1,25 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-opendesign_web_1
+      APP_PORT: 7456
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: ghcr.io/nexu-io/od:latest
+    restart: on-failure
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=192
+      OD_BIND_HOST: 0.0.0.0
+      OD_PORT: "7456"
+      OD_WEB_PORT: "7456"
+      OD_API_TOKEN: "d4cf4687e71ceb11c67f619a629db0394c3d3448a99603fbfe7e6362c64911ab"
+      OD_ALLOWED_ORIGINS: http://${DEVICE_DOMAIN_NAME}:7456,http://${DEVICE_DOMAIN_NAME},https://${DEVICE_DOMAIN_NAME}:7456
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/.od
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
