@@ -2,7 +2,7 @@ manifestVersion: 1
 id: thainan-yuvomi
 name: Yuvomi
 tagline: Self-hosted family planner
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-yuvomi/icon.png
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/2d42911019643ccaccd2cf4e6f4934317dd9a715/thainan-yuvomi/icon.png
 category: Productivity
 version: "1.0.0"
 port: 3100
