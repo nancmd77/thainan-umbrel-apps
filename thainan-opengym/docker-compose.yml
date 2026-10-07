@@ -26,8 +26,8 @@ services:
       DATA_DIR: /data
       TRUST_PROXY: "1"
       RP_NAME: openGym
-      RP_ID: localhost
-      ORIGIN: http://localhost
+      RP_ID: ${DEVICE_DOMAIN_NAME}
+      ORIGIN: http://${DEVICE_DOMAIN_NAME}:8088
       PASSWORD_LOGIN: "1"
     volumes:
       - ${APP_DATA_DIR}/data/userdata:/data
