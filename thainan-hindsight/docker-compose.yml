@@ -9,6 +9,8 @@ services:
     image: ghcr.io/vectorize-io/hindsight:latest
     restart: on-failure
     shm_size: 1gb
+    ports:
+      - "8888:8888"
     environment:
       HINDSIGHT_API_WORKER_ID: hindsight-umbrel
       # Set your LLM key (OpenAI or compatible). Example:
