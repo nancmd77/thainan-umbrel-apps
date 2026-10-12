@@ -4,7 +4,7 @@ name: FreeLLMAPI
 tagline: OpenAI-compatible proxy over free LLM tiers
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-freellmapi/icon.png
 category: AI
-version: "0.13.3"
+version: "0.13.10"
 port: 3001
 description: >-
   FreeLLMAPI is a self-hosted OpenAI-compatible proxy that stacks free tiers of many LLM providers behind one /v1 endpoint, with smart routing, failover, and encrypted keys.
@@ -22,7 +22,7 @@ repo: https://github.com/tashfeenahmed/freellmapi
 support: https://github.com/tashfeenahmed/freellmapi/issues
 gallery: []
 releaseNotes: >-
-  Initial packaging for Thainan Umbrel Community App Store.
+  Atualizado para FreeLLMAPI v0.13.10 (imagem fixada na versão).
 dependencies: []
 path: ""
 defaultUsername: ""
