@@ -6,7 +6,7 @@ services:
       APP_PORT: 20128
       PROXY_AUTH_ADD: "false"
   web:
-    image: decolua/9router:latest
+    image: ghcr.io/nancmd77/9router:0.5.99
     restart: on-failure
     environment:
       DATA_DIR: /app/data
