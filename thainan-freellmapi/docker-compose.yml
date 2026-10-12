@@ -6,7 +6,7 @@ services:
       APP_PORT: 3001
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/tashfeenahmed/freellmapi:latest
+    image: ghcr.io/tashfeenahmed/freellmapi:v0.13.10
     restart: on-failure
     environment:
       NODE_ENV: production
