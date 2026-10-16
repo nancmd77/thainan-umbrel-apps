@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Reels e TikToks do Karakeep viram resumo, tags e fonte pesquisável
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.0.0"
+version: "1.0.1"
 port: 8519
 description: >-
   Compartilhou um Reels ou TikTok no Karakeep? O worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook.
@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Primeira versão.
+  Tema e tags mais consistentes: antes de resumir, o worker lê os cadernos do Open Notebook e as tags do Karakeep e pede ao Gemini que reaproveite um deles quando couber. Tema novo só se nenhum servir (nome curto em PT-BR). Comparação de nomes ignora maiúsculas e acentos ("saude" cai em "Saúde").
 dependencies: []
 path: ""
 defaultUsername: ""
