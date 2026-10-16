@@ -15,6 +15,8 @@ services:
       REF: video-kb-v1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
+      CRV_NO_MEMORY: "1"
+      CRV_NO_HINT: "1"
     volumes:
       - ${APP_DATA_DIR}/app:/app:ro
       - ${APP_DATA_DIR}/data:/data
@@ -28,6 +30,8 @@ services:
           D=/data/app; mkdir -p $$D
           python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-video-kb/app/main.py', '$$D/main.py')"
         fi
-        # yt-dlp (fallback do Cobalt, YouTube) + gallery-dl (coletores IG/TikTok), versões fixas, instalados uma vez no volume
-        [ -f /data/pylib/.v1.2 ] || { pip install -q --upgrade --target /data/pylib yt-dlp==2026.8.19 gallery-dl==1.32.16 && touch /data/pylib/.v1.2; } || echo "yt-dlp/gallery-dl indisponíveis: só Cobalt, sem coletores IG/TikTok/YouTube"
+        # ffmpeg/ffprobe (visão via crv); só instala se faltar no container
+        command -v ffprobe >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null; } || echo "sem ffmpeg: worker segue sem visão"
+        # yt-dlp (fallback do Cobalt, YouTube) + gallery-dl (coletores) + claude-real-video (visão, revisado pelo Hark 16 out, hash fixo, sem deps), versões fixas, uma vez no volume
+        [ -f /data/pylib/.v1.3 ] || { pip install -q --upgrade --target /data/pylib yt-dlp==2026.8.19 gallery-dl==1.32.16 Pillow==11.3.0 && echo "claude-real-video==0.10.7 --hash=sha256:44654741dd041c93e357331114e7f83e09af994c69016c0f1d632ed2bb0418c4" > /tmp/crv-req.txt && pip install -q --no-deps --require-hashes --target /data/pylib -r /tmp/crv-req.txt && touch /data/pylib/.v1.3; } || echo "pip falhou: só Cobalt, sem coletores nem visão"
         PYTHONPATH=/data/pylib exec python -u $$D/main.py
