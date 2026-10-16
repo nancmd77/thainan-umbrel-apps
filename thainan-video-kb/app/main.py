@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 import uuid
@@ -260,6 +261,41 @@ PROMPT = (
 )
 
 
+def fold(s):
+    """Chave de comparação: sem acento, minúscula, espaços únicos."""
+    s = unicodedata.normalize("NFKD", re.sub(r"\s+", " ", str(s)).strip())
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).lower()
+
+
+def pick_tema(tema, existentes):
+    """Casa com caderno existente (sem diferenciar maiúscula/acento); senão normaliza (trim + 1ª maiúscula)."""
+    t = re.sub(r"\s+", " ", str(tema or "")).strip()[:60] or "Geral"
+    return next((n for n in existentes if fold(n) == fold(t)), t[:1].upper() + t[1:])
+
+
+def nomes(fn):
+    """Lista de nomes existentes; falhou = segue sem lista."""
+    try:
+        return [n for n in fn() if n]
+    except Exception as e:
+        log("sem lista existente:", scrub(e))
+        return []
+
+
+def nb_headers(c):
+    return {"Authorization": "Bearer " + c["notebook_pass"]} if c.get("notebook_pass") else {}
+
+
+def notebooks(c):
+    return req("GET", c["notebook_url"].rstrip("/") + "/api/notebooks", nb_headers(c), timeout=20)
+
+
+def kk_tags(c):
+    r = req("GET", c["karakeep_url"].rstrip("/") + "/api/v1/tags",
+            {"Authorization": "Bearer " + c["karakeep_key"]}, timeout=20)
+    return [t["name"] for t in r.get("tags", [])][:200]  # ponytail: 200 mais usadas; paginar se o prompt ficar curto
+
+
 def parse_analysis(raw, transcript):
     raw = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip()
     a = json.loads(raw)
@@ -276,15 +312,26 @@ def parse_analysis(raw, transcript):
 
 def step_resumo(j, c):
     need(c, "llm_url", "llm_key")
+    temas = nomes(lambda: [n["name"] for n in notebooks(c)]) if c.get("notebook_url") else []
+    tags = nomes(lambda: kk_tags(c)) if c.get("karakeep_url") and c.get("karakeep_key") else []
+    ctx = ("\n\nCadernos (temas) que já existem: " + json.dumps(temas, ensure_ascii=False)
+           + ". O tema DEVE ser um desses, escrito igual, quando couber. Só crie tema novo se nenhum servir: nome curto em português do Brasil."
+           if temas else "")
+    ctx += ("\nTags que já existem: " + json.dumps(tags, ensure_ascii=False)
+            + ". Reaproveite essas quando couberem; crie tag nova só se nenhuma servir." if tags else "")
     r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions",
             {"Authorization": "Bearer " + c["llm_key"]},
             {"model": c["model"], "response_format": {"type": "json_object"},
-             "messages": [{"role": "system", "content": PROMPT},
+             "messages": [{"role": "system", "content": PROMPT + ctx},
                           {"role": "user", "content": j["data"]["transcript"][:30000]}]}, timeout=180)
     try:
-        j["data"]["analysis"] = parse_analysis(r["choices"][0]["message"]["content"], j["data"]["transcript"])
+        a = parse_analysis(r["choices"][0]["message"]["content"], j["data"]["transcript"])
     except (KeyError, IndexError, ValueError, TypeError) as e:
         raise RuntimeError(f"Resposta do modelo inválida ({type(e).__name__})")
+    a["tema"] = pick_tema(a["tema"], temas)
+    by = {fold(t): t for t in tags}
+    a["tags"] = list(dict.fromkeys(by.get(fold(t), t) for t in a["tags"]))  # grafia da tag existente
+    j["data"]["analysis"] = a
 
 
 def step_karakeep(j, c):
@@ -299,7 +346,7 @@ def step_karakeep(j, c):
     if a["tags"]:
         req("POST", f"{base}/bookmarks/{bid}/tags", h, {"tags": [{"tagName": t, "attachedBy": "human"} for t in a["tags"]]})
     lists = req("GET", base + "/lists", h).get("lists", [])
-    lid = next((x["id"] for x in lists if x["name"].lower() == a["tema"].lower()), None)
+    lid = next((x["id"] for x in lists if fold(x["name"]) == fold(a["tema"])), None)
     if not lid:
         lid = req("POST", base + "/lists", h, {"name": a["tema"], "icon": "📚"})["id"]
     req("PUT", f"{base}/lists/{lid}/bookmarks/{bid}", h)
@@ -309,10 +356,9 @@ def step_karakeep(j, c):
 def step_notebook(j, c):
     need(c, "notebook_url")
     base = c["notebook_url"].rstrip("/") + "/api"
-    h = {"Authorization": "Bearer " + c["notebook_pass"]} if c.get("notebook_pass") else {}
+    h = nb_headers(c)
     a = j["data"]["analysis"]
-    nbs = req("GET", base + "/notebooks", h)
-    nid = next((n["id"] for n in nbs if n["name"].lower() == a["tema"].lower()), None)
+    nid = next((n["id"] for n in notebooks(c) if fold(n["name"]) == fold(a["tema"])), None)
     if not nid:
         nid = req("POST", base + "/notebooks", h, {"name": a["tema"], "description": "Criado pelo Video KB"})["id"]
     content = (f"# {a['titulo']}\n\nLink: {j['orig']}\n\n## Resumo\n{a['resumo']}\n\n## Pontos-chave\n"
