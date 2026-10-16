@@ -17,7 +17,8 @@ import unicodedata
 import urllib.error
 import urllib.request
 import uuid
-from contextlib import closing
+import xml.etree.ElementTree as ET
+from contextlib import closing, contextmanager
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, parse_qs, urlencode, urlsplit
@@ -25,6 +26,8 @@ from urllib.parse import parse_qsl, parse_qs, urlencode, urlsplit
 DATA = os.environ.get("DATA_DIR", "/data")
 PORT = int(os.environ.get("PORT", "8080"))
 POLL_SECS = 300
+COL_SECS, FIRST_RUN = 1800, 20  # coletores: a cada 30 min; 1ª coleta de cada fonte só pega os 20 mais recentes
+COOKIE_ERR = re.compile(r"login|log in|sign in|cookie|authentica|401|403|private|checkpoint", re.I)
 SCRIBE_MODEL = "scribe_v2"  # doc POST /v1/speech-to-text (confirmado 2026-10)
 SITES = ("instagram.com", "tiktok.com")  # sempre vídeo; outros links: sonda do yt-dlp decide
 MIN_TEXT = 200  # menos que isso não dá resumo honesto
@@ -43,9 +46,22 @@ FIELDS = [
     ("notebook_url", "URL do Open Notebook (API)", "text", "Porta 5055.", "http://thainan-opennotebook_web_1:5055"),
     ("notebook_pass", "Senha do Open Notebook", "secret", "Deixe vazio se não houver senha.", ""),
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
-    ("ig_cookies", "Cookies do Instagram (opcional)", "area", "Formato Netscape (cookies.txt). Só usado pelo yt-dlp.", ""),
+    ("max_min", "Duração máxima de vídeo (min)", "text", "Vídeo mais longo não é transcrito (custo do Scribe). Vale pra links fora de IG/TikTok.", "60"),
+    ("h_col", "Coletores automáticos (a cada 30 min)", "h", "Cada item novo vira bookmark no Karakeep e entra na fila. 1ª coleta: só os 20 mais recentes de cada fonte.", ""),
+    ("col_youtube", "YouTube: playlists", "bool", "", ""),
+    ("yt_playlists", "Playlists do YouTube", "lines", "Uma por linha: URL da playlist, :ytwatchlater (Assistir mais tarde) ou LL (Curtidos).", ":ytwatchlater\nLL"),
+    ("yt_cookies", "Cookies do YouTube", "area", "cookies.txt (Netscape). Obrigatório pra Assistir mais tarde e Curtidos.", ""),
+    ("col_instagram", "Instagram: salvos", "bool", "", ""),
+    ("ig_user", "Usuário do Instagram", "text", "Sem @.", ""),
+    ("ig_cookies", "Cookies do Instagram", "area", "cookies.txt (Netscape). Usado pelo coletor e pelo download dos Reels.", ""),
+    ("col_reddit", "Reddit: salvos", "bool", "", ""),
+    ("reddit_feed", "Feed RSS dos salvos do Reddit", "secret", "reddit.com/prefs/feeds > linha \"saved\" > RSS. Não precisa de cookie.", ""),
+    ("col_tiktok", "TikTok: favoritos (experimental)", "bool", "", ""),
+    ("tt_user", "Usuário do TikTok", "text", "Sem @.", ""),
+    ("tt_cookies", "Cookies do TikTok", "area", "cookies.txt (Netscape). Usado pelo coletor e pelo download.", ""),
 ]
 SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
+COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
 KEY = {"tipo": "kind", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb"}
@@ -116,6 +132,7 @@ def init():
         stage TEXT DEFAULT 'novo', status TEXT DEFAULT 'fila', error TEXT DEFAULT '',
         data TEXT DEFAULT '{}', created REAL, updated REAL)""")
     q("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT)")
+    q("CREATE TABLE IF NOT EXISTS seen(fonte TEXT, url TEXT, PRIMARY KEY(fonte, url))")  # coletores: já visto
     cols = {r["name"] for r in q("PRAGMA table_info(jobs)")}
     for col, ddl in (("kind", "TEXT DEFAULT ''"), ("after", "REAL DEFAULT 0")):  # v1.1: migra banco da 1.0
         if col not in cols:
@@ -217,20 +234,31 @@ def cobalt_audio(c, url, out):
     return path
 
 
+@contextmanager
+def cookie_file(text):
+    """cookies.txt temporário (600), apagado logo depois. Sem texto: None."""
+    if not text:
+        yield None
+        return
+    path = os.path.join(DATA, "tmp", "ck-" + uuid.uuid4().hex)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    try:
+        yield path
+    finally:
+        os.remove(path)
+
+
+def site_cookies(c, url):
+    h = (urlsplit(url).hostname or "").lower()
+    return next((c.get(k) for d, k in COOKIES.items() if h == d or h.endswith("." + d)), None)
+
+
 def ytdlp_audio(c, url, out):
     cmd = [sys.executable, "-m", "yt_dlp", "-f", "bestaudio/best", "--no-playlist", "-o", out + ".%(ext)s", url]
-    ck = None
-    if c.get("ig_cookies"):
-        ck = out + ".cookies"
-        fd = os.open(ck, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(c["ig_cookies"])
-        cmd += ["--cookies", ck]
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    finally:
-        if ck and os.path.exists(ck):
-            os.remove(ck)
+    with cookie_file(site_cookies(c, url)) as ck:
+        p = subprocess.run(cmd + (["--cookies", ck] if ck else []), capture_output=True, text=True, timeout=300)
     files = [f for f in glob.glob(out + ".*") if not f.endswith(".part")]
     if p.returncode or not files:
         raise RuntimeError("yt-dlp: " + scrub((p.stderr.strip().splitlines() or ["falhou"])[-1])[:200])
@@ -259,13 +287,13 @@ def bookmark(c, bid):
 
 
 def has_media(url):
-    """yt-dlp acha vídeo/áudio nesse link? (Reddit, YouTube, X...). Sem yt-dlp = não."""
+    """Duração (s) do vídeo/áudio que o yt-dlp acha nesse link (Reddit, YouTube, X...). 0 = não é vídeo / sem yt-dlp."""
     try:
         p = subprocess.run([sys.executable, "-m", "yt_dlp", "-j", "--no-playlist", "--no-warnings", url],
                            capture_output=True, text=True, timeout=60)
-        return p.returncode == 0 and bool(json.loads(p.stdout.splitlines()[0]).get("duration"))
+        return (p.returncode == 0 and json.loads(p.stdout.splitlines()[0]).get("duration")) or 0
     except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
-        return False
+        return 0
 
 
 def step_tipo(j, c):
@@ -277,7 +305,11 @@ def step_tipo(j, c):
     if t == "link":
         if not j["orig"]:
             j["orig"] = ct.get("url") or ""
-        j["data"]["kind"] = "video" if has_media(ct.get("url") or j["orig"]) else "pagina"
+        dur, lim = has_media(ct.get("url") or j["orig"]), int(c.get("max_min") or 60)
+        if dur > lim * 60:
+            raise RuntimeError(f"Vídeo longo ({dur // 60:.0f} min, limite {lim} min): não transcrevi pra não gastar Scribe. "
+                               "Aumente o limite em Configurações e reprocesse.")
+        j["data"]["kind"] = "video" if dur else "pagina"
     elif t == "asset" and ct.get("assetType") == "pdf":
         j["data"]["kind"] = "pdf"
     elif t == "text":
@@ -601,6 +633,102 @@ def poller():
         time.sleep(POLL_SECS)
 
 
+# ---------- coletores (v1.2) ----------
+def tool(args, cookies=None, timeout=900):
+    """yt-dlp / gallery-dl via python -m. Devolve stdout; falha = RuntimeError com a última linha (sem segredo)."""
+    with cookie_file(cookies) as ck:
+        p = subprocess.run([sys.executable, "-m", *args, *(["--cookies", ck] if ck else [])],
+                           capture_output=True, text=True, timeout=timeout)
+    if p.returncode:
+        raise RuntimeError(scrub((p.stderr.strip().splitlines() or [f"saiu com {p.returncode}"])[-1])[:300])
+    return p.stdout
+
+
+def gdl_items(c, url, cookies, n=30):
+    """gallery-dl -j: lista de kwdicts. Erro vem como mensagem -1 com exit 0, então checa."""
+    msgs = json.loads(tool(["gallery_dl", "-j", "--range", f"1-{n}", "--sleep-request", "6-12", url], cookies) or "[]")
+    for m in msgs:
+        if m and m[0] == -1:
+            raise RuntimeError(scrub(f"{m[-1].get('error')}: {m[-1].get('message')}")[:300])
+    return [m[-1] for m in msgs if isinstance(m, list) and m and isinstance(m[-1], dict)]
+
+
+def col_youtube(c):
+    out = []
+    for line in (c.get("yt_playlists") or "").splitlines():
+        if u := {"LL": "https://www.youtube.com/playlist?list=LL", "WL": ":ytwatchlater"}.get(line.strip(), line.strip()):
+            urls = tool(["yt_dlp", "--flat-playlist", "--print", "url", "--playlist-end", "200", "--no-warnings", u], c.get("yt_cookies")).split()
+            out.append((u, urls))  # ponytail: "mais recentes" = ordem da playlist (Curtidos: novo primeiro; Assistir mais tarde: depende da config do YouTube)
+    return out
+
+
+def col_instagram(c):
+    need(c, "ig_user", "ig_cookies")
+    kws = gdl_items(c, f"https://www.instagram.com/{c['ig_user'].strip().lstrip('@')}/saved/", c["ig_cookies"])
+    return [("saved", [f"https://www.instagram.com/p/{k['post_shortcode']}/" for k in kws if k.get("post_shortcode")])]
+
+
+def col_reddit(c):
+    need(c, "reddit_feed")
+    xml = req("GET", c["reddit_feed"], {"User-Agent": "video-kb/1.2 (Umbrel)"}, raw=True)
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    return [("saved", [e.get("href") for e in ET.fromstring(xml).findall("a:entry/a:link", ns) if e.get("href")])]
+
+
+def col_tiktok(c):
+    need(c, "tt_user", "tt_cookies")
+    kws = gdl_items(c, f"https://www.tiktok.com/@{c['tt_user'].strip().lstrip('@')}/saved", c["tt_cookies"], n=20)
+    return [("saved", [f"https://www.tiktok.com/@{(k.get('author') or {}).get('uniqueId') or 'x'}/video/{k['id']}"
+                       for k in kws if k.get("id")])]
+
+
+COLLECTORS = {"youtube": ("YouTube: playlists", col_youtube), "instagram": ("Instagram: salvos", col_instagram),
+              "reddit": ("Reddit: salvos", col_reddit), "tiktok": ("TikTok: favoritos (experimental)", col_tiktok)}
+
+
+def ingest(c, fonte, urls):
+    """Itens novos -> bookmark no Karakeep + fila. Dedupe por URL normalizada + tabela seen."""
+    seen = {r["url"] for r in q("SELECT url FROM seen WHERE fonte=?", (fonte,))}
+    first, novos = not seen, 0
+    for i, u in enumerate(dict.fromkeys(urls)):
+        n = norm(u)
+        if n in seen:
+            continue
+        if not (first and i >= FIRST_RUN) and not q("SELECT 1 FROM jobs WHERE url=?", (n,)):  # 1ª vez: resto só vira "visto"
+            base, h = kk(c)
+            novos += add_job(u, req("POST", base + "/bookmarks", h, {"type": "link", "url": u})["id"])
+        q("INSERT OR IGNORE INTO seen VALUES(?,?)", (fonte, n))
+        seen.add(n)
+    return novos
+
+
+def collect_once():
+    c = cfg()
+    for name, (label, fn) in COLLECTORS.items():
+        if c.get("col_" + name) != "1":
+            continue
+        st = {"quando": time.time(), "novos": 0, "erro": ""}
+        try:
+            need(c, "karakeep_url", "karakeep_key")
+            for fonte, urls in fn(c):
+                st["novos"] += ingest(c, f"{name}:{fonte}", urls)
+        except Exception as e:
+            msg = scrub(e)[:300]
+            st["erro"] = ("Cookies expiraram ou não valem mais: exporte de novo e cole em Configurações. " if COOKIE_ERR.search(msg) and not msg.startswith("Configure em") else "") + msg
+            log(f"coletor {name}: {st['erro']}")
+        q("INSERT OR REPLACE INTO kv VALUES(?,?)", ("col:" + name, json.dumps(st)))
+
+
+def collector():
+    time.sleep(60)  # deixa o servidor subir
+    while True:
+        try:
+            collect_once()
+        except Exception as e:
+            log("coletores falharam:", scrub(e))
+        time.sleep(COL_SECS)
+
+
 # ---------- UI ----------
 e = html.escape
 CSS = """
@@ -626,6 +754,8 @@ button.sec{background:transparent;color:var(--fg);border-color:var(--line)}
 .st{font-weight:700}.st.erro{color:var(--err)}.st.pronto{color:var(--ok)}.st.rodando,.st.fila{color:var(--warn)}
 .err{color:var(--err);font-size:.875rem;margin:8px 0 0;overflow-wrap:anywhere}
 .empty{color:var(--mut);padding:24px 0}
+h2.sec{font-size:1.1rem;margin:32px 0 8px}.cols{padding-left:20px}.cols li{margin:0 0 8px}
+.chk{display:flex;gap:8px;align-items:center;font-weight:600;margin:16px 0 4px}.chk input{width:24px;min-height:24px;height:24px}
 .flash{padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);margin-bottom:16px}
 @media(max-width:480px){.add{flex-direction:column}}
 """
@@ -655,11 +785,23 @@ def queue_page(flash=""):
             f'<article class="job"><h2>{e(title)}</h2><a href="{e(r["orig"])}" rel="noreferrer">{e(r["orig"])}</a>'
             f'<div class="meta"><span class="st {r["status"]}">{STATUS_PT.get(r["status"], r["status"])}</span>'
             f'<span>{KIND_PT.get(r["kind"], "Tipo ?")}</span><span>{STAGE_PT.get(r["stage"], r["stage"])}</span><span>{fmt_time(r["created"])}</span>{retry_btn}</div>{err}</article>')
-    body = ('<h1>Fila</h1><form class="add" method="post" action="/add"><label for="u" hidden>Link</label>'
+    c = cfg()
+    cols = []
+    for name, (label, _) in COLLECTORS.items():
+        if c.get("col_" + name) != "1":
+            continue
+        st = json.loads((q("SELECT v FROM kv WHERE k=?", ("col:" + name,)) or [{"v": "{}"}])[0]["v"])
+        quando = f"última coleta {fmt_time(st['quando'])}, {st['novos']} novo(s)" if st.get("quando") else "ainda não coletou"
+        err = f'<p class="err">{e(st["erro"])}</p>' if st.get("erro") else ""
+        cols.append(f'<li><strong>{e(label)}</strong>: {quando}{err}</li>')
+    aviso = any("Cookies expiraram" in json.loads(r["v"]).get("erro", "") for r in q("SELECT v FROM kv WHERE k LIKE 'col:%'"))
+    body = (('<p class="flash err" role="alert">Cookies vencidos em algum coletor. Veja abaixo e renove em Configurações.</p>' if aviso else "")
+            + '<h1>Fila</h1><form class="add" method="post" action="/add"><label for="u" hidden>Link</label>'
             '<input id="u" name="url" type="url" required placeholder="Cole um link (Reels, TikTok, Reddit, página, PDF)" autocomplete="off">'
             '<button type="submit">Adicionar</button></form>'
             + ("".join(rows) or '<p class="empty">Nenhum item ainda. Cole um link acima ou salve no Karakeep.</p>')
-            + '<p><a href="/">Atualizar</a></p>')
+            + '<p><a href="/">Atualizar</a></p>'
+            + (f'<h2 class="sec">Coletores</h2><ul class="cols">{"".join(cols)}</ul>' if cols else ""))
     return page("/", body, flash)
 
 
@@ -670,6 +812,15 @@ def config_page(flash=""):
         v = c.get(k, "")
         h = f'<p class="hint" id="h-{k}">{e(hint)}</p>' if hint else ""
         desc = f' aria-describedby="h-{k}"' if hint else ""
+        if t == "h":
+            out.append(f'<h2 class="sec">{e(label)}</h2>{h}')
+            continue
+        if t == "bool":
+            out.append(f'<label class="chk"><input type="checkbox" name="{k}" value="1"{" checked" if v == "1" else ""}> {e(label)}</label>')
+            continue
+        if t == "lines":
+            out.append(f'<label for="{k}">{e(label)}</label>{h}<textarea id="{k}" name="{k}" rows="3"{desc}>{e(v)}</textarea>')
+            continue
         if t == "text":
             ctl = f'<input id="{k}" name="{k}" value="{e(v)}"{desc}>'
         else:
@@ -686,7 +837,11 @@ def save_form(form):
     upd = {}
     for k, _, t, _, _ in FIELDS:
         v = (form.get(k) or [""])[0].strip()
-        if t == "text":
+        if t == "h":
+            continue
+        if t == "bool":
+            upd[k] = "1" if v == "1" else ""
+        elif t in ("text", "lines"):
             upd[k] = v or DEFAULTS[k]
         elif v == "-":
             upd[k] = ""
@@ -757,6 +912,7 @@ def main():
     init()
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=poller, daemon=True).start()
+    threading.Thread(target=collector, daemon=True).start()
     log(f"Video KB na porta {PORT}")
     ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
 
