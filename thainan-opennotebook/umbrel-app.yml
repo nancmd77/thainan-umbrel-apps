@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-opennotebook
+name: Open Notebook
+tagline: Alternativa self-hosted ao NotebookLM, com busca e chat sobre suas fontes
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opennotebook/icon.png
+category: AI
+version: "1.15.0"
+port: 8502
+description: >-
+  Open Notebook organiza fontes (textos, links, PDFs, transcrições) em cadernos, com busca semântica, chat com citações e notas.
+
+  Nesta instalação ele guarda a base de conhecimento dos Reels/TikToks: o Video KB Worker cria uma fonte por vídeo (transcrição limpa, resumo e link) no caderno do tema.
+
+  Configure o provedor de IA em Settings > API Keys (OpenAI-compatible apontando para o 9Router do Nonve). A API REST fica na porta 5055 da rede local.
+developer: lfnovo
+website: https://www.open-notebook.ai
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/lfnovo/open-notebook
+support: https://github.com/lfnovo/open-notebook/issues
+gallery: []
+releaseNotes: >-
+  Open Notebook 1.15.0 (imagem fixada na versão), SurrealDB 2.6.5.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
