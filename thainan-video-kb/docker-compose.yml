@@ -28,6 +28,6 @@ services:
           D=/data/app; mkdir -p $$D
           python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-video-kb/app/main.py', '$$D/main.py')"
         fi
-        # yt-dlp (fallback do Cobalt), versão fixa, instalado uma vez no volume
-        [ -d /data/pylib/yt_dlp ] || pip install -q --target /data/pylib yt-dlp==2026.8.19 || echo "yt-dlp indisponível, só Cobalt"
+        # yt-dlp (fallback do Cobalt, YouTube) + gallery-dl (coletores IG/TikTok), versões fixas, instalados uma vez no volume
+        [ -f /data/pylib/.v1.2 ] || { pip install -q --upgrade --target /data/pylib yt-dlp==2026.8.19 gallery-dl==1.32.16 && touch /data/pylib/.v1.2; } || echo "yt-dlp/gallery-dl indisponíveis: só Cobalt, sem coletores IG/TikTok/YouTube"
         PYTHONPATH=/data/pylib exec python -u $$D/main.py
