@@ -27,6 +27,26 @@ Código: o compose monta `${APP_DATA_DIR}/app:/app:ro`. Se `/app/main.py` não e
 - Karakeep: `summary` = resumo; `note` é **substituída** pelos pontos-chave. Link colado à mão cria o bookmark.
 - Open Notebook: `POST /api/sources/json` `{type:text, notebooks:[id], embed:true, async_processing:true}`; embeddings dependem do provedor configurado lá.
 
+## Coletores (v1.2)
+A cada 30 min (o 1º roda 1 min depois de subir), cada coletor ligado em Configurações busca itens novos. Cada item vira bookmark no Karakeep (`POST /api/v1/bookmarks`) e entra na fila. Dedupe por URL normalizada + tabela `seen`. Na 1ª coleta de cada fonte, só os 20 primeiros entram; o resto fica como visto (o histórico não é importado).
+
+| Coletor | Como | Precisa |
+|---|---|---|
+| YouTube | `yt-dlp --flat-playlist --print url --playlist-end 200` por linha (`:ytwatchlater`, `LL` ou URL) | cookies do YouTube (Assistir mais tarde/Curtidos) |
+| Instagram salvos | `gallery-dl -j --range 1-30 --sleep-request 6-12` em `instagram.com/<user>/saved/` | usuário + cookies do Instagram |
+| Reddit salvos | feed RSS privado (Atom), sem cookie | URL do feed |
+| TikTok favoritos (experimental) | `gallery-dl -j --range 1-20` em `tiktok.com/@<user>/saved` | usuário + cookies do TikTok |
+
+**Exportar cookies:**
+1. Instale a extensão **Get cookies.txt LOCALLY** (Chrome/Firefox).
+2. Entre no site (youtube.com, instagram.com, tiktok.com) logado.
+3. Clique na extensão, depois em **Export**, e copie o texto (formato Netscape).
+4. Cole no campo do site em Configurações. Um campo por site; vazio mantém, `-` apaga.
+
+Cookie vencido: a Fila mostra um aviso e o erro do coletor diz "Cookies expiraram". Para renovar, repita os passos.
+
+**Feed do Reddit:** abra `https://www.reddit.com/prefs/feeds` logado, na linha **saved links** clique em **RSS** e copie a URL (tem `feed=<token>`). Cole em "Feed RSS dos salvos do Reddit". O campo fica mascarado.
+
 ## Testes
 ```
 cd app && python3 -m unittest -v
