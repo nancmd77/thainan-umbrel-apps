@@ -5,6 +5,7 @@ import tempfile
 import time
 from contextlib import closing
 import unittest
+from unittest import mock
 
 import main
 
@@ -18,7 +19,7 @@ class Fake:
     def __init__(self, fail_llm=0):
         self.calls, self.fail_llm = [], fail_llm
         self.nbs, self.tags, self.analise = [], [], ANALISE  # nbs=None: GET /api/notebooks falha
-        self.bm, self.note = [{}], None  # conteúdo do bookmark por GET (lista = respostas em sequência)
+        self.bm, self.note, self.no_img = [{}], None, False  # conteúdo do bookmark por GET (lista = respostas em sequência)
 
     def __call__(self, method, url, headers=None, body=None, timeout=60, raw=False):
         self.calls.append((method, url, body))
@@ -29,12 +30,16 @@ class Fake:
             return b"audio-bytes"
         if "elevenlabs" in url:
             assert b"scribe_v2" in body and headers["xi-api-key"] == "EL-KEY-1234"
-            return {"text": "ola mundo"}
+            return {"text": "ola mundo", "words": [{"type": "word", "text": "Olá", "start": 0.1, "end": 0.4},
+                                                   {"type": "spacing", "text": " "}, {"type": "word", "text": "mundo.", "start": 0.5, "end": 0.9},
+                                                   {"type": "spacing", "text": " "}, {"type": "word", "text": "Tchau", "start": 65, "end": 66}]}
         if "router/v1/chat/completions" in url:
             if self.fail_llm:
                 self.fail_llm -= 1
                 raise RuntimeError("HTTP 500")
-            self.prompt = body["messages"][0]["content"]
+            self.prompt, self.user = body["messages"][0]["content"], body["messages"][1]["content"]
+            if self.no_img and isinstance(self.user, list):
+                raise RuntimeError("POST router/v1/chat/completions -> HTTP 400: image input not supported")
             return {"choices": [{"message": {"content": "```json\n" + json.dumps(self.analise) + "\n```"}}]}
         if url.endswith("/api/v1/tags"):
             return {"tags": [{"id": "t" + t, "name": t} for t in self.tags]}
@@ -356,6 +361,91 @@ class T(unittest.TestCase):
         self.assertEqual(main.site_cookies(main.cfg(), "https://vm.tiktok.com/x"), "TT")
         self.assertEqual(main.site_cookies(main.cfg(), "https://youtu.be/x"), "YT")
         self.assertIsNone(main.site_cookies(main.cfg(), "https://blog.com/x"))
+
+    # ---------- v1.3: visão (crv) ----------
+    def fake_crv(self, media, out, n):
+        self.assertTrue(os.path.exists(media))  # usa o vídeo já baixado
+        self.crv_n = n
+        os.makedirs(os.path.join(out, "grids"))
+        with open(os.path.join(out, "grids", "grid_01.jpg"), "wb") as f:
+            f.write(b"\xff\xd8jpeg")
+        with open(os.path.join(out, "frames.json"), "w") as f:
+            json.dump({"frames": [{"file": "frame_001.jpg", "timestamp_sec": 0.0}, {"file": "frame_002.jpg", "timestamp_sec": 61.5}]}, f)
+
+    def com_visao(self, crv=None):
+        p1 = mock.patch.object(main, "run_crv", crv or self.fake_crv)
+        p2 = mock.patch.object(main.shutil, "which", lambda x: "/usr/bin/" + x)
+        p1.start(), p2.start()
+        self.addCleanup(p1.stop), self.addCleanup(p2.stop)
+
+    def test_visao_manda_folhas_e_grava(self):
+        self.com_visao()
+        self.fake.analise = {**ANALISE, "o_que_aparece": ["00:00: tela com texto \"FOCO\"", "01:01: pessoa aponta pro relógio"]}
+        main.cfg_save({"max_frames": "40"})
+        main.add_job("https://www.tiktok.com/@x/video/v1")
+        main.run(1)
+        j = main.job(1)
+        self.assertEqual(j["status"], "pronto", j["error"])
+        self.assertEqual(self.crv_n, 40)
+        self.assertIsNone(j["data"].get("aviso"))
+        txt, img = self.fake.user[0]["text"], self.fake.user[1]
+        self.assertIn("frame_001.jpg=00:00 frame_002.jpg=01:01", txt)
+        self.assertIn("[00:00] Olá mundo.\n[01:05] Tchau", txt)  # transcrição com tempos
+        self.assertTrue(img["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertIn("o_que_aparece", self.fake.prompt)
+        self.assertEqual(j["data"]["analysis"]["o_que_aparece"][1], "01:01: pessoa aponta pro relógio")
+        note = [b for m, u, b in self.fake.calls if m == "PATCH"][0]["note"]
+        self.assertIn("O que aparece:\n- 00:00: tela", note)
+        src = [b for m, u, b in self.fake.calls if u.endswith("/sources/json")][0]
+        self.assertIn("## O que aparece na tela\n- 00:00", src["content"])
+        self.assertEqual(os.listdir(os.path.join(self.tmp.name, "tmp")), [])  # vídeo e folhas apagados
+        cob = [b for m, u, b in self.fake.calls if u == "http://cobalt/"][0]
+        self.assertEqual((cob["downloadMode"], cob["videoQuality"]), ("auto", "480"))  # baixa vídeo, não só áudio
+
+    def test_modelo_recusa_imagem_segue_so_texto(self):
+        self.com_visao()
+        self.fake.no_img = True
+        main.add_job("https://www.tiktok.com/@x/video/v2")
+        main.run(1)
+        j = main.job(1)
+        self.assertEqual(j["status"], "pronto", j["error"])
+        self.assertIn("sem visão: modelo não aceitou as imagens", j["data"]["aviso"])
+        self.assertIn("HTTP 400", j["data"]["aviso"])
+        self.assertIsInstance(self.fake.user, str)  # 2ª chamada só com texto
+        self.assertNotIn("o_que_aparece", self.fake.prompt)
+        self.assertIn("sem visão", main.queue_page())
+
+    def test_crv_falha_segue_sem_visao(self):
+        def quebra(media, out, n):
+            raise RuntimeError("crv: ffmpeg frame extraction failed")
+        self.com_visao(quebra)
+        main.add_job("https://www.tiktok.com/@x/video/v3")
+        main.run(1)
+        j = main.job(1)
+        self.assertEqual(j["status"], "pronto", j["error"])
+        self.assertEqual(j["data"]["aviso"], "sem visão: crv: ffmpeg frame extraction failed")
+        self.assertIsInstance(self.fake.user, str)
+        self.assertEqual(os.listdir(os.path.join(self.tmp.name, "tmp")), [])
+
+    def test_sem_ffmpeg_avisa(self):
+        with mock.patch.object(main.shutil, "which", lambda x: None):
+            main.add_job("https://www.tiktok.com/@x/video/v4")
+            main.run(1)
+        self.assertEqual(main.job(1)["data"]["aviso"], "sem visão: ffmpeg não instalado")
+
+    def test_fit_grids_reduz(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow não instalado (no container vem com o crv)")
+        paths = []
+        for i in range(2):
+            p = os.path.join(self.tmp.name, f"g{i}.jpg")
+            Image.frombytes("RGB", (1440, 1200), os.urandom(1440 * 1200 * 3)).save(p, quality=95)
+            paths.append(p)
+        total = sum(os.path.getsize(p) for p in paths)
+        main.fit_grids(paths, limit=total // 3)
+        self.assertLessEqual(sum(os.path.getsize(p) for p in paths), total // 3)
 
 
 if __name__ == "__main__":
