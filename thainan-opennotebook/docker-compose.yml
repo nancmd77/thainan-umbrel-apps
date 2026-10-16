@@ -1,0 +1,33 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-opennotebook_web_1
+      APP_PORT: 8502
+      PROXY_AUTH_ADD: "false"
+  surrealdb:
+    image: surrealdb/surrealdb:v2.6.5
+    restart: on-failure
+    user: root
+    command: ["start", "--log", "info", "--user", "root", "--pass", "${APP_SEED}", "rocksdb:/mydata/mydatabase.db"]
+    environment:
+      SURREAL_EXPERIMENTAL_GRAPHQL: "true"
+    volumes:
+      - ${APP_DATA_DIR}/data/surreal:/mydata
+  web:
+    image: lfnovo/open_notebook:1.15.0
+    restart: on-failure
+    ports:
+      - "5055:5055"
+    environment:
+      OPEN_NOTEBOOK_ENCRYPTION_KEY: ${APP_SEED}
+      SURREAL_URL: ws://thainan-opennotebook_surrealdb_1:8000/rpc
+      SURREAL_USER: root
+      SURREAL_PASSWORD: ${APP_SEED}
+      SURREAL_NAMESPACE: open_notebook
+      SURREAL_DATABASE: open_notebook
+      OPEN_NOTEBOOK_WORKER_MAX_TASKS: "2"
+    volumes:
+      - ${APP_DATA_DIR}/data/notebook:/app/data
+    depends_on:
+      - surrealdb
