@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-video-kb
+name: Video KB Worker
+tagline: Reels e TikToks do Karakeep viram resumo, tags e fonte pesquisável
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
+category: AI
+version: "1.0.0"
+port: 8519
+description: >-
+  Compartilhou um Reels ou TikTok no Karakeep? O worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook.
+
+  Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, Karakeep, Open Notebook). As chaves ficam só no volume do app.
+
+  Webhook no Karakeep: Configurações > Webhooks > URL http://<IP-do-Nonve>:8519/webhook/karakeep, evento "created", mesmo token definido aqui. Se o Karakeep bloquear IP privado, defina CRAWLER_ALLOWED_INTERNAL_HOSTNAMES nele. Sem webhook, o polling de 5 minutos pega os links novos.
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nancmd77/thainan-umbrel-apps
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
