@@ -4,14 +4,18 @@ name: Open Notebook
 tagline: Alternativa self-hosted ao NotebookLM, com busca e chat sobre suas fontes
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opennotebook/icon.png
 category: AI
-version: "1.15.0"
+version: "1.15.0-1"
 port: 8502
 description: >-
   Open Notebook organiza fontes (textos, links, PDFs, transcrições) em cadernos, com busca semântica, chat com citações e notas.
 
   Nesta instalação ele guarda a base de conhecimento dos Reels/TikToks: o Video KB Worker cria uma fonte por vídeo (transcrição limpa, resumo e link) no caderno do tema.
 
-  Configure o provedor de IA em Settings > API Keys (OpenAI-compatible apontando para o 9Router do Nonve). A API REST fica na porta 5055 da rede local.
+  Senha: a mesma mostrada pelo Umbrel em "credenciais padrão" (vale pra tela de login e pra API, header Authorization: Bearer <senha>).
+
+  Configurar IA (9Router do Nonve, chat e embedding): 1) Manage > Models > Add Credential > OpenAI-compatible, base URL http://thainan-9router_web_1:20128/v1 (de fora do Umbrel: http://<IP-do-Nonve>:20128/v1), cole a chave do 9Router, Save, Test Connection. 2) Discover Models > Register Models (ou adicione o nome à mão). 3) Em Default Models escolha o chat (ex.: ag/gemini-3.8-flash-medium) e um modelo de Embedding servido pelo 9Router; sem embedding a busca semântica não funciona.
+
+  API REST: porta 5055 na rede local (protegida pela senha). Dentro do Umbrel: http://thainan-opennotebook_web_1:5055.
 developer: lfnovo
 website: https://www.open-notebook.ai
 submitter: Thainan Caldeira
@@ -20,8 +24,8 @@ repo: https://github.com/lfnovo/open-notebook
 support: https://github.com/lfnovo/open-notebook/issues
 gallery: []
 releaseNotes: >-
-  Open Notebook 1.15.0 (imagem fixada na versão), SurrealDB 2.6.5.
+  Liga a senha (OPEN_NOTEBOOK_PASSWORD = senha do Umbrel); antes a API 5055 ficava aberta na rede. Open Notebook 1.15.0, SurrealDB 2.6.5.
 dependencies: []
 path: ""
 defaultUsername: ""
-defaultPassword: ""
+deterministicPassword: true
