@@ -2,12 +2,14 @@
 
 Só stdlib (+ yt-dlp opcional, fallback do Cobalt). Tudo num arquivo de propósito.
 """
+import base64
 import glob
 import html
 import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -30,6 +32,7 @@ COL_SECS, FIRST_RUN = 1800, 20  # coletores: a cada 30 min; 1ª coleta de cada f
 COOKIE_ERR = re.compile(r"login|log in|sign in|cookie|authentica|401|403|private|checkpoint", re.I)
 SCRIBE_MODEL = "scribe_v2"  # doc POST /v1/speech-to-text (confirmado 2026-10)
 SITES = ("instagram.com", "tiktok.com")  # sempre vídeo; outros links: sonda do yt-dlp decide
+GRIDS_MAX = 4_000_000  # folhas 3x3 pro Gemini: acima disso redimensiona
 MIN_TEXT = 200  # menos que isso não dá resumo honesto
 CRAWL_TRIES, CRAWL_WAIT = 3, 120  # Karakeep ainda lendo a página: reagenda até 3x, 2 min
 KIND_PT = {"video": "Vídeo", "pagina": "Página", "pdf": "PDF", "texto": "Texto"}
@@ -46,6 +49,7 @@ FIELDS = [
     ("notebook_url", "URL do Open Notebook (API)", "text", "Porta 5055.", "http://thainan-opennotebook_web_1:5055"),
     ("notebook_pass", "Senha do Open Notebook", "secret", "Deixe vazio se não houver senha.", ""),
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
+    ("max_frames", "Visão: máximo de frames", "text", "Frames que o crv tira do vídeo (viram folhas 3x3 pro Gemini).", "60"),
     ("max_min", "Duração máxima de vídeo (min)", "text", "Vídeo mais longo não é transcrito (custo do Scribe). Vale pra links fora de IG/TikTok.", "60"),
     ("h_col", "Coletores automáticos (a cada 30 min)", "h", "Cada item novo vira bookmark no Karakeep e entra na fila. 1ª coleta: só os 20 mais recentes de cada fonte.", ""),
     ("col_youtube", "YouTube: playlists", "bool", "", ""),
@@ -64,8 +68,8 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb"}
-STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando áudio", "transcricao": "Transcrevendo", "resumo": "Resumindo",
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb"}
+STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook",
             "novo": "Aguardando", "pronto": "Concluído"}
 STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto"}
@@ -222,13 +226,13 @@ def need(c, *keys):
 
 def cobalt_audio(c, url, out):
     r = req("POST", c["cobalt_url"].rstrip("/") + "/", {"Accept": "application/json"},
-            {"url": url, "downloadMode": "audio"}, timeout=90)
+            {"url": url, "downloadMode": "auto", "videoQuality": "480"}, timeout=90)  # vídeo leve: Scribe + visão
     link = r.get("url") if r.get("status") in ("tunnel", "redirect") else (r.get("audio") if r.get("status") == "picker" else None)
     if not link:
         raise RuntimeError("Cobalt: " + str((r.get("error") or {}).get("code") or r.get("status") or r)[:150])
     if r["status"] == "tunnel":  # Cobalt devolve o próprio host (ex.: nonve.local), que o container pode não resolver
         link = urlsplit(link)._replace(scheme=urlsplit(c["cobalt_url"]).scheme, netloc=urlsplit(c["cobalt_url"]).netloc).geturl()
-    path = out + (os.path.splitext(r.get("filename") or "")[1] or ".mp3")
+    path = out + (os.path.splitext(r.get("filename") or "")[1] or (".mp3" if r["status"] == "picker" else ".mp4"))
     with open(path, "wb") as f:
         f.write(req("GET", link, timeout=180, raw=True))
     return path
@@ -256,7 +260,7 @@ def site_cookies(c, url):
 
 
 def ytdlp_audio(c, url, out):
-    cmd = [sys.executable, "-m", "yt_dlp", "-f", "bestaudio/best", "--no-playlist", "-o", out + ".%(ext)s", url]
+    cmd = [sys.executable, "-m", "yt_dlp", "-f", "b[height<=480]/bv*[height<=480]+ba/b/ba", "--no-playlist", "-o", out + ".%(ext)s", url]
     with cookie_file(site_cookies(c, url)) as ck:
         p = subprocess.run(cmd + (["--cookies", ck] if ck else []), capture_output=True, text=True, timeout=300)
     files = [f for f in glob.glob(out + ".*") if not f.endswith(".part")]
@@ -389,8 +393,79 @@ def step_transcricao(j, c):
     if not text:
         raise RuntimeError("Transcrição vazia (vídeo sem fala?)")
     j["data"]["transcript"] = text
-    os.remove(path)
-    del j["data"]["audio"]
+    j["data"]["transcript_t"] = timed(r.get("words") or []) or text
+
+
+def mmss(t):
+    return f"{int(t) // 60:02d}:{int(t) % 60:02d}"
+
+
+def timed(words):
+    """Palavras do Scribe -> linhas "[mm:ss] frase" (quebra no fim de frase ou a cada ~12 s)."""
+    out, cur, t0 = [], "", None
+    for w in words:
+        if w.get("type") not in ("word", "spacing"):
+            continue
+        if t0 is None and w.get("type") == "word":
+            t0 = w.get("start") or 0
+        cur += w.get("text", "")
+        if w.get("type") == "word" and (cur.rstrip().endswith((".", "?", "!")) or (w.get("end") or 0) - t0 > 12):
+            out.append(f"[{mmss(t0)}] {cur.strip()}")
+            cur, t0 = "", None
+    if cur.strip():
+        out.append(f"[{mmss(t0 or 0)}] {cur.strip()}")
+    return "\n".join(out)
+
+
+def run_crv(media, out, n):
+    p = subprocess.run([sys.executable, "-m", "claude_real_video", media, "-o", out, "--overwrite",
+                        "--no-transcribe", "--grid", "--max-frames", str(n)],
+                       capture_output=True, text=True, timeout=900, env={**os.environ, "CRV_NO_MEMORY": "1", "CRV_NO_HINT": "1"})
+    if p.returncode:
+        raise RuntimeError("crv: " + scrub((p.stderr.strip().splitlines() or [f"saiu com {p.returncode}"])[-1])[:200])
+
+
+def b64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
+def fit_grids(paths, limit=GRIDS_MAX):
+    """Total das folhas acima do limite: reduz todas na mesma proporção (Pillow vem com o crv)."""
+    total = sum(os.path.getsize(p) for p in paths)
+    if total <= limit:
+        return
+    from PIL import Image
+    k = (limit / total) ** 0.5 * 0.9
+    for p in paths:
+        with Image.open(p) as im:
+            im.convert("RGB").resize((max(1, int(im.width * k)), max(1, int(im.height * k)))).save(p, "JPEG", quality=80)
+
+
+def step_visao(j, c):
+    """crv no vídeo já baixado: folhas 3x3 + tempos dos frames. Falhou = segue sem visão (nunca trava o job)."""
+    d = j["data"]
+    media, out = d.pop("audio", None), os.path.join(DATA, "tmp", f"crv-{j['id']}")
+    try:
+        if not media or not os.path.exists(media):
+            raise RuntimeError("vídeo baixado não está mais aqui")
+        if not shutil.which("ffmpeg"):
+            raise RuntimeError("ffmpeg não instalado")
+        run_crv(media, out, int(c.get("max_frames") or 60))
+        grids = sorted(glob.glob(os.path.join(out, "grids", "*.jpg")))
+        if not grids:
+            raise RuntimeError("crv não gerou folhas (foto/carrossel?)")
+        fit_grids(grids)
+        with open(os.path.join(out, "frames.json")) as f:
+            frames = " ".join(f"{x['file']}={mmss(x['timestamp_sec'])}" for x in json.load(f)["frames"])
+        d["visao"] = {"dir": out, "grids": grids, "frames": frames}
+    except Exception as e:
+        d["visao"] = {"erro": scrub(e)[:200]}
+        d["aviso"] = "sem visão: " + d["visao"]["erro"]
+        shutil.rmtree(out, ignore_errors=True)
+    finally:
+        if media and os.path.exists(media):
+            os.remove(media)
 
 
 PROMPT = (
@@ -399,6 +474,11 @@ PROMPT = (
     '"tags" (3 a 8, minúsculas, sem #, 1 a 2 palavras), "tema" (1 a 3 palavras, Title Case, genérico para agrupar conteúdos '
     'parecidos, ex.: "Marketing", "Saúde", "Finanças"), '
     '"transcricao_limpa" (a transcrição com pontuação e erros de reconhecimento corrigidos, sem inventar conteúdo).'
+)
+PROMPT_VISAO = (
+    ' Você também recebe folhas 3x3 com frames do vídeo (cada célula tem o nome do frame; os tempos estão na lista "frames") '
+    'e a transcrição com tempos [mm:ss]. Inclua a chave "o_que_aparece": lista curta e cronológica de strings "mm:ss: ..." '
+    "com o que aparece na tela, texto escrito na tela e ações, alinhado com o que é dito. Só o que dá pra ver, sem inventar."
 )
 PROMPT_TEXTO = PROMPT.split(', "transcricao_limpa"')[0] + "."  # página/PDF/texto: não reescreve o original
 
@@ -449,6 +529,8 @@ def parse_analysis(raw, transcript):
         "tags": list(dict.fromkeys(t for t in tags if t))[:8],
         "tema": re.sub(r"\s+", " ", str(a.get("tema") or "Geral")).strip()[:60] or "Geral",
         "transcricao_limpa": str(a.get("transcricao_limpa") or "").strip() or transcript,
+        "o_que_aparece": [str(x).strip() for x in (a.get("o_que_aparece") if isinstance(a.get("o_que_aparece"), list)
+                          else [a.get("o_que_aparece")] if a.get("o_que_aparece") else []) if str(x).strip()],
     }
 
 
@@ -461,11 +543,34 @@ def step_resumo(j, c):
            if temas else "")
     ctx += ("\nTags que já existem: " + json.dumps(tags, ensure_ascii=False)
             + ". Reaproveite essas quando couberem; crie tag nova só se nenhuma servir." if tags else "")
-    r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions",
-            {"Authorization": "Bearer " + c["llm_key"]},
-            {"model": c["model"], "response_format": {"type": "json_object"},
-             "messages": [{"role": "system", "content": (PROMPT if j["data"].get("kind", "video") == "video" else PROMPT_TEXTO) + ctx},
-                          {"role": "user", "content": j["data"]["transcript"][:30000]}]}, timeout=180)
+    d = j["data"]
+    video, vis = d.get("kind", "video") == "video", d.get("visao") or {}
+    texto = (d.get("transcript_t") or d["transcript"])[:30000]
+    imgs = [g for g in vis.get("grids", []) if os.path.exists(g)]
+    if vis.get("grids"):
+        d.pop("aviso", None)  # visão ok; aviso antigo era de resumo anterior
+
+    def ask(com_imagens):
+        user = texto
+        if com_imagens:
+            user = [{"type": "text", "text": f"frames: {vis['frames']}\n\nTranscrição com tempos:\n{texto}"}] + [
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64(g)}}
+                for g in imgs]
+        return req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
+                   {"model": c["model"], "response_format": {"type": "json_object"},
+                    "messages": [{"role": "system", "content": (PROMPT + (PROMPT_VISAO if com_imagens else "") if video else PROMPT_TEXTO) + ctx},
+                                 {"role": "user", "content": user}]}, timeout=300 if com_imagens else 180)
+
+    if video and imgs:
+        try:
+            r = ask(True)
+        except Exception as e:  # 9Router/modelo recusou imagem (ou payload grande): tenta só com o texto
+            d["aviso"] = "sem visão: modelo não aceitou as imagens (" + scrub(e)[:150] + ")"
+            r = ask(False)
+    else:
+        if video and vis.get("grids") and not imgs:
+            d["aviso"] = "sem visão: folhas sumiram antes do resumo"
+        r = ask(False)
     try:
         a = parse_analysis(r["choices"][0]["message"]["content"], j["data"]["transcript"])
     except (KeyError, IndexError, ValueError, TypeError) as e:
@@ -474,6 +579,8 @@ def step_resumo(j, c):
     by = {fold(t): t for t in tags}
     a["tags"] = list(dict.fromkeys(by.get(fold(t), t) for t in a["tags"]))  # grafia da tag existente
     j["data"]["analysis"] = a
+    if vis.get("dir"):
+        shutil.rmtree(vis["dir"], ignore_errors=True)  # folhas já usadas
 
 
 NOTE_MARK = "Pontos-chave (Video KB):"  # nota do nan fica; só o bloco depois do marcador é nosso
@@ -484,7 +591,8 @@ def step_karakeep(j, c):
     (base, h), a = kk(c), j["data"]["analysis"]
     bid = ensure_bookmark(j, c)
     old = req("GET", f"{base}/bookmarks/{bid}", h).get("note") or ""
-    ours = NOTE_MARK + "\n" + "\n".join("- " + p for p in a["pontos_chave"])
+    ours = NOTE_MARK + "\n" + "\n".join("- " + p for p in a["pontos_chave"]) + (
+        "\n\nO que aparece:\n" + "\n".join("- " + x for x in a["o_que_aparece"]) if a.get("o_que_aparece") else "")
     note = (old[:old.index(NOTE_MARK)].rstrip() + "\n\n" if NOTE_MARK in old else (old.rstrip() + "\n\n" if old.strip() else "")) + ours
     req("PATCH", f"{base}/bookmarks/{bid}", h, {"summary": a["resumo"], "note": note})
     if a["tags"]:
@@ -509,6 +617,7 @@ def step_notebook(j, c):
     content = (f"# {a['titulo']}\n\n" + (f"Link: {j['orig']}\n\n" if j["orig"] else "") + f"## Resumo\n{a['resumo']}\n\n## Pontos-chave\n"
                + "\n".join("- " + p for p in a["pontos_chave"])
                + f"\n\nTags: {', '.join(a['tags'])}\n\n"
+               + ("## O que aparece na tela\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
                + (f"## Transcrição\n{a['transcricao_limpa']}\n" if video else f"## Texto\n{j['data']['transcript']}\n"))
     if j["data"].get("kind") == "pagina":  # página: a URL é a fonte (o Open Notebook baixa e indexa)
         src = {"type": "link", "url": j["orig"]}
@@ -519,7 +628,7 @@ def step_notebook(j, c):
     j["data"]["nb"] = s.get("id") or True
 
 
-STEP_FN = {"tipo": step_tipo, "texto": step_texto, "audio": step_audio, "transcricao": step_transcricao, "resumo": step_resumo,
+STEP_FN = {"tipo": step_tipo, "texto": step_texto, "audio": step_audio, "transcricao": step_transcricao, "visao": step_visao, "resumo": step_resumo,
            "karakeep": step_karakeep, "notebook": step_notebook}
 
 
@@ -532,7 +641,7 @@ def done(s, d):
 def steps(d):
     if "kind" not in d:
         return ["tipo"]
-    return ["tipo", *(["audio", "transcricao"] if d["kind"] == "video" else ["texto"]), "resumo", "karakeep", "notebook"]
+    return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo", "karakeep", "notebook"]
 
 
 def run(jid):
@@ -780,7 +889,7 @@ def queue_page(flash=""):
         title = (d.get("analysis") or {}).get("titulo") or r["orig"] or f"Bookmark {r['bookmark_id']}"
         retry_btn = (f'<form method="post" action="/retry/{r["id"]}"><button class="sec" type="submit">Reprocessar</button></form>'
                      if r["status"] == "erro" else "")
-        err = f'<p class="err">{e(r["error"])}</p>' if r["error"] else ""
+        err = (f'<p class="err">{e(r["error"])}</p>' if r["error"] else "") + (f'<p class="hint">{e(d["aviso"])}</p>' if d.get("aviso") else "")
         rows.append(
             f'<article class="job"><h2>{e(title)}</h2><a href="{e(r["orig"])}" rel="noreferrer">{e(r["orig"])}</a>'
             f'<div class="meta"><span class="st {r["status"]}">{STATUS_PT.get(r["status"], r["status"])}</span>'
