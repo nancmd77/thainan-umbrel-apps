@@ -1,0 +1,33 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-video-kb_web_1
+      APP_PORT: 8080
+      PROXY_AUTH_WHITELIST: "/webhook/*"
+  web:
+    image: python:3.12-slim
+    restart: on-failure
+    working_dir: /data
+    environment:
+      PORT: "8080"
+      DATA_DIR: /data
+      REF: video-kb-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_ROOT_USER_ACTION: ignore
+    volumes:
+      - ${APP_DATA_DIR}/app:/app:ro
+      - ${APP_DATA_DIR}/data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        # código: usa a pasta app/ copiada pelo Umbrel; senão baixa do GitHub (REF fixo)
+        D=/app
+        if [ ! -f /app/main.py ]; then
+          D=/data/app; mkdir -p $$D
+          python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-video-kb/app/main.py', '$$D/main.py')"
+        fi
+        # yt-dlp (fallback do Cobalt), versão fixa, instalado uma vez no volume
+        [ -d /data/pylib/yt_dlp ] || pip install -q --target /data/pylib yt-dlp==2026.8.19 || echo "yt-dlp indisponível, só Cobalt"
+        PYTHONPATH=/data/pylib exec python -u $$D/main.py
