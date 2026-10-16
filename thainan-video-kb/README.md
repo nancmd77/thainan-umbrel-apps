@@ -1,6 +1,6 @@
 # Video KB Worker (app Umbrel)
 
-Link de Reels/TikTok no Karakeep → áudio (Cobalt, fallback yt-dlp) → ElevenLabs Scribe (`scribe_v2`) → 9Router do Nonve, OpenAI-compatível (`http://thainan-9router_web_1:20128/v1`, modelo `ag/gemini-3.8-flash-medium`, ambos editáveis; JSON `titulo/resumo/pontos_chave/tags/tema/transcricao_limpa`) → Karakeep (summary, nota, tags, lista do tema) → Open Notebook (caderno do tema, fonte texto).
+Bookmark do Karakeep (vídeo, página, PDF, nota) → áudio (Cobalt, fallback yt-dlp) → ElevenLabs Scribe (`scribe_v2`) → 9Router do Nonve, OpenAI-compatível (`http://thainan-9router_web_1:20128/v1`, modelo `ag/gemini-3.8-flash-medium`, ambos editáveis; JSON `titulo/resumo/pontos_chave/tags/tema/transcricao_limpa`) → Karakeep (summary, nota, tags, lista do tema) → Open Notebook (caderno do tema, fonte texto).
 
 Python 3.12, só stdlib. Único pacote externo: `yt-dlp==2026.8.19`, instalado no start em `/data/pylib`. Sem ffmpeg, sem build de imagem.
 
@@ -18,6 +18,10 @@ Código: o compose monta `${APP_DATA_DIR}/app:/app:ro`. Se `/app/main.py` não e
 4. **Fila**: etapa, erro e **Reprocessar** (retoma da etapa que falhou; transcrição/resumo já feitos não são refeitos).
 
 ## Comportamento
+- v1.1: qualquer bookmark entra (link, PDF, nota de texto). Etapa `tipo`: IG/TikTok = vídeo; outro link = vídeo se `yt-dlp -j` achar mídia com duração (Reddit, YouTube...), senão página; asset PDF = pdf; nota = texto; imagem = erro "Tipo não suportado".
+- Página/PDF/texto: texto vem de `GET /api/v1/bookmarks/{id}?includeContent=true` (`htmlContent` → texto puro, senão `description`; PDF `content.content`; nota `content.text`). Crawl pendente: reagenda em 2 min, até 3x. Menos de 200 caracteres: erro com motivo, sem chamar o Gemini.
+- Open Notebook: página = fonte `link` (URL); PDF/texto = fonte `text` com resumo + texto extraído; vídeo = como antes.
+- Nota do Karakeep: preserva a do usuário; nosso bloco começa em `Pontos-chave (Video KB):` e é trocado ao reprocessar.
 - Tema/tags: antes do Gemini lê `GET /api/notebooks` (Open Notebook) e `GET /api/v1/tags` (Karakeep, 200 mais usadas) e manda no prompt pra reaproveitar. Se a leitura falhar, segue sem lista. Tema normalizado (trim, 1ª maiúscula) e casado sem diferenciar maiúscula/acento com caderno e lista existentes.
 - Idempotente por URL normalizada (sem `www/m`, sem query/fragmento, sem `/` final). Short links (`vm.tiktok.com`) não deduplicam com o link longo.
 - Karakeep: `summary` = resumo; `note` é **substituída** pelos pontos-chave. Link colado à mão cria o bookmark.
