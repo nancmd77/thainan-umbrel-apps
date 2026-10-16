@@ -278,6 +278,85 @@ class T(unittest.TestCase):
         self.assertEqual(main.q("SELECT kind, after FROM jobs"), [{"kind": "", "after": 0}])
         self.assertIn("Tipo ?", main.queue_page())
 
+    def test_video_longo_nao_transcreve(self):
+        main.has_media = lambda u: 3 * 3600
+        self.fake.bm = [{"type": "link", "url": "https://youtube.com/watch?v=longo"}]
+        main.add_job("https://youtube.com/watch?v=longo", "bkY")
+        main.run(1)
+        self.assertIn("Vídeo longo (180 min, limite 60 min)", main.job(1)["error"])
+        self.assertEqual(self.fake.n("elevenlabs"), 0)
+
+    # ---------- v1.2: coletores ----------
+    def ligar(self, **k):
+        main.cfg_save({"col_youtube": "", "col_instagram": "", "col_reddit": "", "col_tiktok": "", **k})
+
+    def test_primeira_coleta_so_20_depois_so_novos(self):
+        urls = [f"https://www.youtube.com/watch?v={i}" for i in range(25)]
+        self.assertEqual(main.ingest(main.cfg(), "youtube:LL", urls), 20)
+        self.assertEqual(self.fake.n("/api/v1/bookmarks"), 20)  # bookmark criado no Karakeep
+        self.assertEqual(len(main.q("SELECT * FROM seen")), 25)  # os 5 antigos viram "vistos", não entram
+        self.assertEqual(main.ingest(main.cfg(), "youtube:LL", ["https://www.youtube.com/watch?v=novo"] + urls), 1)
+        self.assertEqual(main.ingest(main.cfg(), "youtube:LL", urls), 0)
+        self.assertEqual(main.job(1)["url"], "https://youtube.com/watch?v=0")
+
+    def test_coletores_status_e_cookie_vencido(self):
+        self.ligar(col_youtube="1", col_reddit="1", col_instagram="1", col_tiktok="1", yt_playlists="LL", yt_cookies="YT-COOKIE-SECRETO",
+                   reddit_feed="https://www.reddit.com/user/u/saved.rss?feed=TOKEN123&user=u", ig_user="@nan", tt_user="nan", tt_cookies="TT-COOKIE")
+        chamadas = []
+
+        def tool(args, cookies=None, timeout=900):
+            chamadas.append((args, cookies))
+            if args[0] == "yt_dlp":
+                return "https://www.youtube.com/watch?v=a\nhttps://www.youtube.com/watch?v=b\n"
+            if "tiktok.com" in args[-1]:
+                return json.dumps([[-1, {"error": "AuthorizationError", "message": "Login required"}]])
+            return json.dumps([[2, {"post_shortcode": "AbC"}], [3, "https://cdn/x.jpg", {"post_shortcode": "AbC"}]])
+        main.tool = tool
+        atom = (b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://www.reddit.com/r/x/comments/1/t/"/></entry>'
+                b'<entry><link href="https://www.reddit.com/r/y/comments/2/u/"/></entry></feed>')
+        orig = self.fake
+        main.req = lambda m, u, h=None, b=None, timeout=60, raw=False: atom if "saved.rss" in u else orig(m, u, h, b, timeout, raw)
+        main.collect_once()  # sem cookie IG: erro só nesse coletor, os outros seguem
+        st = {r["k"]: json.loads(r["v"]) for r in main.q("SELECT * FROM kv WHERE k LIKE 'col:%'")}
+        self.assertEqual((st["col:youtube"]["novos"], st["col:reddit"]["novos"]), (2, 2))
+        self.assertIn("ig_cookies", st["col:instagram"]["erro"])
+        self.assertNotIn("expiraram", st["col:instagram"]["erro"])  # faltando != vencido
+        self.assertIn("Cookies expiraram", st["col:tiktok"]["erro"])
+        self.assertEqual(chamadas[0], (["yt_dlp", "--flat-playlist", "--print", "url", "--playlist-end", "200", "--no-warnings",
+                                        "https://www.youtube.com/playlist?list=LL"], "YT-COOKIE-SECRETO"))
+        html_ = main.queue_page()
+        self.assertIn("Cookies vencidos", html_)
+        self.assertIn("2 novo(s)", html_)
+        self.assertNotIn("TOKEN123", html_ + main.config_page())  # feed do Reddit mascarado
+        main.cfg_save({"ig_cookies": "IG-COOKIE"})
+        main.collect_once()
+        self.assertEqual(json.loads(main.q("SELECT v FROM kv WHERE k='col:instagram'")[0]["v"])["novos"], 1)
+        self.assertTrue(main.q("SELECT 1 FROM jobs WHERE url='https://instagram.com/p/AbC'"))
+        self.assertIn("https://www.instagram.com/nan/saved/", [a[-1] for a, _ in chamadas])  # @ removido
+
+    def test_coletor_desligado_nao_roda(self):
+        self.ligar()
+        main.tool = lambda *a, **k: self.fail("não devia rodar")
+        main.collect_once()
+        self.assertEqual(main.q("SELECT * FROM kv WHERE k LIKE 'col:%'"), [])
+
+    def test_config_liga_coletor(self):
+        main.save_form({"col_reddit": ["1"], "yt_playlists": [""]})
+        self.assertEqual((main.cfg()["col_reddit"], main.cfg()["col_youtube"]), ("1", ""))
+        self.assertEqual(main.cfg()["yt_playlists"], ":ytwatchlater\nLL")  # vazio volta ao padrão
+        self.assertIn('name="col_reddit" value="1" checked', main.config_page())
+
+    def test_cookie_file_temporario(self):
+        with main.cookie_file("abc") as p:
+            self.assertEqual(oct(os.stat(p).st_mode & 0o777), "0o600")
+        self.assertFalse(os.path.exists(p))
+        with main.cookie_file("") as p:
+            self.assertIsNone(p)
+        main.cfg_save({"tt_cookies": "TT", "yt_cookies": "YT"})
+        self.assertEqual(main.site_cookies(main.cfg(), "https://vm.tiktok.com/x"), "TT")
+        self.assertEqual(main.site_cookies(main.cfg(), "https://youtu.be/x"), "YT")
+        self.assertIsNone(main.site_cookies(main.cfg(), "https://blog.com/x"))
+
 
 if __name__ == "__main__":
     unittest.main()
