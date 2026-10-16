@@ -18,6 +18,7 @@ Código: o compose monta `${APP_DATA_DIR}/app:/app:ro`. Se `/app/main.py` não e
 4. **Fila**: etapa, erro e **Reprocessar** (retoma da etapa que falhou; transcrição/resumo já feitos não são refeitos).
 
 ## Comportamento
+- Tema/tags: antes do Gemini lê `GET /api/notebooks` (Open Notebook) e `GET /api/v1/tags` (Karakeep, 200 mais usadas) e manda no prompt pra reaproveitar. Se a leitura falhar, segue sem lista. Tema normalizado (trim, 1ª maiúscula) e casado sem diferenciar maiúscula/acento com caderno e lista existentes.
 - Idempotente por URL normalizada (sem `www/m`, sem query/fragmento, sem `/` final). Short links (`vm.tiktok.com`) não deduplicam com o link longo.
 - Karakeep: `summary` = resumo; `note` é **substituída** pelos pontos-chave. Link colado à mão cria o bookmark.
 - Open Notebook: `POST /api/sources/json` `{type:text, notebooks:[id], embed:true, async_processing:true}`; embeddings dependem do provedor configurado lá.
