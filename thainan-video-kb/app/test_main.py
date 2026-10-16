@@ -15,6 +15,7 @@ class Fake:
 
     def __init__(self, fail_llm=0):
         self.calls, self.fail_llm = [], fail_llm
+        self.nbs, self.tags, self.analise = [], [], ANALISE  # nbs=None: GET /api/notebooks falha
 
     def __call__(self, method, url, headers=None, body=None, timeout=60, raw=False):
         self.calls.append((method, url, body))
@@ -30,7 +31,10 @@ class Fake:
             if self.fail_llm:
                 self.fail_llm -= 1
                 raise RuntimeError("HTTP 500")
-            return {"choices": [{"message": {"content": "```json\n" + json.dumps(ANALISE) + "\n```"}}]}
+            self.prompt = body["messages"][0]["content"]
+            return {"choices": [{"message": {"content": "```json\n" + json.dumps(self.analise) + "\n```"}}]}
+        if url.endswith("/api/v1/tags"):
+            return {"tags": [{"id": "t" + t, "name": t} for t in self.tags]}
         if url.endswith("/api/v1/bookmarks") and method == "POST":
             return {"id": "bk1"}
         if "/api/v1/bookmarks/" in url or "/lists/" in url:
@@ -38,7 +42,9 @@ class Fake:
         if url.endswith("/api/v1/lists"):
             return {"id": "l1"} if method == "POST" else {"lists": []}
         if url.endswith("/api/notebooks"):
-            return {"id": "nb1"} if method == "POST" else []
+            if method == "GET" and self.nbs is None:
+                raise RuntimeError("HTTP 502")
+            return {"id": "nb1"} if method == "POST" else self.nbs
         if url.endswith("/api/sources/json"):
             return {"id": "src1"}
         raise AssertionError(f"chamada inesperada {method} {url}")
@@ -139,6 +145,32 @@ class T(unittest.TestCase):
         main.save_form({"llm_key": ["-"]})
         self.assertEqual(main.cfg()["llm_key"], "")  # "-" apaga
         self.assertEqual(oct(os.stat(main.cfg_path()).st_mode & 0o777), "0o600")
+
+    def test_reaproveita_caderno_e_tags(self):
+        self.fake.nbs = [{"id": "nbX", "name": "Saúde"}, {"id": "nbY", "name": "Finanças"}]
+        self.fake.tags = ["Foco", "sono"]
+        self.fake.analise = {**ANALISE, "tema": "  saude ", "tags": ["foco", "Sono", "nova tag"]}
+        main.add_job("https://www.tiktok.com/@a/video/9")
+        main.run(1)
+        j = main.job(1)
+        self.assertEqual(j["status"], "pronto", j["error"])
+        self.assertIn('"Saúde"', self.fake.prompt)  # lista de cadernos no prompt
+        self.assertIn('"Foco"', self.fake.prompt)
+        self.assertEqual(j["data"]["analysis"]["tema"], "Saúde")
+        self.assertEqual(j["data"]["analysis"]["tags"], ["Foco", "sono", "nova tag"])
+        src = [b for m, u, b in self.fake.calls if u.endswith("/api/sources/json")][0]
+        self.assertEqual(src["notebooks"], ["nbX"])
+        self.assertFalse([u for m, u, b in self.fake.calls if m == "POST" and u.endswith("/api/notebooks")])
+
+    def test_sem_lista_segue_e_normaliza(self):
+        self.fake.nbs = None  # Open Notebook fora do ar na hora do resumo
+        self.fake.analise = {**ANALISE, "tema": "  culinária  rápida "}
+        main.add_job("https://www.tiktok.com/@a/video/10")
+        main.run(1)
+        j = main.job(1)
+        self.assertEqual(j["stage"], "notebook")  # resumo passou; parou só no envio ao Open Notebook
+        self.assertEqual(j["data"]["analysis"]["tema"], "Culinária rápida")
+        self.assertNotIn("Cadernos", self.fake.prompt)
 
 
 if __name__ == "__main__":
