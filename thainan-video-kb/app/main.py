@@ -18,14 +18,18 @@ import urllib.error
 import urllib.request
 import uuid
 from contextlib import closing
+from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qsl, parse_qs, urlencode, urlsplit
 
 DATA = os.environ.get("DATA_DIR", "/data")
 PORT = int(os.environ.get("PORT", "8080"))
 POLL_SECS = 300
 SCRIBE_MODEL = "scribe_v2"  # doc POST /v1/speech-to-text (confirmado 2026-10)
-SITES = ("instagram.com", "tiktok.com")
+SITES = ("instagram.com", "tiktok.com")  # sempre vídeo; outros links: sonda do yt-dlp decide
+MIN_TEXT = 200  # menos que isso não dá resumo honesto
+CRAWL_TRIES, CRAWL_WAIT = 3, 120  # Karakeep ainda lendo a página: reagenda até 3x, 2 min
+KIND_PT = {"video": "Vídeo", "pagina": "Página", "pdf": "PDF", "texto": "Texto"}
 
 # (chave, rótulo, tipo, dica, padrão)
 FIELDS = [
@@ -44,9 +48,8 @@ FIELDS = [
 SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-STEPS = ["audio", "transcricao", "resumo", "karakeep", "notebook"]
-KEY = {"transcricao": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb"}
-STAGE_PT = {"audio": "Baixando áudio", "transcricao": "Transcrevendo", "resumo": "Resumindo",
+KEY = {"tipo": "kind", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb"}
+STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando áudio", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook",
             "novo": "Aguardando", "pronto": "Concluído"}
 STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto"}
@@ -113,13 +116,19 @@ def init():
         stage TEXT DEFAULT 'novo', status TEXT DEFAULT 'fila', error TEXT DEFAULT '',
         data TEXT DEFAULT '{}', created REAL, updated REAL)""")
     q("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT)")
+    cols = {r["name"] for r in q("PRAGMA table_info(jobs)")}
+    for col, ddl in (("kind", "TEXT DEFAULT ''"), ("after", "REAL DEFAULT 0")):  # v1.1: migra banco da 1.0
+        if col not in cols:
+            q(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
     q("UPDATE jobs SET status='fila' WHERE status='rodando'")  # crash no meio -> retoma
 
 
 def norm(url):
     u = urlsplit(url.strip())
     host = re.sub(r"^(www|m)\.", "", (u.hostname or "").lower())
-    return f"https://{host}{u.path.rstrip('/')}"  # ponytail: ignora query; short links (vm.tiktok) não deduplicam
+    # IG/TikTok: query é só rastreio. Outros sites: query pode ser o conteúdo (watch?v=), só tira utm_*
+    qs = "" if is_target(url) else urlencode([(k, v) for k, v in parse_qsl(u.query) if not k.startswith("utm_")])
+    return f"https://{host}{u.path.rstrip('/')}" + (f"?{qs}" if qs else "")  # ponytail: short links (vm.tiktok) não deduplicam
 
 
 def is_target(url):
@@ -128,15 +137,17 @@ def is_target(url):
 
 
 def add_job(url, bookmark_id=None):
-    """Idempotente por URL normalizada. Retorna True se criou."""
-    n = norm(url)
+    """Idempotente por URL normalizada (sem URL: pelo id do bookmark). Retorna True se criou."""
+    if not url and not bookmark_id:
+        return False
+    n = norm(url) if url else f"karakeep:{bookmark_id}"
     now = time.time()
     if q("SELECT id FROM jobs WHERE url=?", (n,)):
         if bookmark_id:
             q("UPDATE jobs SET bookmark_id=? WHERE url=? AND bookmark_id IS NULL", (bookmark_id, n))
         return False
     q("INSERT INTO jobs(url,orig,bookmark_id,created,updated) VALUES(?,?,?,?,?)",
-      (n, url.strip(), bookmark_id, now, now))
+      (n, (url or "").strip(), bookmark_id, now, now))
     WAKE.set()
     return True
 
@@ -149,8 +160,9 @@ def job(jid):
 
 
 def save(j):
-    q("UPDATE jobs SET bookmark_id=?,stage=?,status=?,error=?,data=?,updated=? WHERE id=?",
-      (j["bookmark_id"], j["stage"], j["status"], j["error"], json.dumps(j["data"]), time.time(), j["id"]))
+    q("UPDATE jobs SET bookmark_id=?,stage=?,status=?,error=?,data=?,kind=?,after=?,updated=? WHERE id=?",
+      (j["bookmark_id"], j["stage"], j["status"], j["error"], json.dumps(j["data"]), j["data"].get("kind", ""),
+       j.get("after") or 0, time.time(), j["id"]))
 
 
 # ---------- http ----------
@@ -225,7 +237,104 @@ def ytdlp_audio(c, url, out):
     return files[0]
 
 
+class Later(Exception):
+    """Ainda não dá (Karakeep lendo a página): reagenda em vez de falhar."""
+
+
+def kk(c):
+    return c["karakeep_url"].rstrip("/") + "/api/v1", {"Authorization": "Bearer " + c["karakeep_key"]}
+
+
+def ensure_bookmark(j, c):
+    if not j["bookmark_id"]:  # link colado à mão: cria o bookmark (Karakeep devolve o existente se a URL já está lá)
+        base, h = kk(c)
+        j["bookmark_id"] = req("POST", base + "/bookmarks", h, {"type": "link", "url": j["orig"]})["id"]
+        save(j)
+    return j["bookmark_id"]
+
+
+def bookmark(c, bid):
+    base, h = kk(c)
+    return req("GET", f"{base}/bookmarks/{bid}?includeContent=true", h)
+
+
+def has_media(url):
+    """yt-dlp acha vídeo/áudio nesse link? (Reddit, YouTube, X...). Sem yt-dlp = não."""
+    try:
+        p = subprocess.run([sys.executable, "-m", "yt_dlp", "-j", "--no-playlist", "--no-warnings", url],
+                           capture_output=True, text=True, timeout=60)
+        return p.returncode == 0 and bool(json.loads(p.stdout.splitlines()[0]).get("duration"))
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return False
+
+
+def step_tipo(j, c):
+    if j["orig"] and is_target(j["orig"]):
+        j["data"]["kind"] = "video"
+        return
+    ct = bookmark(c, ensure_bookmark(j, c)).get("content") or {}
+    t = ct.get("type")
+    if t == "link":
+        if not j["orig"]:
+            j["orig"] = ct.get("url") or ""
+        j["data"]["kind"] = "video" if has_media(ct.get("url") or j["orig"]) else "pagina"
+    elif t == "asset" and ct.get("assetType") == "pdf":
+        j["data"]["kind"] = "pdf"
+    elif t == "text":
+        j["data"]["kind"] = "texto"
+    else:
+        raise RuntimeError(f"Tipo não suportado ({t or 'desconhecido'}{'/' + ct['assetType'] if ct.get('assetType') else ''}): nada pra resumir")
+
+
+class _Text(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.out, self.skip = [], 0
+
+    def handle_starttag(self, tag, a):
+        self.skip += tag in ("script", "style")
+
+    def handle_endtag(self, tag):
+        self.skip -= tag in ("script", "style") and self.skip > 0
+        if tag in ("p", "div", "li", "br", "h1", "h2", "h3", "h4", "tr"):
+            self.out.append("\n")
+
+    def handle_data(self, d):
+        if not self.skip:
+            self.out.append(d)
+
+
+def html_text(h):
+    p = _Text()
+    p.feed(h or "")
+    return re.sub(r"\n\s*\n+", "\n\n", re.sub(r"[ \t]+", " ", "".join(p.out))).strip()
+
+
+def step_texto(j, c):
+    """Página/PDF/texto: usa o que o Karakeep já extraiu. Nada de inventar."""
+    ct = bookmark(c, ensure_bookmark(j, c)).get("content") or {}
+    kind = j["data"]["kind"]
+    if kind == "texto":
+        text = ct.get("text") or ""
+    elif kind == "pdf":
+        text = ct.get("content") or ""
+    else:
+        if ct.get("crawlStatus") == "pending" or (not ct.get("htmlContent") and not ct.get("crawledAt") and ct.get("crawlStatus") != "failure"):
+            raise Later("Karakeep ainda lendo a página")
+        text = html_text(ct.get("htmlContent")) or ct.get("description") or ""
+        if ct.get("title") and len(text) >= MIN_TEXT:
+            text = ct["title"] + "\n\n" + text
+    text = text.strip()
+    if len(text) < MIN_TEXT:
+        if kind == "pdf" and not text and j["data"].get("tentativas", 0) < CRAWL_TRIES:
+            raise Later("Karakeep ainda extraindo o PDF")
+        raise RuntimeError(f"Sem texto suficiente pra resumir ({len(text)} caracteres extraídos pelo Karakeep). "
+                           + {"pdf": "PDF escaneado/imagem?", "texto": "Nota curta demais.", "pagina": "Página bloqueada ou só imagem/vídeo?"}[kind])
+    j["data"]["transcript"] = text
+
+
 def step_audio(j, c):
+    need(c, "elevenlabs_key")  # sem chave não adianta baixar
     out = os.path.join(DATA, "tmp", str(j["id"]))
     try:
         j["data"]["audio"] = cobalt_audio(c, j["orig"], out)
@@ -253,12 +362,13 @@ def step_transcricao(j, c):
 
 
 PROMPT = (
-    "Você analisa transcrições de vídeos curtos (Reels/TikTok). Responda SOMENTE um JSON, em português do Brasil, com as chaves: "
+    "Você analisa conteúdo salvo: transcrição de vídeo curto, página, post ou PDF. Responda SOMENTE um JSON, em português do Brasil, com as chaves: "
     '"titulo" (até 80 caracteres), "resumo" (2 a 4 frases), "pontos_chave" (3 a 7 strings), '
-    '"tags" (3 a 8, minúsculas, sem #, 1 a 2 palavras), "tema" (1 a 3 palavras, Title Case, genérico para agrupar vídeos '
+    '"tags" (3 a 8, minúsculas, sem #, 1 a 2 palavras), "tema" (1 a 3 palavras, Title Case, genérico para agrupar conteúdos '
     'parecidos, ex.: "Marketing", "Saúde", "Finanças"), '
     '"transcricao_limpa" (a transcrição com pontuação e erros de reconhecimento corrigidos, sem inventar conteúdo).'
 )
+PROMPT_TEXTO = PROMPT.split(', "transcricao_limpa"')[0] + "."  # página/PDF/texto: não reescreve o original
 
 
 def fold(s):
@@ -322,7 +432,7 @@ def step_resumo(j, c):
     r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions",
             {"Authorization": "Bearer " + c["llm_key"]},
             {"model": c["model"], "response_format": {"type": "json_object"},
-             "messages": [{"role": "system", "content": PROMPT + ctx},
+             "messages": [{"role": "system", "content": (PROMPT if j["data"].get("kind", "video") == "video" else PROMPT_TEXTO) + ctx},
                           {"role": "user", "content": j["data"]["transcript"][:30000]}]}, timeout=180)
     try:
         a = parse_analysis(r["choices"][0]["message"]["content"], j["data"]["transcript"])
@@ -334,14 +444,16 @@ def step_resumo(j, c):
     j["data"]["analysis"] = a
 
 
+NOTE_MARK = "Pontos-chave (Video KB):"  # nota do nan fica; só o bloco depois do marcador é nosso
+
+
 def step_karakeep(j, c):
     need(c, "karakeep_url", "karakeep_key")
-    base, h, a = c["karakeep_url"].rstrip("/") + "/api/v1", {"Authorization": "Bearer " + c["karakeep_key"]}, j["data"]["analysis"]
-    if not j["bookmark_id"]:  # link colado à mão: cria o bookmark (Karakeep devolve o existente se a URL já está lá)
-        j["bookmark_id"] = req("POST", base + "/bookmarks", h, {"type": "link", "url": j["orig"]})["id"]
-        save(j)
-    bid = j["bookmark_id"]
-    note = "Pontos-chave:\n" + "\n".join("- " + p for p in a["pontos_chave"])
+    (base, h), a = kk(c), j["data"]["analysis"]
+    bid = ensure_bookmark(j, c)
+    old = req("GET", f"{base}/bookmarks/{bid}", h).get("note") or ""
+    ours = NOTE_MARK + "\n" + "\n".join("- " + p for p in a["pontos_chave"])
+    note = (old[:old.index(NOTE_MARK)].rstrip() + "\n\n" if NOTE_MARK in old else (old.rstrip() + "\n\n" if old.strip() else "")) + ours
     req("PATCH", f"{base}/bookmarks/{bid}", h, {"summary": a["resumo"], "note": note})
     if a["tags"]:
         req("POST", f"{base}/bookmarks/{bid}/tags", h, {"tags": [{"tagName": t, "attachedBy": "human"} for t in a["tags"]]})
@@ -361,15 +473,21 @@ def step_notebook(j, c):
     nid = next((n["id"] for n in notebooks(c) if fold(n["name"]) == fold(a["tema"])), None)
     if not nid:
         nid = req("POST", base + "/notebooks", h, {"name": a["tema"], "description": "Criado pelo Video KB"})["id"]
-    content = (f"# {a['titulo']}\n\nLink: {j['orig']}\n\n## Resumo\n{a['resumo']}\n\n## Pontos-chave\n"
+    video = j["data"].get("kind", "video") == "video"
+    content = (f"# {a['titulo']}\n\n" + (f"Link: {j['orig']}\n\n" if j["orig"] else "") + f"## Resumo\n{a['resumo']}\n\n## Pontos-chave\n"
                + "\n".join("- " + p for p in a["pontos_chave"])
-               + f"\n\nTags: {', '.join(a['tags'])}\n\n## Transcrição\n{a['transcricao_limpa']}\n")
-    s = req("POST", base + "/sources/json", h, {"type": "text", "notebooks": [nid], "title": a["titulo"],
-                                                "content": content, "embed": True, "async_processing": True}, timeout=120)
+               + f"\n\nTags: {', '.join(a['tags'])}\n\n"
+               + (f"## Transcrição\n{a['transcricao_limpa']}\n" if video else f"## Texto\n{j['data']['transcript']}\n"))
+    if j["data"].get("kind") == "pagina":  # página: a URL é a fonte (o Open Notebook baixa e indexa)
+        src = {"type": "link", "url": j["orig"]}
+    else:  # vídeo: transcrição limpa; PDF/texto: o texto extraído, sem reescrita
+        src = {"type": "text", "content": content}
+    s = req("POST", base + "/sources/json", h, {**src, "notebooks": [nid], "title": a["titulo"],
+                                                "embed": True, "async_processing": True}, timeout=120)
     j["data"]["nb"] = s.get("id") or True
 
 
-STEP_FN = {"audio": step_audio, "transcricao": step_transcricao, "resumo": step_resumo,
+STEP_FN = {"tipo": step_tipo, "texto": step_texto, "audio": step_audio, "transcricao": step_transcricao, "resumo": step_resumo,
            "karakeep": step_karakeep, "notebook": step_notebook}
 
 
@@ -379,17 +497,30 @@ def done(s, d):
     return KEY[s] in d
 
 
+def steps(d):
+    if "kind" not in d:
+        return ["tipo"]
+    return ["tipo", *(["audio", "transcricao"] if d["kind"] == "video" else ["texto"]), "resumo", "karakeep", "notebook"]
+
+
 def run(jid):
     j = job(jid)
     c = cfg()
-    for s in STEPS:
-        if done(s, j["data"]):
-            continue
+    while s := next((s for s in steps(j["data"]) if not done(s, j["data"])), None):
         j.update(stage=s, status="rodando", error="")
         save(j)
         try:
-            need(c, "elevenlabs_key", "llm_url", "llm_key", "karakeep_url", "karakeep_key", "notebook_url")
+            need(c, "llm_url", "llm_key", "karakeep_url", "karakeep_key", "notebook_url")
             STEP_FN[s](j, c)
+        except Later as e:  # reagenda; depois de CRAWL_TRIES vira erro com motivo
+            n = j["data"].get("tentativas", 0) + 1
+            j["data"]["tentativas"] = n
+            if n > CRAWL_TRIES:
+                j.update(status="erro", error=f"{e} depois de {CRAWL_TRIES} tentativas. Abra o bookmark no Karakeep e reprocesse.")
+            else:
+                j.update(status="fila", error=f"{e}: tentativa {n}/{CRAWL_TRIES}, de novo em {CRAWL_WAIT // 60} min", after=time.time() + CRAWL_WAIT)
+            save(j)
+            return
         except Exception as e:  # erro fica no job; reprocessar retoma desta etapa
             j.update(status="erro", error=scrub(e)[:500])
             save(j)
@@ -402,13 +533,17 @@ def run(jid):
 
 
 def retry(jid):
-    q("UPDATE jobs SET status='fila', error='' WHERE id=? AND status='erro'", (jid,))
+    j = job(jid)
+    if j and j["status"] == "erro":
+        j["data"].pop("tentativas", None)
+        j.update(status="fila", error="", after=0)
+        save(j)
     WAKE.set()
 
 
 def worker():
     while True:
-        r = q("SELECT id FROM jobs WHERE status='fila' ORDER BY id LIMIT 1")
+        r = q("SELECT id FROM jobs WHERE status='fila' AND after<=? ORDER BY id LIMIT 1", (time.time(),))
         if r:
             run(r[0]["id"])
         else:
@@ -430,7 +565,7 @@ def handle_webhook(headers, body):
         op, url, bid = p.get("operation"), p.get("url"), p.get("bookmarkId")
     except (ValueError, AttributeError):
         return 400, {"error": "json inválido"}
-    if op != "created" or not url or not is_target(url):
+    if op != "created" or not (url or bid):
         return 200, {"ok": True, "queued": False}
     return 200, {"ok": True, "queued": add_job(url, bid)}
 
@@ -450,7 +585,7 @@ def poll_once():
     n, newest = 0, since
     for b in bs:
         ts, url = (b.get("createdAt") or "")[:19], (b.get("content") or {}).get("url")
-        if ts >= since and url and is_target(url):  # >= : add_job é idempotente
+        if ts >= since:  # >= : add_job é idempotente
             n += add_job(url, b.get("id"))
         newest = max(newest, ts)
     q("UPDATE kv SET v=? WHERE k='poll_since'", (newest,))
@@ -512,18 +647,18 @@ def queue_page(flash=""):
     rows = []
     for r in jobs:
         d = json.loads(r["data"] or "{}")
-        title = (d.get("analysis") or {}).get("titulo") or r["orig"]
+        title = (d.get("analysis") or {}).get("titulo") or r["orig"] or f"Bookmark {r['bookmark_id']}"
         retry_btn = (f'<form method="post" action="/retry/{r["id"]}"><button class="sec" type="submit">Reprocessar</button></form>'
                      if r["status"] == "erro" else "")
         err = f'<p class="err">{e(r["error"])}</p>' if r["error"] else ""
         rows.append(
             f'<article class="job"><h2>{e(title)}</h2><a href="{e(r["orig"])}" rel="noreferrer">{e(r["orig"])}</a>'
             f'<div class="meta"><span class="st {r["status"]}">{STATUS_PT.get(r["status"], r["status"])}</span>'
-            f'<span>{STAGE_PT.get(r["stage"], r["stage"])}</span><span>{fmt_time(r["created"])}</span>{retry_btn}</div>{err}</article>')
+            f'<span>{KIND_PT.get(r["kind"], "Tipo ?")}</span><span>{STAGE_PT.get(r["stage"], r["stage"])}</span><span>{fmt_time(r["created"])}</span>{retry_btn}</div>{err}</article>')
     body = ('<h1>Fila</h1><form class="add" method="post" action="/add"><label for="u" hidden>Link</label>'
-            '<input id="u" name="url" type="url" required placeholder="Cole o link do Reels ou TikTok" autocomplete="off">'
+            '<input id="u" name="url" type="url" required placeholder="Cole um link (Reels, TikTok, Reddit, página, PDF)" autocomplete="off">'
             '<button type="submit">Adicionar</button></form>'
-            + ("".join(rows) or '<p class="empty">Nenhum link ainda. Cole um acima ou compartilhe no Karakeep.</p>')
+            + ("".join(rows) or '<p class="empty">Nenhum item ainda. Cole um link acima ou salve no Karakeep.</p>')
             + '<p><a href="/">Atualizar</a></p>')
     return page("/", body, flash)
 
