@@ -27,6 +27,13 @@ Código: o compose monta `${APP_DATA_DIR}/app:/app:ro`. Se `/app/main.py` não e
 - Karakeep: `summary` = resumo; `note` é **substituída** pelos pontos-chave. Link colado à mão cria o bookmark.
 - Open Notebook: `POST /api/sources/json` `{type:text, notebooks:[id], embed:true, async_processing:true}`; embeddings dependem do provedor configurado lá.
 
+## Visão (v1.3)
+Só pra vídeo: download em ≤480p (Cobalt `downloadMode: auto` + `videoQuality: 480`; yt-dlp `b[height<=480]/bv*[height<=480]+ba/b/ba`). O mesmo arquivo vai pro Scribe (aceita mp4) e pro crv; depois é apagado.
+- Etapa `visao`: `python -m claude_real_video <vídeo> -o tmp/crv-<id> --overwrite --no-transcribe --grid --max-frames <Configurações, 60>`, com `CRV_NO_MEMORY=1`. Usa `grids/*.jpg` (3x3, cada célula com o nome do frame) e `frames.json` (nome → mm:ss).
+- Resumo: folhas como `image_url` `data:image/jpeg;base64` + `frames: frame_001.jpg=00:00 ...` + transcrição `[mm:ss]` (palavras do Scribe). Campo novo `o_que_aparece` vai pra nota do Karakeep ("O que aparece:") e pra fonte do Open Notebook ("## O que aparece na tela").
+- Total das folhas acima de ~4 MB: redimensiona com Pillow (vem com o crv).
+- Falhas não travam o job: crv/ffmpeg falhou, vídeo sumiu ou modelo recusou imagem → segue só com a transcrição e a Fila mostra `sem visão: <motivo>`.
+
 ## Coletores (v1.2)
 A cada 30 min (o 1º roda 1 min depois de subir), cada coletor ligado em Configurações busca itens novos. Cada item vira bookmark no Karakeep (`POST /api/v1/bookmarks`) e entra na fila. Dedupe por URL normalizada + tabela `seen`. Na 1ª coleta de cada fonte, só os 20 primeiros entram; o resto fica como visto (o histórico não é importado).
 
