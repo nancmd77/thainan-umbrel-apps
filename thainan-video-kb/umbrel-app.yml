@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs do Karakeep viram resumo, tags e fonte pesquisável
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.2.0"
+version: "1.3.0"
 port: 8519
 description: >-
   Salvou algo no Karakeep (Reels, TikTok, post do Reddit, página, PDF, nota)? Vídeo: o worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook. Página/PDF/nota: usa o texto que o Karakeep extraiu, resume do mesmo jeito; página entra no Open Notebook pela URL, PDF e nota pelo texto.
@@ -22,7 +22,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Coletores automáticos: o que você salva entra sozinho, sem compartilhar. A cada 30 min o worker olha suas playlists do YouTube (Assistir mais tarde, Curtidos ou outras), os salvos do Instagram, os salvos do Reddit (feed RSS) e os favoritos do TikTok (experimental). Cada coletor liga e desliga em Configurações. Item novo vira bookmark no Karakeep e segue o fluxo de sempre. Na primeira coleta só entram os 20 mais recentes de cada fonte. A Fila mostra o status de cada coletor e avisa quando os cookies vencem. Vídeo com mais de 60 min (ajustável) não é transcrito, pra não gastar Scribe.
+  A IA agora "assiste" o vídeo, não só ouve. O worker baixa o vídeo em 480p, tira até 60 frames (ajustável) com o claude-real-video e manda as folhas 3x3 pro Gemini junto com a transcrição com tempos. O resumo ganha "o que aparece": cronologia curta com mm:ss do que está na tela, texto escrito e ações, gravada no Karakeep e no Open Notebook. Se o modelo recusar imagem ou a extração falhar, segue só com a transcrição e a fila avisa "sem visão: motivo". O primeiro start instala o ffmpeg e demora alguns minutos.
 dependencies: []
 path: ""
 defaultUsername: ""
