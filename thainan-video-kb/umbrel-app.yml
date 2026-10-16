@@ -4,10 +4,12 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs do Karakeep viram resumo, tags e fonte pesquisável
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.1.0"
+version: "1.2.0"
 port: 8519
 description: >-
   Salvou algo no Karakeep (Reels, TikTok, post do Reddit, página, PDF, nota)? Vídeo: o worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook. Página/PDF/nota: usa o texto que o Karakeep extraiu, resume do mesmo jeito; página entra no Open Notebook pela URL, PDF e nota pelo texto.
+
+  Coletores (opcional): em Configurações ligue YouTube, Instagram salvos, Reddit salvos ou TikTok favoritos; cole os cookies (cookies.txt) ou o feed RSS do Reddit. O README explica como exportar.
 
   Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, Karakeep, Open Notebook). As chaves ficam só no volume do app.
 
@@ -20,7 +22,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Agora processa tudo que você salva no Karakeep, não só Reels/TikTok. Página, post do Reddit, PDF e nota de texto: o resumo sai do texto que o Karakeep já extraiu (se ele ainda estiver lendo a página, o worker tenta de novo até 3 vezes). Link com vídeo (Reddit, YouTube etc.) segue pela transcrição. Sem texto suficiente, o item fica com erro explicando o motivo, sem inventar resumo. A fila mostra o tipo (Vídeo, Página, PDF, Texto). Sua nota no Karakeep não é mais apagada: os pontos-chave entram embaixo dela.
+  Coletores automáticos: o que você salva entra sozinho, sem compartilhar. A cada 30 min o worker olha suas playlists do YouTube (Assistir mais tarde, Curtidos ou outras), os salvos do Instagram, os salvos do Reddit (feed RSS) e os favoritos do TikTok (experimental). Cada coletor liga e desliga em Configurações. Item novo vira bookmark no Karakeep e segue o fluxo de sempre. Na primeira coleta só entram os 20 mais recentes de cada fonte. A Fila mostra o status de cada coletor e avisa quando os cookies vencem. Vídeo com mais de 60 min (ajustável) não é transcrito, pra não gastar Scribe.
 dependencies: []
 path: ""
 defaultUsername: ""
