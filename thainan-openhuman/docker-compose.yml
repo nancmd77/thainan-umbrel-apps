@@ -6,7 +6,7 @@ services:
       APP_PORT: 7788
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/tinyhumansai/openhuman-core:latest
+    image: ghcr.io/tinyhumansai/openhuman-core:latest@sha256:c694baccddb47a41ea26db2f6f398fd387b1da1069e91e08ee6bd63509fbb9ab
     restart: on-failure
     environment:
       OPENHUMAN_APP_ENV: production

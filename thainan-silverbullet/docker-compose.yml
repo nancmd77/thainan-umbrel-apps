@@ -6,7 +6,7 @@ services:
       APP_PORT: 3000
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/silverbulletmd/silverbullet:latest
+    image: ghcr.io/silverbulletmd/silverbullet:latest@sha256:370a3bf2daa37b7dbba62183085c57d5d43862189ea127e0765646d230561d9d
     restart: on-failure
     environment:
       PUID: "0"

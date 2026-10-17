@@ -4,7 +4,7 @@ name: SilverBullet
 tagline: Creative space for notes — Markdown PKM
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-silverbullet/icon.png
 category: Productivity
-version: "1.0.1"
+version: "1.0.2"
 port: 3002
 description: >-
   SilverBullet is a self-hosted Markdown knowledge base and creative notes space.
@@ -18,7 +18,7 @@ repo: https://github.com/silverbulletmd/silverbullet
 support: https://github.com/silverbulletmd/silverbullet/issues
 gallery: []
 releaseNotes: >-
-  Run as PUID/PGID 0 so the space folder is writable (fixes space.folder / Permission denied).
+  Nova imagem latest publicada pelo projeto (sha256:370a3bf2daa3). (2026-10-17)
 dependencies: []
 path: ""
 defaultUsername: ""

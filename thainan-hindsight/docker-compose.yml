@@ -6,7 +6,7 @@ services:
       APP_PORT: 9999
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/vectorize-io/hindsight:latest
+    image: ghcr.io/vectorize-io/hindsight:latest@sha256:a88678c038b0e4340822b02a5efc566c56d8176b5bffa731bc433fd37f978e4c
     restart: on-failure
     shm_size: 1gb
     ports:

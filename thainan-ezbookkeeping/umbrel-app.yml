@@ -4,7 +4,7 @@ name: ezBookkeeping
 tagline: Lightweight personal finance bookkeeping
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-ezbookkeeping/icon.png
 category: Finance
-version: "1.0.0"
+version: "1.0.1"
 port: 8085
 description: >-
   ezBookkeeping is a lightweight self-hosted personal finance app with PWA support, multi-currency, and many import formats.
@@ -18,7 +18,7 @@ repo: https://github.com/mayswind/ezbookkeeping
 support: https://github.com/mayswind/ezbookkeeping/issues
 gallery: []
 releaseNotes: >-
-  Initial packaging for Thainan Umbrel Community App Store.
+  Nova imagem latest publicada pelo projeto (sha256:96093e4bd189). (2026-10-17)
 dependencies: []
 path: ""
 defaultUsername: ""

@@ -6,7 +6,7 @@ services:
       APP_PORT: 3000
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/ulsklyc/yuvomi:latest
+    image: ghcr.io/ulsklyc/yuvomi:latest@sha256:1cd5a0f83b8086dc1e5e535d1ed6c3665b7bfe15be062c1ec27f141b115e52e3
     restart: on-failure
     environment:
       NODE_ENV: production
