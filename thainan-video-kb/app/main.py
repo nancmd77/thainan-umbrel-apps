@@ -557,7 +557,7 @@ def step_resumo(j, c):
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64(g)}}
                 for g in imgs]
         return req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
-                   {"model": c["model"], "response_format": {"type": "json_object"},
+                   {"model": c["model"], "stream": False, "response_format": {"type": "json_object"},
                     "messages": [{"role": "system", "content": (PROMPT + (PROMPT_VISAO if com_imagens else "") if video else PROMPT_TEXTO) + ctx},
                                  {"role": "user", "content": user}]}, timeout=300 if com_imagens else 180)
 
