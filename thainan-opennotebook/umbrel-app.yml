@@ -4,7 +4,7 @@ name: Open Notebook
 tagline: Alternativa self-hosted ao NotebookLM, com busca e chat sobre suas fontes
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opennotebook/icon.png
 category: AI
-version: "1.15.0-1"
+version: "1.15.0-2"
 port: 8502
 description: >-
   Open Notebook organiza fontes (textos, links, PDFs, transcrições) em cadernos, com busca semântica, chat com citações e notas.
