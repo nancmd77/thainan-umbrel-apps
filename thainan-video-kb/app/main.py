@@ -650,9 +650,9 @@ def sb_get(c, path):
 SB_TEMA = """# {tema}
 
 ${{query[[from p = index.tag("page") where p.type == "reel" and p.tema == "{tema}" order by p.data desc select template.new[==[
-![](${{p.cover}})
-**[[${{p.name}}]]**
-${{p.resumo}}
+![](${{_.cover}})
+**[[${{_.name}}]]**
+${{_.resumo}}
 
 ---
 ]==](p)]]}}
@@ -677,7 +677,7 @@ def step_silverbullet(j, c):
           + ("## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
           + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
     sb_put(c, page + ".md", md)
-    if sb_get(c, tema + ".md") is None or "index.tag" not in (sb_get(c, tema + ".md") or ""):
+    if sb_get(c, tema + ".md") is None or "_.cover" not in (sb_get(c, tema + ".md") or ""):
         sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', "")))
     d["sb"] = {"page": page, "capa": capa, "tema": tema}
     d["sb2"] = True
