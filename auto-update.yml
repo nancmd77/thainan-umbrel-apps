@@ -57,3 +57,6 @@ thainan-wallos:
 thainan-yuvomi:
   image: ghcr.io/ulsklyc/yuvomi
   mode: digest
+thainan-9router:
+  image: ghcr.io/nancmd77/9router
+  mode: tag
