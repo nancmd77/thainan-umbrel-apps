@@ -1,0 +1,32 @@
+name: Auto-update apps
+
+on:
+  schedule:
+    - cron: "17 9 * * *"   # todo dia, 06:17 em São Paulo
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-update
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: bump
+        run: python3 .github/scripts/bump.py
+      - name: Commit
+        if: steps.bump.outputs.changed != ''
+        run: |
+          git config user.name "appstore-bot"
+          git config user.email "appstore-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "auto-update: ${{ steps.bump.outputs.changed }}"
+          git push
