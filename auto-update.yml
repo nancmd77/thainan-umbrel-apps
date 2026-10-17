@@ -1,0 +1,59 @@
+# Apps da Thainan Appstore que se atualizam sozinhos (bump.py, todo dia).
+# mode tag: segue a maior versão estável do registry. mode digest: :latest preso no digest, troca quando muda.
+thainan-freellmapi:
+  image: ghcr.io/tashfeenahmed/freellmapi
+  mode: tag
+thainan-chatwoot:
+  image: chatwoot/chatwoot
+  mode: tag
+thainan-opennotebook:
+  image: lfnovo/open_notebook
+  mode: tag
+thainan-chatto:
+  image: ghcr.io/chattocorp/chatto
+  mode: digest
+thainan-crawl4ai:
+  image: unclecode/crawl4ai
+  mode: digest
+thainan-ezbookkeeping:
+  image: mayswind/ezbookkeeping
+  mode: digest
+thainan-hindsight:
+  image: ghcr.io/vectorize-io/hindsight
+  mode: digest
+thainan-inkvoice:
+  image: ghcr.io/pigontech/inkvoice
+  mode: digest
+thainan-invoiceshelf:
+  image: invoiceshelf/invoiceshelf
+  mode: digest
+thainan-langflow:
+  image: langflowai/langflow
+  mode: digest
+thainan-opendesign:
+  image: ghcr.io/nexu-io/od
+  mode: digest
+thainan-opengym:
+  image: ghcr.io/duartesantos8/opengym-api
+  mode: digest
+thainan-openhuman:
+  image: ghcr.io/tinyhumansai/openhuman-core
+  mode: digest
+thainan-readest:
+  image: ghcr.io/readest/readest
+  mode: digest
+thainan-silverbullet:
+  image: ghcr.io/silverbulletmd/silverbullet
+  mode: digest
+thainan-spliit:
+  image: ghcr.io/spliit-app/spliit
+  mode: digest
+thainan-trek:
+  image: mauriceboe/trek
+  mode: digest
+thainan-wallos:
+  image: bellamy/wallos
+  mode: digest
+thainan-yuvomi:
+  image: ghcr.io/ulsklyc/yuvomi
+  mode: digest
