@@ -70,7 +70,7 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb4"}
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb5"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
@@ -589,6 +589,7 @@ def step_resumo(j, c):
     a["tema"] = pick_tema(a["tema"], temas)
     by = {fold(t): t for t in tags}
     a["tags"] = list(dict.fromkeys(by.get(fold(t), t) for t in a["tags"]))  # grafia da tag existente
+    a["estilo"] = 1  # já nasce no ESTILO
     j["data"]["analysis"] = a
     if vis.get("dir"):
         shutil.rmtree(vis["dir"], ignore_errors=True)  # folhas já usadas
@@ -683,8 +684,31 @@ def sb_sintese(j, c, tema):
         return ""
 
 
+def sb_reestilo(j, c):
+    """Uma vez por Reel antigo: reescreve resumo/pontos/o que aparece no ESTILO (sem tocar fatos, título, tema, tags, transcrição)."""
+    a = j["data"]["analysis"]
+    if a.get("estilo"):
+        return
+    campos = {k: a[k] for k in ("resumo", "pontos_chave", "o_que_aparece") if a.get(k)}
+    try:
+        r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
+                {"model": c["model"], "stream": False, "messages": [
+                    {"role": "system", "content": "Reescreva os campos deste JSON em português do Brasil sem mudar fatos, sem acrescentar nem tirar informação. "
+                     "Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a 4 frases; listas continuam listas de strings)." + ESTILO},
+                    {"role": "user", "content": json.dumps(campos, ensure_ascii=False)}]}, timeout=180)
+        txt = r["choices"][0]["message"]["content"].strip()
+        novo = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
+        for k, v in campos.items():
+            if type(novo.get(k)) is type(v) and novo[k]:
+                a[k] = novo[k]
+        a["estilo"] = 1
+    except Exception as e:
+        log(f"job {j['id']} sem reestilo: {scrub(e)[:120]}")
+
+
 def step_silverbullet(j, c):
     need(c, "sb_url", "sb_token")
+    sb_reestilo(j, c)
     d, a = j["data"], j["data"]["analysis"]
     page = "Reels/" + sb_nome(a["titulo"])
     capa = (d.get("sb") or {}).get("capa") or sb_capa(j, c)
@@ -703,7 +727,7 @@ def step_silverbullet(j, c):
     sb_put(c, page + ".md", md)
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
     d["sb"] = {"page": page, "capa": capa, "tema": tema}
-    d["sb4"] = True
+    d["sb5"] = True
 
 
 def step_notebook(j, c):
@@ -1113,7 +1137,7 @@ class H(BaseHTTPRequestHandler):
         elif path == "/config":
             save_form(form)
             if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
-                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb4\"%'")
+                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb5\"%'")
                 WAKE.set()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
