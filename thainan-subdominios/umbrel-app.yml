@@ -1,0 +1,28 @@
+manifestVersion: 1
+id: thainan-subdominios
+name: Subdomínios
+tagline: Cada app instalado ganha app.nonve.dpdns.org sozinho
+icon: https://github.com/caddyserver.png
+category: Networking
+version: "1.0.0"
+port: 8790
+description: >-
+  Lê os apps instalados no Umbrel e liga <app>.nonve.dpdns.org na porta de cada um
+  (o prefixo thainan- sai do nome). Instalou um app, em até 30 s ele tem endereço.
+  Funciona junto com a regra curinga *.nonve.dpdns.org no túnel Cloudflare "nonve",
+  que aponta para a porta 8791. Subdomínios configurados à mão no túnel continuam
+  valendo e têm prioridade. Excluídos: cloudflared, tailscale, murmur, cobalt.
+  Cada app continua com o próprio login (ou o login do Umbrel, se ligado no app).
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/caddyserver/caddy
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão. (2026-10-17)
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
