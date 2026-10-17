@@ -6,7 +6,7 @@ services:
       APP_PORT: 7860
       PROXY_AUTH_ADD: "false"
   web:
-    image: langflowai/langflow:latest
+    image: langflowai/langflow:latest@sha256:a0396e089eb97fa471ef8affc492b8c56abb3758040a5ddaa80814b0abad15bf
     restart: on-failure
     environment:
       LANGFLOW_HOST: "0.0.0.0"

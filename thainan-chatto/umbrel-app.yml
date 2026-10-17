@@ -4,7 +4,7 @@ name: Chatto
 tagline: Self-hosted team & community chat
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-chatto/icon.png
 category: Social
-version: "1.0.0"
+version: "1.0.1"
 port: 4000
 description: >-
   Chatto is an open-source team and community chat app.
@@ -20,7 +20,7 @@ repo: https://github.com/chattocorp/chatto
 support: https://github.com/chattocorp/chatto/issues
 gallery: []
 releaseNotes: >-
-  Initial packaging for Thainan Umbrel Community App Store (embedded NATS, no LiveKit).
+  Nova imagem latest publicada pelo projeto (sha256:8b9bb312a0dc). (2026-10-17)
 dependencies: []
 path: ""
 defaultUsername: ""
