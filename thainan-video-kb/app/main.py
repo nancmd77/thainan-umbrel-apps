@@ -30,23 +30,20 @@ from urllib.parse import parse_qsl, parse_qs, urlencode, urlsplit
 
 DATA = os.environ.get("DATA_DIR", "/data")
 PORT = int(os.environ.get("PORT", "8080"))
-POLL_SECS = 300
-COL_SECS, FIRST_RUN = 1800, 20  # coletores: a cada 30 min; 1ª coleta de cada fonte só pega os 20 mais recentes
-COOKIE_ERR = re.compile(r"login|log in|sign in|cookie|authentica|401|403|private|checkpoint", re.I)
 SCRIBE_MODEL = "scribe_v2"  # doc POST /v1/speech-to-text (confirmado 2026-10)
+COOKIE_ERR = re.compile(r"login|log in|sign in|cookie|authentica|401|403|private|checkpoint", re.I)
 SITES = ("instagram.com", "tiktok.com")  # sempre vídeo; outros links: sonda do yt-dlp decide
 GRIDS_MAX = 4_000_000  # folhas 3x3 pro Gemini: acima disso redimensiona
 MIN_TEXT = 200  # menos que isso não dá resumo honesto
-CRAWL_TRIES, CRAWL_WAIT = 3, 120  # Karakeep ainda lendo a página: reagenda até 3x, 2 min
 KIND_PT = {"video": "Vídeo", "pagina": "Página", "pdf": "PDF", "texto": "Texto"}
 
-# (chave, rótulo, tipo, dica, padrão)
+# (chave, rótulo, tipo, dica, padrão). Tipo "h" abre seção recolhível. Padrões = comportamento da v1.4 (menos a qualidade do vídeo).
 FIELDS = [
+    ("h_con", "Conexões", "h", "", ""),
     ("elevenlabs_key", "Chave ElevenLabs", "secret", "Scribe (transcrição).", ""),
     ("llm_url", "URL do 9Router", "text", "OpenAI-compatível (termina em /v1).", "http://thainan-9router_web_1:20128/v1"),
     ("llm_key", "Chave 9Router", "secret", "Resumo com Gemini.", ""),
-    ("model", "Modelo", "text", "Nome do modelo no 9Router.", "ag/gemini-3.8-flash-medium"),
-    ("cobalt_url", "URL do Cobalt", "text", "Baixa o áudio.", "http://192.168.18.171:9013"),
+    ("cobalt_url", "URL do Cobalt", "text", "Baixa o vídeo.", "http://192.168.18.171:9013"),
     ("karakeep_url", "URL do Karakeep", "text", "", "http://192.168.18.171:8620"),
     ("karakeep_key", "API key do Karakeep", "secret", "Karakeep > Configurações > API keys.", ""),
     ("notebook_url", "URL do Open Notebook (API)", "text", "Porta 5055.", "http://thainan-opennotebook_web_1:5055"),
@@ -54,9 +51,49 @@ FIELDS = [
     ("sb_url", "URL do SilverBullet", "text", "Segundo cérebro (porta 3002). Vazio = desligado.", "http://192.168.18.171:3002"),
     ("sb_token", "Token do SilverBullet", "secret", "Token de API do SilverBullet.", ""),
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
-    ("max_frames", "Visão: máximo de frames", "text", "Frames que o crv tira do vídeo (viram folhas 3x3 pro Gemini).", "60"),
-    ("max_min", "Duração máxima de vídeo (min)", "text", "Vídeo mais longo não é transcrito (custo do Scribe). Vale pra links fora de IG/TikTok.", "60"),
-    ("h_col", "Coletores automáticos (a cada 30 min)", "h", "Cada item novo vira bookmark no Karakeep e entra na fila. 1ª coleta: só os 20 mais recentes de cada fonte.", ""),
+    ("h_ia", "IA e textos", "h", "", ""),
+    ("model", "Modelo de resumo", "text", "Nome do modelo no 9Router.", "ag/gemini-3.8-flash-medium"),
+    ("model_visao", "Modelo de visão", "text", "Usado quando vão as imagens do vídeo. Vazio = o de resumo.", ""),
+    ("model_sintese", "Modelo de síntese", "text", "Síntese do assunto e reestilo. Vazio = o de resumo.", ""),
+    ("model_reserva", "Modelo reserva", "text", "Tentado uma vez se o principal falhar. Vazio = sem reserva.", ""),
+    ("resumo_frases", "Resumo: máximo de frases", "num", "O resumo tem de 2 até este número de frases.", "4"),
+    ("pontos_max", "Pontos-chave: máximo", "num", "De 3 até este número.", "7"),
+    ("tags_max", "Tags: máximo", "num", "De 3 até este número.", "8"),
+    ("assuntos_fixos", "Assuntos fixos", "lines", "Um por linha. Preenchido: a IA só escolhe daqui (se errar, vai pro primeiro). Vazio = livre.", ""),
+    ("estilo_extra", "Instrução extra de estilo", "lines", "Soma ao estilo fixo (humanizado, curto, TDAH). Não substitui.", ""),
+    ("sintese_on", "Síntese por assunto no SilverBullet", "bool", "", "1"),
+    ("reestilo_on", "Reescrever no estilo os Reels antigos", "bool", "", "1"),
+    ("h_video", "Vídeo e mídia", "h", "", ""),
+    ("dl_ordem", "Ordem do download", "choice", "Se o primeiro falhar, tenta o outro.", "cobalt"),
+    ("dl_qualidade", "Qualidade do download", "choice", "Vídeos curtos. Máxima = original.", "max"),
+    ("curto_min", "Vídeo curto: até (min)", "num", "Até aqui é curto. Acima é longo.", "3"),
+    ("curto_mb", "Vídeo curto: limite no SilverBullet (MB)", "num", "Passou disso: comprime em H.264 pra caber. Cabe: vai o original.", "60"),
+    ("longo_politica", "Vídeos longos no SilverBullet", "choice", "", "link"),
+    ("longo_res", "Vídeo longo: resolução", "choice", "Usada no download e na compressão de longos.", "720"),
+    ("longo_mb", "Vídeo longo: limite (MB)", "num", "Só vale com \"enviar comprimido\".", "200"),
+    ("tl_quadros", "Linha do tempo: quadros", "num", "Máximo de quadros na página do Reel.", "16"),
+    ("tl_largura", "Linha do tempo: largura dos quadros (px)", "num", "", "360"),
+    ("idioma", "Idioma da transcrição", "text", "Vazio = automático. Ou código ISO: por, eng, spa.", ""),
+    ("max_frames", "Visão: máximo de frames", "num", "Frames que o crv tira do vídeo (viram folhas 3x3 pro Gemini).", "60"),
+    ("max_min", "Duração máxima de vídeo (min)", "num", "Vídeo mais longo não é transcrito (custo do Scribe). Vale pra links fora de IG/TikTok.", "60"),
+    ("h_dest", "Destinos", "h", "Desligar para de gravar ali. O Karakeep continua sendo a entrada dos links.", ""),
+    ("kk_on", "Gravar no Karakeep (resumo, nota, tags, lista)", "bool", "", "1"),
+    ("nb_on", "Enviar ao Open Notebook", "bool", "", "1"),
+    ("sb_on", "Escrever no SilverBullet", "bool", "", "1"),
+    ("sb_reels", "SilverBullet: pasta dos Reels", "text", "Mudar o nome não apaga a pasta antiga.", "Reels"),
+    ("sb_temas", "SilverBullet: pasta dos assuntos", "text", "", "Temas"),
+    ("sb_pagina", "SilverBullet: página principal", "text", "", "Video KB"),
+    ("h_quadro", "Quadro Excalidraw", "h", "Precisa do plug silverbullet-excalidraw.", ""),
+    ("quadro_on", "Gerar o quadro", "bool", "", "1"),
+    ("quadro_cols", "Colunas por assunto", "num", "", "4"),
+    ("quadro_altura", "Altura na página (px)", "num", "", "750"),
+    ("quadro_tema", "Tema do quadro", "choice", "", "dark"),
+    ("h_col", "Coletores e fila", "h", "Cada item novo vira bookmark no Karakeep e entra na fila.", ""),
+    ("col_min", "Intervalo da coleta (min)", "num", "", "30"),
+    ("first_run", "Itens na 1ª coleta", "num", "1ª coleta de cada fonte: só os N mais recentes. O resto vira visto.", "20"),
+    ("crawl_tries", "Karakeep lendo a página: tentativas", "num", "", "3"),
+    ("crawl_wait", "Karakeep lendo a página: espera (s)", "num", "", "120"),
+    ("poll_secs", "Busca de bookmarks novos no Karakeep (s)", "num", "Reserva do webhook.", "300"),
     ("col_youtube", "YouTube: playlists", "bool", "", ""),
     ("yt_playlists", "Playlists do YouTube", "lines", "Uma por linha: URL da playlist, :ytwatchlater (Assistir mais tarde) ou LL (Curtidos).", ":ytwatchlater\nLL"),
     ("yt_cookies", "Cookies do YouTube", "area", "cookies.txt (Netscape). Obrigatório pra Assistir mais tarde e Curtidos.", ""),
@@ -68,10 +105,23 @@ FIELDS = [
     ("col_tiktok", "TikTok: favoritos (experimental)", "bool", "", ""),
     ("tt_user", "Usuário do TikTok", "text", "Sem @.", ""),
     ("tt_cookies", "Cookies do TikTok", "area", "cookies.txt (Netscape). Usado pelo coletor e pelo download.", ""),
+    ("h_tela", "Tela", "h", "", ""),
+    ("ui_tema", "Tema da tela", "choice", "Automático segue o sistema (claro/escuro).", "auto"),
 ]
+NUM = {"resumo_frases": (2, 10), "pontos_max": (3, 15), "tags_max": (3, 20), "curto_min": (1, 60), "curto_mb": (5, 2000), "longo_mb": (10, 4000),
+       "tl_quadros": (1, 60), "tl_largura": (120, 1920), "max_frames": (9, 200), "max_min": (1, 600), "quadro_cols": (1, 12),
+       "quadro_altura": (300, 3000), "col_min": (5, 1440), "first_run": (1, 200), "crawl_tries": (0, 20), "crawl_wait": (30, 3600), "poll_secs": (60, 3600)}
+CHOICES = {"dl_ordem": [("cobalt", "Cobalt, depois yt-dlp"), ("ytdlp", "yt-dlp, depois Cobalt")],
+           "dl_qualidade": [("max", "Máxima (original)"), ("1080", "1080p"), ("720", "720p"), ("480", "480p")],
+           "longo_politica": [("link", "Não enviar o vídeo: link do original + capa + quadros"), ("comprimir", "Enviar comprimido")],
+           "longo_res": [("1080", "1080p"), ("720", "720p"), ("480", "480p"), ("360", "360p")],
+           "quadro_tema": [("dark", "Escuro"), ("light", "Claro")],
+           "ui_tema": [("auto", "Automático"), ("claro", "Claro"), ("escuro", "Escuro")]}
 SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
+TYPE = {k: t for k, _, t, _, _ in FIELDS}
+LABEL = {k: l for k, l, _, _, _ in FIELDS}
 
 KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb7"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
@@ -99,6 +149,22 @@ def cfg():
     except (OSError, ValueError):
         saved = {}
     return {**DEFAULTS, **saved}
+
+
+def num(c, k):
+    """Número da config; inválido (config antiga ou editada à mão) = padrão."""
+    try:
+        return int(c.get(k))
+    except (TypeError, ValueError):
+        return int(DEFAULTS[k])
+
+
+def valida(k, v):
+    """Campo numérico do formulário/importação: inteiro dentro de NUM[k]. Erro = ValueError com mensagem pro usuário."""
+    lo, hi = NUM[k]
+    if not re.fullmatch(r"-?\d+", str(v).strip()) or not lo <= int(v) <= hi:
+        raise ValueError(f"{LABEL[k]}: use um número de {lo} a {hi}")
+    return str(int(v))
 
 
 def cfg_save(updates):
@@ -229,9 +295,9 @@ def need(c, *keys):
         raise RuntimeError("Configure em Configurações: " + ", ".join(miss))
 
 
-def cobalt_audio(c, url, out):
+def cobalt_video(c, url, out, qual):
     r = req("POST", c["cobalt_url"].rstrip("/") + "/", {"Accept": "application/json"},
-            {"url": url, "downloadMode": "auto", "videoQuality": "480"}, timeout=90)  # vídeo leve: Scribe + visão
+            {"url": url, "downloadMode": "auto", "videoQuality": qual}, timeout=90)
     link = r.get("url") if r.get("status") in ("tunnel", "redirect") else (r.get("audio") if r.get("status") == "picker" else None)
     if not link:
         raise RuntimeError("Cobalt: " + str((r.get("error") or {}).get("code") or r.get("status") or r)[:150])
@@ -264,8 +330,10 @@ def site_cookies(c, url):
     return next((c.get(k) for d, k in COOKIES.items() if h == d or h.endswith("." + d)), None)
 
 
-def ytdlp_audio(c, url, out):
-    cmd = [sys.executable, "-m", "yt_dlp", "-f", "b[height<=480]/bv*[height<=480]+ba/b/ba", "--no-playlist", "-o", out + ".%(ext)s", url]
+def ytdlp_video(c, url, out, qual):
+    h = "" if qual == "max" else f"[height<={qual}]"
+    cmd = [sys.executable, "-m", "yt_dlp", "-f", f"bv*{h}[vcodec^=avc1]+ba[ext=m4a]/b{h}[ext=mp4]/bv*{h}+ba/b{h}/b/ba",
+           "--merge-output-format", "mp4", "--no-playlist", "-o", out + ".%(ext)s", url]
     with cookie_file(site_cookies(c, url)) as ck:
         p = subprocess.run(cmd + (["--cookies", ck] if ck else []), capture_output=True, text=True, timeout=300)
     files = [f for f in glob.glob(out + ".*") if not f.endswith(".part")]
@@ -314,11 +382,12 @@ def step_tipo(j, c):
     if t == "link":
         if not j["orig"]:
             j["orig"] = ct.get("url") or ""
-        dur, lim = has_media(ct.get("url") or j["orig"]), int(c.get("max_min") or 60)
+        dur, lim = has_media(ct.get("url") or j["orig"]), num(c, "max_min")
         if dur > lim * 60:
             raise RuntimeError(f"Vídeo longo ({dur // 60:.0f} min, limite {lim} min): não transcrevi pra não gastar Scribe. "
                                "Aumente o limite em Configurações e reprocesse.")
         j["data"]["kind"] = "video" if dur else "pagina"
+        j["data"]["dur"] = dur  # curto/longo (qualidade do download e política do SilverBullet)
     elif t == "asset" and ct.get("assetType") == "pdf":
         j["data"]["kind"] = "pdf"
     elif t == "text":
@@ -367,31 +436,57 @@ def step_texto(j, c):
             text = ct["title"] + "\n\n" + text
     text = text.strip()
     if len(text) < MIN_TEXT:
-        if kind == "pdf" and not text and j["data"].get("tentativas", 0) < CRAWL_TRIES:
+        if kind == "pdf" and not text and j["data"].get("tentativas", 0) < num(c, "crawl_tries"):
             raise Later("Karakeep ainda extraindo o PDF")
         raise RuntimeError(f"Sem texto suficiente pra resumir ({len(text)} caracteres extraídos pelo Karakeep). "
                            + {"pdf": "PDF escaneado/imagem?", "texto": "Nota curta demais.", "pagina": "Página bloqueada ou só imagem/vídeo?"}[kind])
     j["data"]["transcript"] = text
 
 
+def baixar(c, url, out, qual):
+    """Vídeo na qualidade pedida ("max" = original), na ordem da config; falhou um, tenta o outro."""
+    fns = [cobalt_video, ytdlp_video] if c.get("dl_ordem") != "ytdlp" else [ytdlp_video, cobalt_video]
+    erros = []
+    for fn in fns:
+        try:
+            return fn(c, url, out, qual)
+        except Exception as e:
+            erros.append(str(e))
+    raise RuntimeError(" | ".join(erros))
+
+
+def qual_download(c, dur):
+    """Curto: qualidade da config. Longo: no máximo a resolução de longos (não baixa 4K de 1 h)."""
+    q = c.get("dl_qualidade") or "max"
+    if dur > num(c, "curto_min") * 60:
+        return str(min(int(c.get("longo_res") or 720), 99999 if q == "max" else int(q)))
+    return q
+
+
 def step_audio(j, c):
     need(c, "elevenlabs_key")  # sem chave não adianta baixar
-    out = os.path.join(DATA, "tmp", str(j["id"]))
-    try:
-        j["data"]["audio"] = cobalt_audio(c, j["orig"], out)
-    except Exception as e1:
-        try:
-            j["data"]["audio"] = ytdlp_audio(c, j["orig"], out)
-        except Exception as e2:
-            raise RuntimeError(f"{e1} | {e2}")
+    j["data"]["audio"] = baixar(c, j["orig"], os.path.join(DATA, "tmp", str(j["id"])), qual_download(c, j["data"].get("dur", 0)))
+
+
+def so_audio(media):
+    """Scribe só precisa do áudio: mp3 mono 64k, bem menor que o vídeo. Sem ffmpeg ou falhou: manda o arquivo como está."""
+    if media.endswith(".mp3") or not shutil.which("ffmpeg"):
+        return media
+    out = os.path.splitext(media)[0] + "-audio.mp3"
+    p = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", media, "-vn", "-ac", "1", "-b:a", "64k", out], capture_output=True, timeout=900)
+    return out if p.returncode == 0 and os.path.exists(out) else media
 
 
 def step_transcricao(j, c):
     need(c, "elevenlabs_key")
-    path = j["data"]["audio"]
-    with open(path, "rb") as f:
-        body, ctype = multipart({"model_id": SCRIBE_MODEL, "tag_audio_events": "false", "diarize": "false"},
-                                os.path.basename(path), f.read())
+    path = so_audio(j["data"]["audio"])
+    campos = {"model_id": SCRIBE_MODEL, "tag_audio_events": "false", "diarize": "false", **({"language_code": c["idioma"]} if c.get("idioma") else {})}
+    try:
+        with open(path, "rb") as f:
+            body, ctype = multipart(campos, os.path.basename(path), f.read())
+    finally:
+        if path != j["data"]["audio"]:
+            os.remove(path)
     r = req("POST", "https://api.elevenlabs.io/v1/speech-to-text",
             {"xi-api-key": c["elevenlabs_key"], "Content-Type": ctype}, body, timeout=300)
     text = (r.get("text") or "").strip()
@@ -456,7 +551,7 @@ def step_visao(j, c):
             raise RuntimeError("vídeo baixado não está mais aqui")
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg não instalado")
-        run_crv(media, out, int(c.get("max_frames") or 60))
+        run_crv(media, out, num(c, "max_frames"))
         grids = sorted(glob.glob(os.path.join(out, "grids", "*.jpg")))
         if not grids:
             raise RuntimeError("crv não gerou folhas (foto/carrossel?)")
@@ -470,7 +565,7 @@ def step_visao(j, c):
         shutil.rmtree(out, ignore_errors=True)
     finally:
         if media and os.path.exists(media):
-            if cfg().get("sb_url") and cfg().get("sb_token") and d.get("kind", "video") == "video":
+            if sb_ligado(c) and d.get("kind", "video") == "video":
                 os.makedirs(os.path.join(DATA, "sbmedia"), exist_ok=True)  # vai pro SilverBullet na última etapa
                 shutil.move(media, os.path.join(DATA, "sbmedia", f"{j['id']}{os.path.splitext(media)[1] or '.mp4'}"))
             else:
@@ -479,8 +574,8 @@ def step_visao(j, c):
 
 PROMPT = (
     "Você analisa conteúdo salvo: transcrição de vídeo curto, página, post ou PDF. Responda SOMENTE um JSON, em português do Brasil, com as chaves: "
-    '"titulo" (até 80 caracteres), "gancho" (1 frase de até 100 caracteres dizendo do que se trata, para ler sem abrir), "resumo" (2 a 4 frases), "pontos_chave" (3 a 7 strings), '
-    '"tags" (3 a 8, minúsculas, sem #, 1 a 2 palavras), "tema" (1 a 3 palavras, Title Case, genérico para agrupar conteúdos '
+    '"titulo" (até 80 caracteres), "gancho" (1 frase de até 100 caracteres dizendo do que se trata, para ler sem abrir), "resumo" (2 a {frases} frases), "pontos_chave" (3 a {pontos} strings), '
+    '"tags" (3 a {tags}, minúsculas, sem #, 1 a 2 palavras), "tema" (1 a 3 palavras, Title Case, genérico para agrupar conteúdos '
     'parecidos, ex.: "Marketing", "Saúde", "Finanças"), '
     '"transcricao_limpa" (a transcrição com pontuação e erros de reconhecimento corrigidos, sem inventar conteúdo).'
 )
@@ -491,6 +586,37 @@ ESTILO = (
     "caveman ultra: frase curta, corta artigo e enchimento quando der, sem rodeio, fato direto, palavra concreta; "
     "TDAH: o mais útil primeiro, um assunto por item, ação prática quando existir, nada de parágrafo longo."
 )
+
+
+def estilo(c):
+    """ESTILO fixo sempre vai; a instrução do usuário só soma."""
+    extra = (c.get("estilo_extra") or "").strip()
+    return ESTILO + (" Instrução extra do usuário (soma ao estilo acima, não substitui): " + extra if extra else "")
+
+
+def prompt(c, video):
+    return (PROMPT if video else PROMPT_TEXTO).format(frases=num(c, "resumo_frases"), pontos=num(c, "pontos_max"), tags=num(c, "tags_max"))
+
+
+def llm(c, body, modelo, timeout=180):
+    """Chat no 9Router. Principal falhou e há reserva diferente: tenta uma vez com a reserva."""
+    url, h = c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]}
+    try:
+        return req("POST", url, h, {**body, "model": modelo}, timeout=timeout)
+    except Exception:
+        if not c.get("model_reserva") or c["model_reserva"] == modelo:
+            raise
+        log(f"modelo {modelo} falhou; tentando a reserva")
+        return req("POST", url, h, {**body, "model": c["model_reserva"]}, timeout=timeout)
+
+
+def linhas(v):
+    return [x.strip() for x in (v or "").splitlines() if x.strip()]
+
+
+def tema_fixo(tema, fixos):
+    """Assuntos fixos: o tema tem que ser um deles (grafia da lista); a IA errou = primeiro da lista."""
+    return next((f for f in fixos if fold(f) == fold(tema)), fixos[0])
 
 
 PROMPT_VISAO = (
@@ -536,7 +662,7 @@ def kk_tags(c):
     return [t["name"] for t in r.get("tags", [])][:200]  # ponytail: 200 mais usadas; paginar se o prompt ficar curto
 
 
-def parse_analysis(raw, transcript):
+def parse_analysis(raw, transcript, tags_max=8):
     raw = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip()
     a = json.loads(raw)
     tags = [re.sub(r"\s+", " ", str(t)).strip().lstrip("#").lower() for t in a.get("tags") or []]
@@ -545,7 +671,7 @@ def parse_analysis(raw, transcript):
         "gancho": str(a.get("gancho") or "").strip()[:120],
         "resumo": str(a.get("resumo") or "").strip(),
         "pontos_chave": [str(p).strip() for p in a.get("pontos_chave") or [] if str(p).strip()],
-        "tags": list(dict.fromkeys(t for t in tags if t))[:8],
+        "tags": list(dict.fromkeys(t for t in tags if t))[:tags_max],
         "tema": re.sub(r"\s+", " ", str(a.get("tema") or "Geral")).strip()[:60] or "Geral",
         "transcricao_limpa": str(a.get("transcricao_limpa") or "").strip() or transcript,
         "o_que_aparece": [str(x).strip() for x in (a.get("o_que_aparece") if isinstance(a.get("o_que_aparece"), list)
@@ -555,11 +681,13 @@ def parse_analysis(raw, transcript):
 
 def step_resumo(j, c):
     need(c, "llm_url", "llm_key")
-    temas = nomes(lambda: [n["name"] for n in notebooks(c)]) if c.get("notebook_url") else []
-    tags = nomes(lambda: kk_tags(c)) if c.get("karakeep_url") and c.get("karakeep_key") else []
-    ctx = ("\n\nCadernos (temas) que já existem: " + json.dumps(temas, ensure_ascii=False)
+    fixos = linhas(c.get("assuntos_fixos"))
+    temas = fixos or (nomes(lambda: [n["name"] for n in notebooks(c)]) if c.get("notebook_url") and c.get("nb_on") == "1" else [])
+    ctx = ("\n\nAssuntos permitidos: " + json.dumps(fixos, ensure_ascii=False) + '. O "tema" TEM que ser um desses, escrito igual.' if fixos
+           else "\n\nCadernos (temas) que já existem: " + json.dumps(temas, ensure_ascii=False)
            + ". O tema DEVE ser um desses, escrito igual, quando couber. Só crie tema novo se nenhum servir: nome curto em português do Brasil."
            if temas else "")
+    tags = nomes(lambda: kk_tags(c)) if c.get("karakeep_url") and c.get("karakeep_key") else []
     ctx += ("\nTags que já existem: " + json.dumps(tags, ensure_ascii=False)
             + ". Reaproveite essas quando couberem; crie tag nova só se nenhuma servir." if tags else "")
     d = j["data"]
@@ -575,10 +703,10 @@ def step_resumo(j, c):
             user = [{"type": "text", "text": f"frames: {vis['frames']}\n\nTranscrição com tempos:\n{texto}"}] + [
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64(g)}}
                 for g in imgs]
-        return req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
-                   {"model": c["model"], "stream": False, "response_format": {"type": "json_object"},
-                    "messages": [{"role": "system", "content": (PROMPT + (PROMPT_VISAO if com_imagens else "") if video else PROMPT_TEXTO) + ESTILO + ctx},
-                                 {"role": "user", "content": user}]}, timeout=300 if com_imagens else 180)
+        return llm(c, {"stream": False, "response_format": {"type": "json_object"},
+                       "messages": [{"role": "system", "content": prompt(c, video) + (PROMPT_VISAO if video and com_imagens else "") + estilo(c) + ctx},
+                                    {"role": "user", "content": user}]},
+                   (c.get("model_visao") or c["model"]) if com_imagens else c["model"], timeout=300 if com_imagens else 180)
 
     if video and imgs:
         try:
@@ -591,10 +719,10 @@ def step_resumo(j, c):
             d["aviso"] = "sem visão: folhas sumiram antes do resumo"
         r = ask(False)
     try:
-        a = parse_analysis(r["choices"][0]["message"]["content"], j["data"]["transcript"])
+        a = parse_analysis(r["choices"][0]["message"]["content"], j["data"]["transcript"], num(c, "tags_max"))
     except (KeyError, IndexError, ValueError, TypeError) as e:
         raise RuntimeError(f"Resposta do modelo inválida ({type(e).__name__})")
-    a["tema"] = pick_tema(a["tema"], temas)
+    a["tema"] = tema_fixo(a["tema"], fixos) if fixos else pick_tema(a["tema"], temas)
     by = {fold(t): t for t in tags}
     a["tags"] = list(dict.fromkeys(by.get(fold(t), t) for t in a["tags"]))  # grafia da tag existente
     a["estilo"] = 2  # já nasce no ESTILO, com gancho
@@ -653,7 +781,7 @@ def yt_capa(c, url):
 
 def sb_capa(j, c):
     """Capa do card no SilverBullet: miniatura original (yt-dlp) → imagem que o Karakeep guardou → sem capa."""
-    p = f"Reels/capas/{j['id']}.jpg"
+    p = f"{pasta(c, 'sb_reels')}/capas/{j['id']}.jpg"
     if j["orig"]:
         try:
             sb_put(c, p, yt_capa(c, j["orig"]), "image/jpeg")
@@ -697,17 +825,18 @@ ${{reelCards("{tema}")}}
 
 def sb_sintese(j, c, tema):
     """Síntese do assunto: Gemini junta os resumos de todos os Reels do tema. Regerada a cada Reel novo."""
+    if c.get("sintese_on") != "1":
+        return ""
     itens = [x["analysis"] for x in (json.loads(r["data"] or "{}") for r in q("SELECT data FROM jobs WHERE id<>?", (j["id"],)))
              if x.get("analysis") and fold(x["analysis"].get("tema", "")) == fold(tema)] + [j["data"]["analysis"]]
     lista = "\n\n".join(f"- {x['titulo']}: {x['resumo']}" for x in itens[-40:])
     try:
-        r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
-                {"model": c["model"], "stream": False, "messages": [
+        r = llm(c, {"stream": False, "messages": [
                     {"role": "system", "content": "Você escreve em português do Brasil, direto, sem floreio e sem cara de texto de IA. "
                      "Recebe resumos de vídeos salvos sobre um mesmo assunto. Escreva em Markdown: um parágrafo curto com o que esses vídeos têm em comum "
                      "e o que dá pra aprender juntando eles; depois '### Ideias que se repetem' com 3 a 6 tópicos curtos; "
                      "se houver, '### Onde eles discordam' com 1 a 3 tópicos. Não invente nada que não esteja nos resumos. Sem título principal."},
-                    {"role": "user", "content": f"Assunto: {tema}\n\n{lista}"}]}, timeout=180)
+                    {"role": "user", "content": f"Assunto: {tema}\n\n{lista}"}]}, c.get("model_sintese") or c["model"])
         txt = r["choices"][0]["message"]["content"].strip()
         return f"## Síntese\n_Atualizada pela IA em {time.strftime('%d/%m/%Y')} com {len(itens)} Reels._\n\n{txt}\n\n## Reels\n"
     except Exception as e:
@@ -718,17 +847,17 @@ def sb_sintese(j, c, tema):
 def sb_reestilo(j, c):
     """Uma vez por Reel antigo: reescreve resumo/pontos/o que aparece no ESTILO (sem tocar fatos, título, tema, tags, transcrição)."""
     a = j["data"]["analysis"]
-    if a.get("estilo", 0) >= 2:
+    if a.get("estilo", 0) >= 2 or c.get("reestilo_on") != "1":
         return
     campos = {k: a[k] for k in ("resumo", "pontos_chave", "o_que_aparece") if a.get(k) and not a.get("estilo")}
     campos["gancho"] = a.get("gancho") or ""
     try:
-        r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
-                {"model": c["model"], "stream": False, "messages": [
+        r = llm(c, {"stream": False, "messages": [
                     {"role": "system", "content": "Reescreva os campos deste JSON em português do Brasil sem mudar fatos, sem acrescentar nem tirar informação. "
-                     "Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a 4 frases; listas continuam listas de strings). "
-                     "Se \"gancho\" vier vazio, escreva 1 frase de até 100 caracteres dizendo do que se trata." + ESTILO},
-                    {"role": "user", "content": json.dumps({**campos, "titulo": a["titulo"], "resumo_atual": a["resumo"]}, ensure_ascii=False)}]}, timeout=180)
+                     f"Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a {num(c, 'resumo_frases')} frases; listas continuam listas de strings). "
+                     "Se \"gancho\" vier vazio, escreva 1 frase de até 100 caracteres dizendo do que se trata." + estilo(c)},
+                    {"role": "user", "content": json.dumps({**campos, "titulo": a["titulo"], "resumo_atual": a["resumo"]}, ensure_ascii=False)}]},
+                   c.get("model_sintese") or c["model"])
         txt = r["choices"][0]["message"]["content"].strip()
         novo = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
         for k, v in campos.items():
@@ -740,27 +869,77 @@ def sb_reestilo(j, c):
         log(f"job {j['id']} sem reestilo: {scrub(e)[:120]}")
 
 
+MB = 1024 * 1024
+
+
+def duracao(path):
+    """Segundos do vídeo pelo ffprobe. 0 = não deu pra medir."""
+    try:
+        p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], capture_output=True, text=True, timeout=60)
+        return float(p.stdout.strip() or 0)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return 0
+
+
+def plano_video(c, tamanho, dur):
+    """O que fazer com o vídeo no SilverBullet: ("enviar"|"comprimir"|"link", limite em bytes, altura máx. ou None).
+    Curto (dur desconhecida conta como curto: IG/TikTok): cabe = original; não cabe = comprime mantendo a resolução.
+    Longo: política "link" não envia; "comprimir" envia até o limite próprio, na resolução de longos."""
+    if dur <= num(c, "curto_min") * 60:
+        lim = num(c, "curto_mb") * MB
+        return ("enviar" if tamanho <= lim else "comprimir"), lim, None
+    if c.get("longo_politica") != "comprimir":
+        return "link", 0, None
+    lim = num(c, "longo_mb") * MB
+    return ("enviar" if tamanho <= lim else "comprimir"), lim, int(c.get("longo_res") or 720)
+
+
+def bitrate_alvo(limite, dur, audio_kbps=96):
+    """kbps de vídeo pra caber em `limite` bytes: total disponível com 8% de margem (contêiner, picos) menos o áudio. Mínimo 100."""
+    return max(100, int(limite * 8 * 0.92 / dur / 1000) - audio_kbps)
+
+
+def comprimir(src, dst, limite, dur, altura=None):
+    """H.264 + AAC com CRF 23 e teto de bitrate (maxrate/bufsize) calculado pelo limite. Devolve dst, ou None se não coube
+    ou não ficou menor que o original (nunca aumenta o arquivo)."""
+    if not dur or not shutil.which("ffmpeg"):
+        return None
+    v = bitrate_alvo(limite, dur)
+    vf = ["-vf", f"scale=-2:'min({altura},ih)'"] if altura else []  # sem altura: mantém a resolução
+    p = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, *vf, "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                        "-maxrate", f"{v}k", "-bufsize", f"{2 * v}k", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k",
+                        "-movflags", "+faststart", dst], capture_output=True, text=True, timeout=3600)
+    ok = p.returncode == 0 and os.path.exists(dst) and os.path.getsize(dst) <= limite and os.path.getsize(dst) < os.path.getsize(src)
+    return dst if ok else None
+
+
+def pasta(c, k):
+    return (c.get(k) or DEFAULTS[k]).strip().strip("/") or DEFAULTS[k]
+
+
 def sb_midia(j, c):
     """Vídeo no SilverBullet (toca no card) + linha do tempo: quadros do crv com timecode e o que acontece. Uma vez por Reel."""
     d, a = j["data"], j["data"]["analysis"]
     sb = d.setdefault("sb", {})
     if sb.get("midia") or d.get("kind", "video") != "video" or not j["orig"]:
         return
-    pasta = os.path.join(DATA, "sbmedia")
-    os.makedirs(pasta, exist_ok=True)
-    media = next(iter(glob.glob(os.path.join(pasta, f"{j['id']}.*"))), None)
-    out = os.path.join(DATA, "tmp", f"tl-{j['id']}")
+    pasta_m, R, larg = os.path.join(DATA, "sbmedia"), pasta(c, "sb_reels"), num(c, "tl_largura")
+    os.makedirs(pasta_m, exist_ok=True)
+    media = next(iter(glob.glob(os.path.join(pasta_m, f"{j['id']}.*"))), None)
+    out, cmp = os.path.join(DATA, "tmp", f"tl-{j['id']}"), os.path.join(DATA, "tmp", f"cmp-{j['id']}.mp4")
     try:
         if not media:  # Reel antigo: baixa de novo
-            try:
-                media = cobalt_audio(c, j["orig"], os.path.join(pasta, str(j["id"])))
-            except Exception:
-                media = ytdlp_audio(c, j["orig"], os.path.join(pasta, str(j["id"])))
+            media = baixar(c, j["orig"], os.path.join(pasta_m, str(j["id"])), qual_download(c, d.get("dur", 0)))
         if media.endswith(".mp3"):
             raise RuntimeError("só áudio, sem vídeo")
-        if os.path.getsize(media) <= 60 * 1024 * 1024:
-            sb_put(c, f"Reels/videos/{j['id']}.mp4", open(media, "rb").read(), "video/mp4")
-            sb["video"] = f"Reels/videos/{j['id']}.mp4"
+        dur = duracao(media) or d.get("dur", 0)
+        acao, lim, alt = plano_video(c, os.path.getsize(media), dur)
+        enviar = media if acao == "enviar" else comprimir(media, cmp, lim, dur, alt) if acao == "comprimir" else None
+        if enviar:
+            sb_put(c, f"{R}/videos/{j['id']}.mp4", open(enviar, "rb").read(), "video/mp4")
+            sb["video"] = f"{R}/videos/{j['id']}.mp4"
+        elif acao == "comprimir":
+            log(f"job {j['id']}: vídeo não coube em {lim // MB} MB nem comprimido; página fica com capa e link")
         run_crv(media, out, 24)
         with open(os.path.join(out, "frames.json")) as f:
             frames = json.load(f)["frames"]
@@ -768,7 +947,8 @@ def sb_midia(j, c):
             m = re.match(r"\s*(\d+):(\d{2})", x)
             return int(m[1]) * 60 + int(m[2]) if m else None
         eventos = [(seg(x), re.sub(r"^\s*\d+:\d{2}\s*[:\-–]?\s*", "", x)) for x in a.get("o_que_aparece") or []]
-        eventos = [e for e in eventos if e[0] is not None][:16] or [(int(fr["timestamp_sec"]), "") for fr in frames[::max(1, len(frames) // 8)]][:8]
+        n = num(c, "tl_quadros")
+        eventos = [e for e in eventos if e[0] is not None][:n] or [(int(fr["timestamp_sec"]), "") for fr in frames[::max(1, len(frames) // 8)]][:min(8, n)]
         from PIL import Image
         linha = []
         for i, (t, txt) in enumerate(eventos):
@@ -778,9 +958,9 @@ def sb_midia(j, c):
                 continue
             p = os.path.join(out, f"q{i}.jpg")
             with Image.open(src) as im:
-                k = 360 / max(im.width, 1)
-                im.convert("RGB").resize((360, max(1, int(im.height * k)))).save(p, "JPEG", quality=78)
-            dest = f"Reels/quadros/{j['id']}/{i:02d}.jpg"
+                k = larg / max(im.width, 1)
+                im.convert("RGB").resize((larg, max(1, int(im.height * k)))).save(p, "JPEG", quality=78)
+            dest = f"{R}/quadros/{j['id']}/{i:02d}.jpg"
             sb_put(c, dest, open(p, "rb").read(), "image/jpeg")
             linha.append({"t": mmss(t), "img": dest, "txt": txt})
         sb["linha"] = linha
@@ -789,14 +969,15 @@ def sb_midia(j, c):
     finally:
         sb["midia"] = True
         shutil.rmtree(out, ignore_errors=True)
-        for f in glob.glob(os.path.join(pasta, f"{j['id']}.*")):
+        for f in glob.glob(os.path.join(pasta_m, f"{j['id']}.*")) + [cmp] * os.path.exists(cmp):
             os.remove(f)
 
 
-QUADRO = "Video KB/Quadro.excalidraw"
-BLOCO_QUADRO = "```excalidraw\nurl:Video KB/Quadro.excalidraw\nheight:750px\ntheme:dark\n```\n\n"
-CAPA_W, CAPA_H, CARD_H, COLS = 240, 427, 620, 4  # card 240x427 (9:16) + textos; 4 cards por linha na área
-AREA_W = COLS * (CAPA_W + 40) + 40
+CAPA_W, CAPA_H, CARD_H = 240, 427, 620  # card 240x427 (9:16) + textos
+
+
+def bloco_quadro(c, arq):
+    return f"```excalidraw\nurl:{arq}\nheight:{num(c, 'quadro_altura')}px\ntheme:{c.get('quadro_tema') or 'dark'}\n```\n\n"
 
 
 def ex_el(eid, tipo, x, y, w, h, **k):
@@ -825,7 +1006,10 @@ def ex_capa(img):
 def sb_quadro(c, desde):
     """Quadro Excalidraw com todos os Reels por assunto. Mantém x/y/tamanho dos nossos elementos (reel-*, tema-*),
     tudo que o nan criou, e só posiciona os novos no fim da área do assunto. desde: capa de Reel mexido depois disso é baixada de novo."""
-    velho = json.loads(sb_get(c, QUADRO) or b"{}")
+    arq, pagina = pasta(c, "sb_pagina") + "/Quadro.excalidraw", pasta(c, "sb_pagina") + ".md"
+    cols = num(c, "quadro_cols")
+    area_w = cols * (CAPA_W + 40) + 40
+    velho = json.loads(sb_get(c, arq) or b"{}")
     els = {e["id"]: e for e in velho.get("elements", []) if not e.get("isDeleted")}
     files = velho.get("files") or {}
     nosso = lambda i: i.startswith(("reel-", "tema-", "capa-"))
@@ -842,7 +1026,7 @@ def sb_quadro(c, desde):
         if aid in els:
             ax, ay = els[aid]["x"], els[aid]["y"]
         else:
-            ax, ay, direita = direita, 0, direita + AREA_W + 200
+            ax, ay, direita = direita, 0, direita + area_w + 200
         n = sum(f"reel-{i}-capa" in els for i, _ in lista)  # slots já ocupados na área
         cards = []
         for i, d in lista:
@@ -850,7 +1034,7 @@ def sb_quadro(c, desde):
             if cid + "-capa" in els:
                 x, y = els[cid + "-capa"]["x"], els[cid + "-capa"]["y"]
             else:
-                x, y, n = ax + 40 + n % COLS * (CAPA_W + 40), ay + 120 + n // COLS * CARD_H, n + 1
+                x, y, n = ax + 40 + n % cols * (CAPA_W + 40), ay + 120 + n // cols * CARD_H, n + 1
             if s.get("capa") and (fid not in files or s.get("t", 0) > desde):
                 try:
                     jpg = ex_capa(sb_get(c, s["capa"]))
@@ -868,20 +1052,29 @@ def sb_quadro(c, desde):
             if a.get("gancho"):
                 cards.append(ex_txt(cid + "-gancho", x, cards[-1]["y"] + cards[-1]["height"] + 6, a["gancho"], 14, strokeColor="#adb5bd", **g))
         cards = [manter(e) for e in cards]
-        area = manter(ex_el(aid, "rectangle", ax, ay, AREA_W, 0, strokeColor="#868e96", roundness={"type": 3}))
+        area = manter(ex_el(aid, "rectangle", ax, ay, area_w, 0, strokeColor="#868e96", roundness={"type": 3}))
         area["height"] = max(area["height"], max(e["y"] + e["height"] for e in cards) - ay + 40)
         out += [area, manter(ex_txt(aid + "-titulo", ax + 40, ay + 30, tema, 36))] + cards
-    sb_put(c, QUADRO, json.dumps({"type": "excalidraw", "version": 2, "source": "video-kb", "elements": out + [e for e in els.values() if not nosso(e["id"])],
-                                  "appState": velho.get("appState") or {}, "files": out_files}, ensure_ascii=False), "application/json")
-    pg = sb_get(c, "Video KB.md")
-    if pg is not None and "```excalidraw" not in pg.decode() and "## Assuntos" in pg.decode():
-        sb_put(c, "Video KB.md", pg.decode().replace("## Assuntos", BLOCO_QUADRO + "## Assuntos", 1))
+    sb_put(c, arq, json.dumps({"type": "excalidraw", "version": 2, "source": "video-kb", "elements": out + [e for e in els.values() if not nosso(e["id"])],
+                               "appState": velho.get("appState") or {}, "files": out_files}, ensure_ascii=False), "application/json")
+    pg = sb_get(c, pagina)
+    if pg is not None:  # bloco do plug antes de "## Assuntos"; altura/tema mudaram na config = troca o bloco
+        txt = pg.decode()
+        velho_bloco = re.search(r"```excalidraw\nurl:" + re.escape(arq) + r"\n.*?```\n\n?", txt, re.S)
+        novo = (txt.replace(velho_bloco[0], bloco_quadro(c, arq), 1) if velho_bloco
+                else txt.replace("## Assuntos", bloco_quadro(c, arq) + "## Assuntos", 1))
+        if novo != txt:
+            sb_put(c, pagina, novo)
+
+
+def sb_ligado(c):
+    return c.get("sb_on") == "1" and bool(c.get("sb_url") and c.get("sb_token"))
 
 
 def quadro():
     """Regera o quadro quando a fila esvazia e algum Reel mudou: N Reels (ex.: os antigos na 1ª vez) = uma escrita só."""
     c = cfg()
-    if not (c.get("sb_url") and c.get("sb_token")) or not q("SELECT 1 FROM kv WHERE k='quadro_sujo' AND v='1'"):
+    if not (sb_ligado(c) and c.get("quadro_on") == "1") or not q("SELECT 1 FROM kv WHERE k='quadro_sujo' AND v='1'"):
         return
     desde = float((q("SELECT v FROM kv WHERE k='quadro_t'") or [{"v": "0"}])[0]["v"])
     q("INSERT OR REPLACE INTO kv VALUES('quadro_t',?)", (str(time.time()),))
@@ -894,7 +1087,7 @@ def quadro():
 
 def sb_refila():
     """SilverBullet ligado: prontos sem a marca atual passam de novo pelo step; quadro regera."""
-    if cfg().get("sb_url") and cfg().get("sb_token"):
+    if sb_ligado(cfg()):
         q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb7\"%'")
         q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','1')")
         WAKE.set()
@@ -905,10 +1098,10 @@ def step_silverbullet(j, c):
     sb_reestilo(j, c)
     sb_midia(j, c)
     d, a = j["data"], j["data"]["analysis"]
-    page = "Reels/" + sb_nome(a["titulo"])
+    page = pasta(c, "sb_reels") + "/" + sb_nome(a["titulo"])
     sb = d.get("sb") or {}
     capa = sb.get("capa", "") if sb.get("capa_orig") else sb_capa(j, c) or sb.get("capa", "")  # v1.4: troca a capa uma vez
-    tema = "Temas/" + sb_nome(a["tema"])
+    tema = pasta(c, "sb_temas") + "/" + sb_nome(a["tema"])
     video = d.get("kind", "video") == "video"
     tags = [re.sub(r"[^\w-]+", "-", t.strip()).strip("-").lower() for t in a["tags"] if t.strip()]
     fm = {"type": "reel", "title": a["titulo"], "tema": a["tema"], "data": time.strftime("%Y-%m-%d", time.localtime(j.get("created") or time.time())),
@@ -967,7 +1160,9 @@ def done(s, d):
 def steps(d):
     if "kind" not in d:
         return ["tipo"]
-    return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo", "karakeep", "notebook"] + (["silverbullet"] if cfg().get("sb_url") and cfg().get("sb_token") else [])
+    c = cfg()
+    return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo"] + [
+        s for s, on in (("karakeep", c.get("kk_on") == "1"), ("notebook", c.get("nb_on") == "1"), ("silverbullet", sb_ligado(c))) if on]
 
 
 def run(jid):
@@ -977,15 +1172,15 @@ def run(jid):
         j.update(stage=s, status="rodando", error="")
         save(j)
         try:
-            need(c, "llm_url", "llm_key", "karakeep_url", "karakeep_key", "notebook_url")
+            need(c, "llm_url", "llm_key", "karakeep_url", "karakeep_key", *(["notebook_url"] if c.get("nb_on") == "1" else []))
             STEP_FN[s](j, c)
-        except Later as e:  # reagenda; depois de CRAWL_TRIES vira erro com motivo
-            n = j["data"].get("tentativas", 0) + 1
+        except Later as e:  # reagenda; depois de crawl_tries vira erro com motivo
+            n, tries, wait = j["data"].get("tentativas", 0) + 1, num(c, "crawl_tries"), num(c, "crawl_wait")
             j["data"]["tentativas"] = n
-            if n > CRAWL_TRIES:
-                j.update(status="erro", error=f"{e} depois de {CRAWL_TRIES} tentativas. Abra o bookmark no Karakeep e reprocesse.")
+            if n > tries:
+                j.update(status="erro", error=f"{e} depois de {tries} tentativas. Abra o bookmark no Karakeep e reprocesse.")
             else:
-                j.update(status="fila", error=f"{e}: tentativa {n}/{CRAWL_TRIES}, de novo em {CRAWL_WAIT // 60} min", after=time.time() + CRAWL_WAIT)
+                j.update(status="fila", error=f"{e}: tentativa {n}/{tries}, de novo em {max(1, wait // 60)} min", after=time.time() + wait)
             save(j)
             return
         except Exception as e:  # erro fica no job; reprocessar retoma desta etapa
@@ -1066,7 +1261,7 @@ def poller():
             poll_once()
         except Exception as e:
             log("polling falhou:", scrub(e))
-        time.sleep(POLL_SECS)
+        time.sleep(num(cfg(), "poll_secs"))
 
 
 # ---------- coletores (v1.2) ----------
@@ -1130,7 +1325,7 @@ def ingest(c, fonte, urls):
         n = norm(u)
         if n in seen:
             continue
-        if not (first and i >= FIRST_RUN) and not q("SELECT 1 FROM jobs WHERE url=?", (n,)):  # 1ª vez: resto só vira "visto"
+        if not (first and i >= num(c, "first_run")) and not q("SELECT 1 FROM jobs WHERE url=?", (n,)):  # 1ª vez: resto só vira "visto"
             base, h = kk(c)
             novos += add_job(u, req("POST", base + "/bookmarks", h, {"type": "link", "url": u})["id"])
         q("INSERT OR IGNORE INTO seen VALUES(?,?)", (fonte, n))
@@ -1162,143 +1357,383 @@ def collector():
             collect_once()
         except Exception as e:
             log("coletores falharam:", scrub(e))
-        time.sleep(COL_SECS)
+        time.sleep(num(cfg(), "col_min") * 60)
 
 
 # ---------- UI ----------
 e = html.escape
-CSS = """
-:root{--bg:#f6f5f1;--fg:#1d1c1a;--mut:#5f5c55;--card:#fff;--line:#d9d6cc;--acc:#1f5c4a;--accfg:#fff;--err:#a02a1c;--ok:#1d6b3a;--warn:#7a5a00}
-@media(prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe6;--mut:#a5a299;--card:#201f1c;--line:#38362f;--acc:#6fcfae;--accfg:#10201a;--err:#ff8f7e;--ok:#7fd9a0;--warn:#e6c25a}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+# Visual inspirado no Linkding (github.com/sissbruecker/linkding, MIT): lista limpa, busca no topo, tags na lateral.
+CLARO = "--bg:#fff;--fg:#3b4351;--mut:#5f6b7f;--card:#f6f7f9;--line:#dadee4;--acc:#5755d9;--acchov:#4240c9;--accfg:#fff;--tag:#1d7a70;--err:#b42318;--ok:#22743a;--warn:#8a5a00"
+ESCURO = "--bg:#161822;--fg:#d3d6df;--mut:#9aa1b3;--card:#1e2130;--line:#30354a;--acc:#8e8cf6;--acchov:#a9a7ff;--accfg:#121326;--tag:#5fcabf;--err:#ff8f80;--ok:#74d48f;--warn:#e9c463"
+CSS = (f":root{{{CLARO};color-scheme:light}}@media(prefers-color-scheme:dark){{:root:not([data-tema=claro]){{{ESCURO};color-scheme:dark}}}}"
+       f":root[data-tema=escuro]{{{ESCURO};color-scheme:dark}}" + """
+*{box-sizing:border-box}html{scrollbar-color:var(--line) var(--bg)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;caret-color:var(--acc)}
 ::selection{background:var(--acc);color:var(--accfg)}
-main{max-width:860px;margin:0 auto;padding:16px}
-nav{display:flex;gap:8px;margin:0 0 16px}
-nav a{padding:10px 16px;border-radius:8px;color:var(--fg);text-decoration:none;border:1px solid var(--line);min-height:44px;display:inline-flex;align-items:center}
-nav a[aria-current]{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
-h1{font-size:1.4rem;margin:8px 0 16px}
-label{display:block;font-weight:600;margin:16px 0 4px}
+a{color:var(--acc);text-decoration:none;text-underline-offset:3px}a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+.top{max-width:1240px;margin:0 auto;padding:20px 24px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.15rem;letter-spacing:.02em;color:var(--acc);margin-right:auto}
+.brand:hover{text-decoration:none}.brand svg{width:32px;height:32px}
+.top nav{display:flex;gap:20px}.top nav a{padding:10px 2px;min-height:44px;display:inline-flex;align-items:center}
+.top nav a[aria-current]{color:var(--fg);font-weight:600}
+.add{display:flex;gap:8px;flex:1 1 360px;max-width:520px}.add input{flex:1}
+main{max-width:1240px;margin:0 auto;padding:0 24px 48px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:48px}
+.head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:8px}
+h1,h2.side{font-size:1.2rem;font-weight:600;margin:0}h1{font-size:1.4rem;margin-right:auto}h1 small{color:var(--mut);font-weight:400;font-size:.9rem;margin-left:6px}
+h2.side{border-bottom:1px solid var(--line);padding-bottom:12px;margin:24px 0 12px}aside h2.side:first-child{margin-top:0}
+.busca{display:flex;flex-wrap:wrap;gap:8px}.busca input{width:260px}.busca select{width:auto}
+input,textarea,select{min-height:40px;padding:8px 10px;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;width:100%}
+input::placeholder,textarea::placeholder{color:var(--mut)}input:hover,select:hover,textarea:hover{border-color:var(--mut)}
+button{min-height:40px;padding:8px 16px;font:inherit;font-weight:600;border-radius:6px;border:1px solid var(--acc);background:var(--acc);color:var(--accfg);cursor:pointer}
+button:hover{background:var(--acchov);border-color:var(--acchov)}
+button.sec{background:transparent;color:var(--fg);border-color:var(--line)}button.sec:hover{border-color:var(--mut)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;font-size:.875rem;color:var(--mut)}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.lista{list-style:none;margin:0;padding:0}
+.item{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+.thumb{flex:none;width:54px;height:72px;border-radius:6px;overflow:hidden;background:var(--card);display:flex;align-items:center;justify-content:center;color:var(--mut);font-weight:700;text-transform:uppercase}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}.thumb:hover{text-decoration:none}
+.item>div{min-width:0;flex:1}
+.item h2{font-size:1rem;font-weight:600;margin:0;line-height:1.35;overflow-wrap:anywhere}
+.desc{margin:2px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tag{color:var(--tag)}.desc .tag{margin-right:6px}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;font-size:.84rem;color:var(--mut);font-variant-numeric:tabular-nums}
+.meta form{display:inline}.sep{color:var(--line)}
+.lnk{background:none;border:0;padding:6px 0;min-height:32px;color:var(--mut);font-weight:400;font-size:.84rem}
+.lnk:hover{background:none;color:var(--acc);text-decoration:underline}.meta a{color:var(--mut);padding:6px 0}.meta a:hover{color:var(--acc)}
+.st.erro{color:var(--err);font-weight:600}.st.rodando,.st.fila{color:var(--warn)}
+.err{color:var(--err);font-size:.875rem;margin:4px 0 0;overflow-wrap:anywhere}
 .hint{color:var(--mut);font-size:.875rem;margin:0 0 4px}
-input,textarea{width:100%;min-height:44px;padding:10px 12px;font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px}
-button{min-height:44px;padding:10px 18px;font:inherit;font-weight:600;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:var(--accfg);cursor:pointer}
-button.sec{background:transparent;color:var(--fg);border-color:var(--line)}
-:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
-.add{display:flex;gap:8px;margin-bottom:24px}.add input{flex:1}
-.job{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:0 0 8px}
-.job h2{font-size:1rem;margin:0 0 4px;overflow-wrap:anywhere}.job a{color:var(--mut);font-size:.875rem;overflow-wrap:anywhere}
-.meta{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;margin-top:8px;font-size:.875rem;font-variant-numeric:tabular-nums}
-.st{font-weight:700}.st.erro{color:var(--err)}.st.pronto{color:var(--ok)}.st.rodando,.st.fila{color:var(--warn)}
-.err{color:var(--err);font-size:.875rem;margin:8px 0 0;overflow-wrap:anywhere}
-.empty{color:var(--mut);padding:24px 0}
-h2.sec{font-size:1.1rem;margin:32px 0 8px}.cols{padding-left:20px}.cols li{margin:0 0 8px}
-.chk{display:flex;gap:8px;align-items:center;font-weight:600;margin:16px 0 4px}.chk input{width:24px;min-height:24px;height:24px}
-.flash{padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);margin-bottom:16px}
-@media(max-width:480px){.add{flex-direction:column}}
-"""
+.empty{color:var(--mut);padding:32px 0}
+.temas{list-style:none;margin:0;padding:0}.temas li{display:flex;justify-content:space-between;gap:8px;padding:3px 0}
+.temas a{overflow-wrap:anywhere}.n{color:var(--mut);font-variant-numeric:tabular-nums;font-size:.875rem}
+.nuvem p{margin:0 0 10px;line-height:1.9}.nuvem a{color:var(--tag);margin-right:10px;white-space:nowrap}.nuvem b{color:var(--fg)}
+.ativo{font-weight:700;text-decoration:underline}
+.cols{padding-left:18px;margin:0;font-size:.9rem}.cols li{margin:0 0 8px}
+.flash{padding:10px 14px;border-radius:6px;border:1px solid var(--line);background:var(--card);margin:0 0 16px}
+.flash.err{border-color:var(--err)}
+.cfg{max-width:760px}
+label{display:block;font-weight:600;margin:16px 0 4px}
+.chk{display:flex;gap:8px;align-items:center;font-weight:600;margin:16px 0 4px}.chk input{width:20px;min-height:20px;height:20px;accent-color:var(--acc)}
+details{border-bottom:1px solid var(--line);padding:0 0 4px;margin:0 0 8px}
+summary{min-height:48px;display:flex;align-items:center;gap:12px;font-weight:600;font-size:1.1rem;cursor:pointer;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease-out}
+details[open]>summary::before{transform:rotate(45deg)}
+@media(prefers-reduced-motion:reduce){summary::before{transition:none}}
+summary:hover{color:var(--acc)}details[open]{padding-bottom:20px}.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+@media(max-width:900px){.grid{grid-template-columns:1fr;gap:24px}.busca input{width:100%}.busca{width:100%}}
+@media(max-width:560px){.top,main{padding-left:14px;padding-right:14px}.add{flex-basis:100%;max-width:none}.top nav{gap:16px}}
+""")
+LOGO = ('<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="16" fill="currentColor"/>'
+        '<path d="M13 10.5v11l9-5.5z" fill="var(--accfg)"/></svg>')
 
 
 def page(active, body, flash=""):
-    nav = "".join(f'<a href="{h}"{" aria-current=page" if h == active else ""}>{t}</a>' for h, t in (("/", "Fila"), ("/config", "Configurações")))
+    nav = "".join(f'<a href="{h}"{" aria-current=page" if h == active else ""}>{t}</a>' for h, t in (("/", "Itens"), ("/config", "Configurações")))
     fl = f'<p class="flash" role="status">{e(flash)}</p>' if flash else ""
-    return (f'<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>Video KB</title><style>{CSS}</style></head><body><main><nav aria-label="Principal">{nav}</nav>{fl}{body}</main></body></html>')
+    tema = {"claro": ' data-tema="claro"', "escuro": ' data-tema="escuro"'}.get(cfg().get("ui_tema"), "")
+    return (f'<!doctype html><html lang="pt-BR"{tema}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>Video KB</title><style>{CSS}</style></head><body><header class="top"><a class="brand" href="/">{LOGO}VIDEO KB</a>'
+            '<form class="add" method="post" action="/add"><label for="u" class="vh">Adicionar link</label>'
+            '<input id="u" name="url" type="url" required placeholder="Cole um link (Reels, TikTok, YouTube, página, PDF)" autocomplete="off">'
+            f'<button type="submit">Adicionar</button></form><nav aria-label="Principal">{nav}</nav></header><main>{fl}{body}</main></body></html>')
 
 
 def fmt_time(t):  # Brasil sem horário de verão: UTC-3 fixo
     return time.strftime("%d/%m %H:%M", time.gmtime(t - 3 * 3600))
 
 
-def queue_page(flash=""):
-    jobs = q("SELECT * FROM jobs ORDER BY id DESC LIMIT 100")
-    rows = []
-    for r in jobs:
+def quando(t, agora=None):
+    """Data relativa no fuso do Brasil: hoje, ontem, há N dias, depois dd/mm/aa."""
+    dia = lambda x: int((x - 3 * 3600) // 86400)
+    n = dia(agora or time.time()) - dia(t)
+    return "hoje" if n <= 0 else "ontem" if n == 1 else f"há {n} dias" if n < 7 else time.strftime("%d/%m/%y", time.gmtime(t - 3 * 3600))
+
+
+def fonte(url):
+    h = re.sub(r"^(www|m|vm|old)\.", "", (urlsplit(url or "").hostname or "").lower())
+    if h == "youtu.be":
+        return "youtube"
+    return next((n for n in ("instagram", "tiktok", "youtube", "reddit") if n in h.split(".")), h or "karakeep")
+
+
+def itens():
+    """Jobs prontos pra tela: campos de exibição + texto de busca (título, resumo, tags, transcrição) sem acento."""
+    out = []
+    for r in q("SELECT * FROM jobs ORDER BY id DESC"):
         d = json.loads(r["data"] or "{}")
-        title = (d.get("analysis") or {}).get("titulo") or r["orig"] or f"Bookmark {r['bookmark_id']}"
-        retry_btn = (f'<form method="post" action="/retry/{r["id"]}"><button class="sec" type="submit">Reprocessar</button></form>'
-                     if r["status"] == "erro" else "")
-        retry_btn += (f'<form method="post" action="/remover/{r["id"]}" onsubmit="return confirm(\'Remover da fila?\')">'
-                      f'<button class="sec" type="submit">Remover</button></form>')
-        err = (f'<p class="err">{e(r["error"])}</p>' if r["error"] else "") + (f'<p class="hint">{e(d["aviso"])}</p>' if d.get("aviso") else "")
-        rows.append(
-            f'<article class="job"><h2>{e(title)}</h2><a href="{e(r["orig"])}" rel="noreferrer">{e(r["orig"])}</a>'
-            f'<div class="meta"><span class="st {r["status"]}">{STATUS_PT.get(r["status"], r["status"])}</span>'
-            f'<span>{KIND_PT.get(r["kind"], "Tipo ?")}</span><span>{STAGE_PT.get(r["stage"], r["stage"])}</span><span>{fmt_time(r["created"])}</span>{retry_btn}</div>{err}</article>')
-    c = cfg()
+        a, sb = d.get("analysis") or {}, d.get("sb") or {}
+        titulo = a.get("titulo") or r["orig"] or f"Bookmark {r['bookmark_id']}"
+        out.append({"id": r["id"], "titulo": titulo, "orig": r["orig"] or "", "fonte": fonte(r["orig"]), "created": r["created"] or 0,
+                    "status": r["status"], "stage": r["stage"], "kind": r["kind"], "error": r["error"], "aviso": d.get("aviso", ""),
+                    "texto": a.get("gancho") or a.get("resumo", ""), "tags": a.get("tags") or [], "tema": a.get("tema", ""),
+                    "capa": bool(sb.get("capa")), "page": sb.get("page", ""),
+                    "busca": fold(" ".join([titulo, a.get("gancho", ""), a.get("resumo", ""), " ".join(a.get("tags") or []),
+                                            a.get("transcricao_limpa") or d.get("transcript", ""), r["orig"] or ""]))})
+    return out
+
+
+def filtrar(its, p):
+    """Busca: palavras (todas) no texto; "#tag" na busca = filtro de tag. Mais status, fonte, tag e tema exatos."""
+    words = (p.get("q") or "").split()
+    tags = [fold(w[1:]) for w in words if w.startswith("#") and len(w) > 1] + ([fold(p["tag"])] if p.get("tag") else [])
+    words = [fold(w) for w in words if not w.startswith("#")]
+    return [i for i in its
+            if all(w in i["busca"] for w in words) and all(t in map(fold, i["tags"]) for t in tags)
+            and (not p.get("status") or i["status"] == p["status"]) and (not p.get("fonte") or i["fonte"] == p["fonte"])
+            and (not p.get("tema") or fold(i["tema"]) == fold(p["tema"]))]
+
+
+def url_com(p, **mudar):
+    v = {k: x for k, x in {**p, **mudar}.items() if x}
+    return "/" + ("?" + urlencode(v) if v else "")
+
+
+def item_html(i, sb_url):
+    tags = "".join(f'<a class="tag" href="{e(url_com({}, tag=t))}">#{e(t)}</a>' for t in i["tags"])
+    thumb = (f'<img src="/capa/{i["id"]}" alt="" loading="lazy" width="54" height="72">' if i["capa"] else e(i["fonte"][:1] or "?"))
+    link = f' href="{e(i["orig"])}" rel="noreferrer"' if i["orig"] else ""
+    st = (f'<span class="st {i["status"]}">{e(STATUS_PT.get(i["status"], i["status"]))}'
+          f'{": " + e(STAGE_PT.get(i["stage"], i["stage"])) if i["status"] in ("fila", "rodando") else ""}</span>') if i["status"] != "pronto" else ""
+    acoes = []
+    if i["page"] and sb_url:
+        acoes.append(f'<a href="{e(sb_url.rstrip("/") + "/" + urllib.request.quote(i["page"]))}" rel="noreferrer">Abrir no SilverBullet</a>')
+    conf = "" if i["status"] == "erro" else ' onsubmit="return confirm(\'Refazer este item do zero? Baixa, transcreve e resume de novo.\')"'
+    acoes.append(f'<form method="post" action="/item/{i["id"]}/reprocessar"{conf}><button class="lnk" type="submit">'
+                 f'{"Tentar de novo" if i["status"] == "erro" else "Reprocessar"}</button></form>')
+    acoes.append(f'<form method="post" action="/remover/{i["id"]}" onsubmit="return confirm(\'Apagar da lista do Video KB? O bookmark no Karakeep fica.\')">'
+                 '<button class="lnk" type="submit">Apagar</button></form>')
+    return (f'<li class="item"><a class="thumb"{link} tabindex="-1" aria-hidden="true">{thumb}</a><div>'
+            f'<h2><a{link}>{e(i["titulo"])}</a></h2>'
+            + (f'<p class="desc">{tags}{e(i["texto"])}</p>' if tags or i["texto"] else "")
+            + f'<div class="meta"><span>{quando(i["created"])}</span><span>{e(i["fonte"])}</span><span>{KIND_PT.get(i["kind"], "Tipo ?")}</span>{st}'
+            f'<span class="sep" aria-hidden="true">|</span>{"".join(acoes)}</div>'
+            + (f'<p class="err">{e(i["error"])}</p>' if i["error"] else "") + (f'<p class="hint">{e(i["aviso"])}</p>' if i["aviso"] else "")
+            + "</div></li>")
+
+
+def queue_page(flash="", p=None):
+    p = {k: v for k, v in (p or {}).items() if k in ("q", "status", "fonte", "tag", "tema") and v}
+    c, todos = cfg(), itens()
+    lista = filtrar(todos, p)
+    sb_url = c.get("sb_url") if sb_ligado(c) else ""
+    sel = lambda nome, ops, rot: (f'<label for="f-{nome}" class="vh">{rot}</label><select id="f-{nome}" name="{nome}">'
+                                  f'<option value="">{rot}: todos</option>' + "".join(
+        f'<option value="{e(v)}"{" selected" if p.get(nome) == v else ""}>{e(t)}</option>' for v, t in ops) + "</select>")
+    fontes = sorted({i["fonte"] for i in todos})
+    busca = (f'<form class="busca" method="get" action="/" role="search">'
+             + "".join(f'<input type="hidden" name="{k}" value="{e(p[k])}">' for k in ("tag", "tema") if p.get(k))
+             + f'<label for="q" class="vh">Buscar</label><input id="q" name="q" type="search" value="{e(p.get("q", ""))}" placeholder="Buscar palavras ou #tags">'
+             + sel("status", [(s, STATUS_PT[s]) for s in ("pronto", "fila", "rodando", "erro")], "Status")
+             + sel("fonte", [(f, f) for f in fontes], "Fonte") + '<button class="sec" type="submit">Buscar</button></form>')
+    chips = [f'{rot}: <strong>{e(p[k])}</strong>' for k, rot in (("tema", "Assunto"), ("tag", "Tag")) if p.get(k)]
+    chips = (f'<p class="chips">{" · ".join(chips)} <a href="/">Limpar filtros</a></p>' if p else "")
+    vazio = ('<p class="empty">Nada encontrado com esses filtros. <a href="/">Limpar filtros</a></p>' if todos
+             else '<p class="empty">Nenhum item ainda. Cole um link no topo ou salve no Karakeep.</p>')
+    corpo = (f'<ul class="lista">{"".join(item_html(i, sb_url) for i in lista[:200])}</ul>' if lista else vazio)
+    if len(lista) > 200:
+        corpo += f'<p class="hint">Mostrando 200 de {len(lista)}. Refine a busca.</p>'
+    # lateral: assuntos e tags com contagem (sobre todos os itens), tags agrupadas pela inicial como no Linkding
+    temas, tags = {}, {}
+    for i in todos:
+        if i["tema"]:
+            temas[i["tema"]] = temas.get(i["tema"], 0) + 1
+        for t in i["tags"]:
+            tags[t] = tags.get(t, 0) + 1
+    ativo = lambda k, v: ' class="ativo" aria-current="true"' if fold(p.get(k, "")) == fold(v) else ""
+    lt = "".join(f'<li><a href="{e(url_com({}, tema=t))}"{ativo("tema", t)}>{e(t)}</a><span class="n">{n}</span></li>'
+                 for t, n in sorted(temas.items(), key=lambda x: (-x[1], fold(x[0]))))
+    grupos = {}
+    for t in sorted(tags, key=fold):
+        grupos.setdefault(fold(t)[:1].upper(), []).append(t)
+    nuvem = "".join("<p>" + "".join(f'<a href="{e(url_com({}, tag=t))}"{ativo("tag", t)}>' + (f"<b>{e(t[:1])}</b>{e(t[1:])}" if k == 0 else e(t))
+                                    + f'<span class="n"> {tags[t]}</span></a>' for k, t in enumerate(g)) + "</p>" for g in grupos.values())
     cols = []
     for name, (label, _) in COLLECTORS.items():
         if c.get("col_" + name) != "1":
             continue
         st = json.loads((q("SELECT v FROM kv WHERE k=?", ("col:" + name,)) or [{"v": "{}"}])[0]["v"])
-        quando = f"última coleta {fmt_time(st['quando'])}, {st['novos']} novo(s)" if st.get("quando") else "ainda não coletou"
-        err = f'<p class="err">{e(st["erro"])}</p>' if st.get("erro") else ""
-        cols.append(f'<li><strong>{e(label)}</strong>: {quando}{err}</li>')
+        qd = f"última coleta {fmt_time(st['quando'])}, {st['novos']} novo(s)" if st.get("quando") else "ainda não coletou"
+        cols.append(f'<li><strong>{e(label)}</strong>: {qd}' + (f'<p class="err">{e(st["erro"])}</p>' if st.get("erro") else "") + "</li>")
     aviso = any("Cookies expiraram" in json.loads(r["v"]).get("erro", "") for r in q("SELECT v FROM kv WHERE k LIKE 'col:%'"))
-    body = (('<p class="flash err" role="alert">Cookies vencidos em algum coletor. Veja abaixo e renove em Configurações.</p>' if aviso else "")
-            + '<h1>Fila</h1><form class="add" method="post" action="/add"><label for="u" hidden>Link</label>'
-            '<input id="u" name="url" type="url" required placeholder="Cole um link (Reels, TikTok, Reddit, página, PDF)" autocomplete="off">'
-            '<button type="submit">Adicionar</button></form>'
-            + ("".join(rows) or '<p class="empty">Nenhum item ainda. Cole um link acima ou salve no Karakeep.</p>')
-            + '<p><a href="/">Atualizar</a></p>'
-            + (f'<h2 class="sec">Coletores</h2><ul class="cols">{"".join(cols)}</ul>' if cols else ""))
+    body = (('<p class="flash err" role="alert">Cookies vencidos em algum coletor. Veja na lateral e renove em Configurações.</p>' if aviso else "")
+            + f'<div class="grid"><section aria-labelledby="t-itens"><div class="head"><h1 id="t-itens">Itens<small>{len(lista)}</small></h1>{busca}</div>{chips}{corpo}</section>'
+            + '<aside aria-label="Assuntos e tags">'
+            + (f'<h2 class="side">Assuntos</h2><ul class="temas">{lt}</ul>' if lt else "")
+            + (f'<h2 class="side">Tags</h2><div class="nuvem">{nuvem}</div>' if nuvem else "")
+            + (f'<h2 class="side">Coletores</h2><ul class="cols">{"".join(cols)}</ul>' if cols else "")
+            + ("" if lt or nuvem or cols else '<h2 class="side">Assuntos</h2><p class="hint">Aparecem aqui quando o primeiro item ficar pronto.</p>')
+            + "</aside></div>")
     return page("/", body, flash)
+
+
+def campo(k, label, t, hint, v):
+    h = f'<p class="hint" id="h-{k}">{e(hint)}</p>' if hint else ""
+    desc = f' aria-describedby="h-{k}"' if hint else ""
+    if t == "bool":
+        return f'<label class="chk"><input type="checkbox" name="{k}" value="1"{" checked" if v == "1" else ""}> {e(label)}</label>{h}'
+    if t == "lines":
+        ctl = f'<textarea id="{k}" name="{k}" rows="3"{desc}>{e(v)}</textarea>'
+    elif t == "text":
+        ctl = f'<input id="{k}" name="{k}" value="{e(v)}"{desc}>'
+    elif t == "num":
+        lo, hi = NUM[k]
+        h = f'<p class="hint" id="h-{k}">{e(hint + " " if hint else "")}De {lo} a {hi}.</p>'
+        ctl = f'<input id="{k}" name="{k}" type="number" inputmode="numeric" min="{lo}" max="{hi}" step="1" required value="{e(v)}" aria-describedby="h-{k}">'
+    elif t == "choice":
+        ctl = f'<select id="{k}" name="{k}"{desc}>' + "".join(
+            f'<option value="{e(o)}"{" selected" if o == v else ""}>{e(txt)}</option>' for o, txt in CHOICES[k]) + "</select>"
+    else:
+        ph = (mask(v) or "não configurado") + (" (deixe em branco para manter, - para apagar)" if v else "")
+        ctl = (f'<textarea id="{k}" name="{k}" rows="3" placeholder="{e(ph)}"{desc} autocomplete="off"></textarea>' if t == "area"
+               else f'<input id="{k}" name="{k}" type="password" placeholder="{e(ph)}"{desc} autocomplete="new-password">')
+    return f'<label for="{k}">{e(label)}</label>{h}{ctl}'
 
 
 def config_page(flash=""):
     c = cfg()
-    out = ['<h1>Configurações</h1><form method="post" action="/config">']
+    out, aberto = ['<h1>Configurações</h1><form method="post" action="/config">'], False
     for k, label, t, hint, _ in FIELDS:
-        v = c.get(k, "")
-        h = f'<p class="hint" id="h-{k}">{e(hint)}</p>' if hint else ""
-        desc = f' aria-describedby="h-{k}"' if hint else ""
-        if t == "h":
-            out.append(f'<h2 class="sec">{e(label)}</h2>{h}')
+        if t == "h":  # seção recolhível; a primeira (Conexões) já abre aberta
+            out.append(("</details>" if aberto else "") + f'<details{"" if aberto else " open"}><summary>{e(label)}</summary>'
+                       + (f'<p class="hint">{e(hint)}</p>' if hint else ""))
+            aberto = True
             continue
-        if t == "bool":
-            out.append(f'<label class="chk"><input type="checkbox" name="{k}" value="1"{" checked" if v == "1" else ""}> {e(label)}</label>')
-            continue
-        if t == "lines":
-            out.append(f'<label for="{k}">{e(label)}</label>{h}<textarea id="{k}" name="{k}" rows="3"{desc}>{e(v)}</textarea>')
-            continue
-        if t == "text":
-            ctl = f'<input id="{k}" name="{k}" value="{e(v)}"{desc}>'
-        else:
-            ph = (mask(v) or "não configurado") + (" (deixe em branco para manter, - para apagar)" if v else "")
-            tag = (f'<textarea id="{k}" name="{k}" rows="3" placeholder="{e(ph)}"{desc} autocomplete="off"></textarea>' if t == "area"
-                   else f'<input id="{k}" name="{k}" type="password" placeholder="{e(ph)}"{desc} autocomplete="new-password">')
-            ctl = tag
-        out.append(f'<label for="{k}">{e(label)}</label>{h}{ctl}')
-    out.append('<p><button type="submit">Salvar</button></p></form>')
-    return page("/config", "".join(out), flash)
+        out.append(campo(k, label, t, hint, c.get(k, "")))
+        if k == "webhook_token":  # fim de Conexões
+            out.append('<p class="hint">Testar usa o que está salvo.</p><div class="row">' + "".join(
+                f'<button class="sec" type="submit" formaction="/testar/{n}" formnovalidate>Testar {e(lb)}</button>' for n, (lb, _) in TESTES.items()) + "</div>")
+    out.append('</details><p><button type="submit">Salvar</button></p></form>'
+               '<details><summary>Manutenção</summary><div class="row">'
+               '<form method="post" action="/reprocessar/tudo" onsubmit="return confirm(\'Reprocessar TUDO? Baixa, transcreve e resume de novo cada item (gasta Scribe e IA).\')">'
+               '<button class="sec" type="submit">Reprocessar tudo</button></form>'
+               '<form method="post" action="/reprocessar/sb" onsubmit="return confirm(\'Refazer no SilverBullet todos os itens (página, vídeo na qualidade atual, quadros, quadro)?\')">'
+               '<button class="sec" type="submit">Reprocessar só SilverBullet</button></form>'
+               '<form method="get" action="/config/export"><button class="sec" type="submit">Exportar configuração (sem segredos)</button></form></div>'
+               '<form method="post" action="/config/import"><label for="imp">Importar configuração</label>'
+               '<p class="hint" id="h-imp">Cole o JSON exportado. Chaves e cookies não entram; campo inválido fica como está.</p>'
+               '<textarea id="imp" name="json" rows="4" required aria-describedby="h-imp"></textarea>'
+               '<p><button class="sec" type="submit">Importar</button></p></form></details>')
+    return page("/config", '<div class="cfg">' + "".join(out) + "</div>", flash)
+
+
+def limpar(k, v):
+    """Valor de formulário/importação pronto pra salvar. Inválido = ValueError com mensagem."""
+    t = TYPE[k]
+    if t == "num":
+        return valida(k, v)
+    if t == "choice":
+        if v not in dict(CHOICES[k]):
+            raise ValueError(f"{LABEL[k]}: opção inválida")
+        return v
+    if t == "bool":
+        return "1" if v in ("1", "true", "True") else ""
+    return str(v).strip() or DEFAULTS[k]
+
+
+def aplicar(vals):
+    """Salva os campos válidos; devolve as mensagens dos inválidos (esses ficam como estavam)."""
+    upd, erros = {}, []
+    for k, v in vals.items():
+        try:
+            upd[k] = limpar(k, v)
+        except ValueError as ex:
+            erros.append(str(ex))
+    cfg_save(upd)
+    return erros
 
 
 def save_form(form):
-    upd = {}
+    vals, upd = {}, {}
     for k, _, t, _, _ in FIELDS:
         v = (form.get(k) or [""])[0].strip()
         if t == "h":
             continue
-        if t == "bool":
-            upd[k] = "1" if v == "1" else ""
-        elif t in ("text", "lines"):
-            upd[k] = v or DEFAULTS[k]
-        elif v == "-":
-            upd[k] = ""
-        elif v:
-            upd[k] = v
+        if t in ("secret", "area"):
+            if v == "-":
+                upd[k] = ""
+            elif v:
+                upd[k] = v
+        else:
+            vals[k] = v
     cfg_save(upd)
+    return aplicar(vals)
+
+
+def importar(texto):
+    """JSON exportado -> config. Segredo nunca entra por aqui; chave desconhecida é ignorada."""
+    d = json.loads(texto)
+    if not isinstance(d, dict):
+        raise ValueError("JSON não é um objeto")
+    return aplicar({k: ("1" if v else "") if isinstance(v, bool) else str(v) for k, v in d.items() if TYPE.get(k) not in (None, "h", "secret", "area")})
+
+
+def exportar():
+    return {k: v for k, v in cfg().items() if TYPE.get(k) not in (None, "h", "secret", "area")}
+
+
+TESTES = {
+    "llm": ("9Router", lambda c: req("GET", c["llm_url"].rstrip("/") + "/models", {"Authorization": "Bearer " + c["llm_key"]}, timeout=20)),
+    "elevenlabs": ("ElevenLabs", lambda c: req("GET", "https://api.elevenlabs.io/v1/models", {"xi-api-key": c["elevenlabs_key"]}, timeout=20)),
+    "cobalt": ("Cobalt", lambda c: req("GET", c["cobalt_url"].rstrip("/") + "/", {"Accept": "application/json"}, timeout=20)),
+    "karakeep": ("Karakeep", kk_tags),
+    "notebook": ("Open Notebook", notebooks),
+    "sb": ("SilverBullet", lambda c: sb_get(c, pasta(c, "sb_pagina") + ".md")),
+}
+
+
+def testar(nome):
+    label, fn = TESTES[nome]
+    try:
+        fn(cfg())
+        return f"{label}: ok"
+    except Exception as ex:
+        return f"{label}: erro: {scrub(ex)[:200]}"
+
+
+def reprocessar_item(jid):
+    """Erro: retoma da etapa que falhou. Outros: refaz o item do zero."""
+    j = job(jid)
+    if not j or j["status"] == "erro":
+        return retry(jid)
+    j["data"] = {}
+    j.update(status="fila", error="", after=0)
+    save(j)
+    WAKE.set()
+
+
+def reprocessar(so_sb):
+    """Tudo: zera os dados e refaz do zero. Só SilverBullet: refaz página, vídeo (na qualidade atual), quadros e quadro."""
+    for r in q("SELECT id FROM jobs"):
+        j = job(r["id"])
+        if so_sb:
+            if "analysis" not in j["data"]:
+                continue
+            j["data"].pop("sb7", None)
+            for k in ("midia", "linha", "video"):
+                (j["data"].get("sb") or {}).pop(k, None)
+        else:
+            j["data"] = {}
+        j.update(status="fila", error="", after=0)
+        save(j)
+    q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','1')")
+    WAKE.set()
 
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def send(self, code, body, ctype="text/html; charset=utf-8", extra=()):
+    def send(self, code, body, ctype="text/html; charset=utf-8", extra=(), cache="no-store"):
         b = body.encode() if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(b)))
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         for k, v in extra:
             self.send_header(k, v)
         self.end_headers()
@@ -1311,9 +1746,20 @@ class H(BaseHTTPRequestHandler):
         u = urlsplit(self.path)
         m = (parse_qs(u.query).get("m") or [""])[0][:200]
         if u.path == "/":
-            self.send(200, queue_page(m))
+            self.send(200, queue_page(m, {k: v[0] for k, v in parse_qs(u.query).items()}))
+        elif mc := re.fullmatch(r"/capa/(\d+)", u.path):  # capa vem do SilverBullet pelo worker (token fica aqui)
+            j = job(int(mc[1]))
+            capa = ((j or {}).get("data", {}).get("sb") or {}).get("capa")
+            try:
+                img = sb_get(cfg(), capa) if capa else None
+            except Exception:
+                img = None
+            self.send(200, img, "image/jpeg", cache="private, max-age=3600") if img else self.send(404, "sem capa", "text/plain")
         elif u.path == "/config":
             self.send(200, config_page(m))
+        elif u.path == "/config/export":
+            self.send(200, json.dumps(exportar(), ensure_ascii=False, indent=1), "application/json",
+                      [("Content-Disposition", 'attachment; filename="video-kb-config.json"')])
         elif u.path == "/health":
             self.send(200, "ok", "text/plain")
         else:
@@ -1337,14 +1783,26 @@ class H(BaseHTTPRequestHandler):
                 return self.go("Link inválido.")
             self.go("Link adicionado." if add_job(url) else "Esse link já está na fila.")
         elif path == "/config":
-            save_form(form)
+            erros = save_form(form)
             sb_refila()
-            self.send(200, config_page("Salvo."))
+            self.send(200, config_page("Salvo." + (" Não salvei: " + "; ".join(erros) + "." if erros else "")))
+        elif path == "/config/import":
+            try:
+                erros = importar((form.get("json") or [""])[0])
+                msg = "Importado." + (" Ignorei: " + "; ".join(erros) + "." if erros else "")
+            except ValueError as ex:
+                msg = f"Importação falhou: {ex}"
+            self.send(200, config_page(msg))
+        elif (m := re.fullmatch(r"/testar/(\w+)", path)) and m[1] in TESTES:
+            self.send(200, config_page(testar(m[1])))
+        elif m := re.fullmatch(r"/reprocessar/(tudo|sb)", path):
+            reprocessar(m[1] == "sb")
+            self.go("Reprocessando tudo." if m[1] == "tudo" else "Reprocessando o SilverBullet.")
         elif m := re.fullmatch(r"/remover/(\d+)", path):
             q("DELETE FROM jobs WHERE id=?", (int(m[1]),))  # só tira da fila do Video KB; `seen` fica, coletor não re-adiciona
             self.go("Removido.")
-        elif m := re.fullmatch(r"/retry/(\d+)", path):
-            retry(int(m[1]))
+        elif m := re.fullmatch(r"/item/(\d+)/reprocessar", path):
+            reprocessar_item(int(m[1]))
             self.go("Reprocessando.")
         else:
             self.send(404, "não encontrado", "text/plain")
