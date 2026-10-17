@@ -70,7 +70,7 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb_ok"}
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb2"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
@@ -638,10 +638,25 @@ def sb_capa(j, c):
         return ""
 
 
-def sb_card(d):
-    a, sb = d["analysis"], d["sb"]
-    img = f"![]({sb['capa']})\n" if sb.get("capa") else ""
-    return f"{img}**[[{sb['page']}]]**\n{a['resumo'][:220]}\n"
+def sb_get(c, path):
+    import urllib.request as ur
+    try:
+        with ur.urlopen(ur.Request(c["sb_url"].rstrip("/") + "/.fs/" + ur.quote(path), headers={"Authorization": "Bearer " + c["sb_token"]}), timeout=30) as r:
+            return r.read().decode()
+    except Exception:
+        return None
+
+
+SB_TEMA = """# {tema}
+
+${{query[[from p = index.tag("page") where p.type == "reel" and p.tema == "{tema}" order by p.data desc select template.new[==[
+![](${{p.cover}})
+**[[${{p.name}}]]**
+${{p.resumo}}
+
+---
+]==](p)]]}}
+"""
 
 
 def step_silverbullet(j, c):
@@ -651,25 +666,21 @@ def step_silverbullet(j, c):
     capa = (d.get("sb") or {}).get("capa") or sb_capa(j, c)
     tema = "Temas/" + sb_nome(a["tema"])
     video = d.get("kind", "video") == "video"
-    md = ((f"![]({capa})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
-          + (f"[▶ Abrir o original]({j['orig']})\n\n" if j["orig"] else "")
-          + f"Assunto: [[{tema}]]  \nTags: " + " ".join("#" + re.sub(r"\s+", "-", t) for t in a["tags"]) + "\n\n"
+    tags = [re.sub(r"[^\w-]+", "-", t.strip()).strip("-").lower() for t in a["tags"] if t.strip()]
+    fm = {"type": "reel", "title": a["titulo"], "tema": a["tema"], "data": time.strftime("%Y-%m-%d", time.localtime(j.get("created") or time.time())),
+          "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "resumo": a["resumo"][:240]}
+    md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in fm.items())
+          + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n"
+          + (f"![]({fm['cover']})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
+          + (f"[▶ Abrir o original]({j['orig']})\n\n" if j["orig"] else "") + f"Assunto: [[{tema}]]\n\n"
           + f"## Resumo\n{a['resumo']}\n\n## Pontos-chave\n" + "\n".join("- " + p for p in a["pontos_chave"]) + "\n\n"
           + ("## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
           + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
     sb_put(c, page + ".md", md)
+    if sb_get(c, tema + ".md") is None or "index.tag" not in (sb_get(c, tema + ".md") or ""):
+        sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', "")))
     d["sb"] = {"page": page, "capa": capa, "tema": tema}
-    save(j)
-    feitos = [x for x in (json.loads(r["data"] or "{}") for r in q("SELECT data FROM jobs ORDER BY id DESC")) if x.get("sb")]
-    mesmos = [x for x in feitos if x["sb"]["tema"] == tema]
-    sb_put(c, tema + ".md", f"# {a['tema']}\n\n{len(mesmos)} salvos sobre isso.\n\n" + "\n---\n".join(sb_card(x) for x in mesmos))
-    temas = {}
-    for x in feitos:
-        temas.setdefault(x["sb"]["tema"], 0)
-        temas[x["sb"]["tema"]] += 1
-    sb_put(c, "Video KB.md", "# Meus salvos\n\n## Assuntos\n" + " · ".join(f"[[{t}]] ({n})" for t, n in sorted(temas.items(), key=lambda z: -z[1]))
-           + "\n\n## Recentes\n" + "\n---\n".join(sb_card(x) for x in feitos[:30]))
-    d["sb_ok"] = True
+    d["sb2"] = True
 
 
 def step_notebook(j, c):
@@ -1079,7 +1090,7 @@ class H(BaseHTTPRequestHandler):
         elif path == "/config":
             save_form(form)
             if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
-                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb_ok\"%'")
+                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb2\"%'")
                 WAKE.set()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
