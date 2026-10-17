@@ -1,4 +1,5 @@
 """Testes sem rede: python3 -m unittest -v   (dentro de app/)"""
+import io
 import json
 import os
 import tempfile
@@ -446,6 +447,60 @@ class T(unittest.TestCase):
         total = sum(os.path.getsize(p) for p in paths)
         main.fit_grids(paths, limit=total // 3)
         self.assertLessEqual(sum(os.path.getsize(p) for p in paths), total // 3)
+
+    # ---------- v1.4: SilverBullet ----------
+    def sb_job(self, sb):
+        main.cfg_save({"sb_url": "http://sb", "sb_token": "SB"})
+        main.add_job("https://www.instagram.com/reel/X/", "bkS")
+        j = main.job(1)
+        j["data"].update({"kind": "video", "analysis": {**ANALISE, "resumo": "R" * 300, "estilo": 2}, "sb": {"midia": True, **sb}})
+        self.put = {}
+        p = mock.patch.object(main, "sb_put", lambda c, path, data, ctype="": self.put.__setitem__(path, data))
+        p.start(), self.addCleanup(p.stop)
+        return j
+
+    def test_sb_caminho_absoluto_resumo_inteiro_capa_original(self):
+        j = self.sb_job({"video": "Reels/videos/1.mp4", "linha": [{"t": "00:01", "img": "Reels/quadros/1/00.jpg", "txt": "x"}]})
+        with mock.patch.object(main, "yt_capa", lambda c, u: b"capa-orig"):
+            main.step_silverbullet(j, main.cfg())
+        md = self.put["Reels/Dica de foco.md"]
+        self.assertEqual(self.put["Reels/capas/1.jpg"], b"capa-orig")
+        self.assertIn('cover: ".fs/Reels/capas/1.jpg"\n', md)  # frontmatter continua .fs/ (MediaGallery)
+        self.assertIn('video: ".fs/Reels/videos/1.mp4"\n', md)
+        self.assertIn("![](/Reels/videos/1.mp4)", md)  # corpo: absoluto
+        self.assertIn("![](/Reels/quadros/1/00.jpg)", md)
+        self.assertNotIn("](.fs/", md)
+        self.assertIn(f'resumo: "{"R" * 300}"\n', md)  # sem corte em 240
+        self.assertTrue(j["data"]["sb7"] and j["data"]["sb"]["capa_orig"])
+        self.put.clear()
+        with mock.patch.object(main, "yt_capa", lambda c, u: self.fail("capa já trocada")):
+            main.step_silverbullet(j, main.cfg())
+        self.assertNotIn("Reels/capas/1.jpg", self.put)
+
+    def test_sb_reel_antigo_sem_yt_dlp_mantem_capa(self):
+        j = self.sb_job({"capa": "Reels/capas/1.jpg"})  # pronto do v1.3 (sb6), sem capa_orig
+        self.fake.bm = [{}]  # Karakeep sem imagem
+        with mock.patch.object(main, "yt_capa", mock.Mock(side_effect=RuntimeError("login required"))) as yt:
+            main.step_silverbullet(j, main.cfg())
+        yt.assert_called_once()
+        self.assertEqual(self.fake.n("includeContent=true"), 1)  # caiu pro Karakeep
+        self.assertIn("![](/Reels/capas/1.jpg)", self.put["Reels/Dica de foco.md"])
+        self.assertEqual(j["data"]["sb"]["capa"], "Reels/capas/1.jpg")
+
+    def test_yt_capa_maior_thumbnail_em_jpeg(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow não instalado (no container vem com o crv)")
+        png = io.BytesIO()
+        Image.new("RGBA", (4, 4)).save(png, "PNG")
+        info = {"thumbnails": [{"url": "http://img/p", "width": 100, "height": 100}, {"url": "http://img/g", "width": 1080, "height": 1920}, {"url": "http://img/s"}]}
+        pedidos = []
+        main.req = lambda m, u, h=None, b=None, timeout=60, raw=False: pedidos.append(u) or png.getvalue()
+        with mock.patch.object(main.subprocess, "run", lambda *a, **k: mock.Mock(stdout=json.dumps(info) + "\n")):
+            jpg = main.yt_capa(main.cfg(), "https://www.instagram.com/reel/X/")
+        self.assertEqual(pedidos, ["http://img/g"])
+        self.assertTrue(jpg.startswith(b"\xff\xd8"))
 
 
 if __name__ == "__main__":
