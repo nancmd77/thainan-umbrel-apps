@@ -2,7 +2,7 @@
 
 Bookmark do Karakeep (vídeo, página, PDF, nota) → áudio (Cobalt, fallback yt-dlp) → ElevenLabs Scribe (`scribe_v2`) → 9Router do Nonve, OpenAI-compatível (`http://thainan-9router_web_1:20128/v1`, modelo `ag/gemini-3.8-flash-medium`, ambos editáveis; JSON `titulo/resumo/pontos_chave/tags/tema/transcricao_limpa`) → Karakeep (summary, nota, tags, lista do tema) → Open Notebook (caderno do tema, fonte texto).
 
-Python 3.12, só stdlib. Único pacote externo: `yt-dlp==2026.8.19`, instalado no start em `/data/pylib`. Sem ffmpeg, sem build de imagem.
+Python 3.12, só stdlib. Pacotes externos (yt-dlp, gallery-dl, Pillow, claude-real-video) instalados no start em `/data/pylib`; ffmpeg/ffprobe via apt no start se faltar. Sem build de imagem.
 
 ## Arquivos
 - `docker-compose.yml`, `umbrel-app.yml`, `icon.png`: porta Umbrel **8519**, container 8080, `APP_HOST thainan-video-kb_web_1`, `/webhook/*` fora do login Umbrel.
@@ -14,8 +14,10 @@ Código: o compose monta `${APP_DATA_DIR}/app:/app:ro`. Se `/app/main.py` não e
 ## Uso
 1. Instale, abra, **Configurações**: chave ElevenLabs, URL + chave 9Router, Karakeep (URL + API key), Open Notebook (URL `http://thainan-opennotebook_web_1:5055` + senha, se houver), token do webhook. Chaves nunca voltam inteiras na tela (só `••••últimos4`); campo vazio mantém, `-` apaga.
 2. Webhook no Karakeep: URL `http://<IP-Nonve>:8519/webhook/karakeep`, evento `created`, mesmo token (vai como `Authorization: Bearer`). O Karakeep bloqueia IP privado em chamadas de worker: se o webhook não chegar, ponha o host em `CRAWLER_ALLOWED_INTERNAL_HOSTNAMES` no Karakeep.
-3. Sem webhook, o polling a cada 5 min pega os últimos 50 bookmarks criados depois do primeiro polling (histórico não é importado). Link avulso: campo "colar link" na Fila.
-4. **Fila**: etapa, erro e **Reprocessar** (retoma da etapa que falhou; transcrição/resumo já feitos não são refeitos).
+3. Sem webhook, o polling a cada 5 min pega os últimos 50 bookmarks criados depois do primeiro polling (histórico não é importado). Link avulso: campo "Adicionar link" no topo.
+4. **Itens** (tela principal, v1.7): busca por palavras ou `#tag` (título, resumo, tags, transcrição), filtros de status e fonte, lateral com assuntos e tags (clique filtra). Por item: Abrir no SilverBullet, Reprocessar (erro: retoma da etapa que falhou; pronto: refaz do zero, com confirmação) e Apagar. A capa vem do SilverBullet pela rota `/capa/<id>` (o token fica no servidor). Tema claro/escuro automático ou fixo em Configurações > Tela.
+
+Visual inspirado no [Linkding](https://github.com/sissbruecker/linkding) (MIT, © Sascha Ißbrücker): só o layout e a ideia; o CSS é próprio e vai embutido, sem CDN.
 
 ## Comportamento
 - v1.1: qualquer bookmark entra (link, PDF, nota de texto). Etapa `tipo`: IG/TikTok = vídeo; outro link = vídeo se `yt-dlp -j` achar mídia com duração (Reddit, YouTube...), senão página; asset PDF = pdf; nota = texto; imagem = erro "Tipo não suportado".
@@ -28,11 +30,16 @@ Código: o compose monta `${APP_DATA_DIR}/app:/app:ro`. Se `/app/main.py` não e
 - Open Notebook: `POST /api/sources/json` `{type:text, notebooks:[id], embed:true, async_processing:true}`; embeddings dependem do provedor configurado lá.
 
 ## Visão (v1.3)
-Só pra vídeo: download em ≤480p (Cobalt `downloadMode: auto` + `videoQuality: 480`; yt-dlp `b[height<=480]/bv*[height<=480]+ba/b/ba`). O mesmo arquivo vai pro Scribe (aceita mp4) e pro crv; depois é apagado.
+Só pra vídeo: o arquivo baixado (qualidade em "Vídeo e mídia", ver v1.6) vai pro crv; o Scribe recebe só o áudio (mp3 mono 64k via ffmpeg). Depois os dois são apagados.
 - Etapa `visao`: `python -m claude_real_video <vídeo> -o tmp/crv-<id> --overwrite --no-transcribe --grid --max-frames <Configurações, 60>`, com `CRV_NO_MEMORY=1`. Usa `grids/*.jpg` (3x3, cada célula com o nome do frame) e `frames.json` (nome → mm:ss).
 - Resumo: folhas como `image_url` `data:image/jpeg;base64` + `frames: frame_001.jpg=00:00 ...` + transcrição `[mm:ss]` (palavras do Scribe). Campo novo `o_que_aparece` vai pra nota do Karakeep ("O que aparece:") e pra fonte do Open Notebook ("## O que aparece na tela").
 - Total das folhas acima de ~4 MB: redimensiona com Pillow (vem com o crv).
 - Falhas não travam o job: crv/ffmpeg falhou, vídeo sumiu ou modelo recusou imagem → segue só com a transcrição e a Fila mostra `sem visão: <motivo>`.
+
+## Vídeo e configurações (v1.6)
+- Download: curto (até 3 min, ou duração desconhecida como IG/TikTok) vem na qualidade máxima (Cobalt `videoQuality: max`; yt-dlp preferindo mp4/H.264 sem limite de altura). Longo: no máximo a resolução de longos (720p).
+- SilverBullet: curto que cabe no limite (60 MB) vai original, sem reencodar. Não cabe: ffmpeg H.264 CRF 23 com teto `maxrate` calculado pelo tamanho e duração (8% de margem), mantendo a resolução. Saiu maior que o original ou que o limite: não envia. Longo: padrão só link + capa + quadros; opção "enviar comprimido" usa a resolução e o limite próprios.
+- Configurações em seções recolhíveis; números com mínimo e máximo (inválido não salva e aparece no aviso). Botões Testar por conexão, Reprocessar tudo / só SilverBullet, exportar/importar (sem chaves nem cookies). Config antiga vale sem mexer: campo novo usa o padrão.
 
 ## Coletores (v1.2)
 A cada 30 min (o 1º roda 1 min depois de subir), cada coletor ligado em Configurações busca itens novos. Cada item vira bookmark no Karakeep (`POST /api/v1/bookmarks`) e entra na fila. Dedupe por URL normalizada + tabela `seen`. Na 1ª coleta de cada fonte, só os 20 primeiros entram; o resto fica como visto (o histórico não é importado).
