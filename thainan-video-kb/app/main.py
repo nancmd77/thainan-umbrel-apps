@@ -70,7 +70,7 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb5"}
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb6"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
@@ -467,12 +467,16 @@ def step_visao(j, c):
         shutil.rmtree(out, ignore_errors=True)
     finally:
         if media and os.path.exists(media):
-            os.remove(media)
+            if cfg().get("sb_url") and cfg().get("sb_token") and d.get("kind", "video") == "video":
+                os.makedirs(os.path.join(DATA, "sbmedia"), exist_ok=True)  # vai pro SilverBullet na última etapa
+                shutil.move(media, os.path.join(DATA, "sbmedia", f"{j['id']}{os.path.splitext(media)[1] or '.mp4'}"))
+            else:
+                os.remove(media)
 
 
 PROMPT = (
     "Você analisa conteúdo salvo: transcrição de vídeo curto, página, post ou PDF. Responda SOMENTE um JSON, em português do Brasil, com as chaves: "
-    '"titulo" (até 80 caracteres), "resumo" (2 a 4 frases), "pontos_chave" (3 a 7 strings), '
+    '"titulo" (até 80 caracteres), "gancho" (1 frase de até 100 caracteres dizendo do que se trata, para ler sem abrir), "resumo" (2 a 4 frases), "pontos_chave" (3 a 7 strings), '
     '"tags" (3 a 8, minúsculas, sem #, 1 a 2 palavras), "tema" (1 a 3 palavras, Title Case, genérico para agrupar conteúdos '
     'parecidos, ex.: "Marketing", "Saúde", "Finanças"), '
     '"transcricao_limpa" (a transcrição com pontuação e erros de reconhecimento corrigidos, sem inventar conteúdo).'
@@ -535,6 +539,7 @@ def parse_analysis(raw, transcript):
     tags = [re.sub(r"\s+", " ", str(t)).strip().lstrip("#").lower() for t in a.get("tags") or []]
     return {
         "titulo": str(a.get("titulo") or "Vídeo sem título").strip()[:120],
+        "gancho": str(a.get("gancho") or "").strip()[:120],
         "resumo": str(a.get("resumo") or "").strip(),
         "pontos_chave": [str(p).strip() for p in a.get("pontos_chave") or [] if str(p).strip()],
         "tags": list(dict.fromkeys(t for t in tags if t))[:8],
@@ -589,7 +594,7 @@ def step_resumo(j, c):
     a["tema"] = pick_tema(a["tema"], temas)
     by = {fold(t): t for t in tags}
     a["tags"] = list(dict.fromkeys(by.get(fold(t), t) for t in a["tags"]))  # grafia da tag existente
-    a["estilo"] = 1  # já nasce no ESTILO
+    a["estilo"] = 2  # já nasce no ESTILO, com gancho
     j["data"]["analysis"] = a
     if vis.get("dir"):
         shutil.rmtree(vis["dir"], ignore_errors=True)  # folhas já usadas
@@ -687,28 +692,85 @@ def sb_sintese(j, c, tema):
 def sb_reestilo(j, c):
     """Uma vez por Reel antigo: reescreve resumo/pontos/o que aparece no ESTILO (sem tocar fatos, título, tema, tags, transcrição)."""
     a = j["data"]["analysis"]
-    if a.get("estilo"):
+    if a.get("estilo", 0) >= 2:
         return
-    campos = {k: a[k] for k in ("resumo", "pontos_chave", "o_que_aparece") if a.get(k)}
+    campos = {k: a[k] for k in ("resumo", "pontos_chave", "o_que_aparece") if a.get(k) and not a.get("estilo")}
+    campos["gancho"] = a.get("gancho") or ""
     try:
         r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
                 {"model": c["model"], "stream": False, "messages": [
                     {"role": "system", "content": "Reescreva os campos deste JSON em português do Brasil sem mudar fatos, sem acrescentar nem tirar informação. "
-                     "Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a 4 frases; listas continuam listas de strings)." + ESTILO},
-                    {"role": "user", "content": json.dumps(campos, ensure_ascii=False)}]}, timeout=180)
+                     "Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a 4 frases; listas continuam listas de strings). "
+                     "Se \"gancho\" vier vazio, escreva 1 frase de até 100 caracteres dizendo do que se trata." + ESTILO},
+                    {"role": "user", "content": json.dumps({**campos, "titulo": a["titulo"], "resumo_atual": a["resumo"]}, ensure_ascii=False)}]}, timeout=180)
         txt = r["choices"][0]["message"]["content"].strip()
         novo = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
         for k, v in campos.items():
             if type(novo.get(k)) is type(v) and novo[k]:
                 a[k] = novo[k]
-        a["estilo"] = 1
+        a["gancho"] = str(a.get("gancho") or "")[:120]
+        a["estilo"] = 2
     except Exception as e:
         log(f"job {j['id']} sem reestilo: {scrub(e)[:120]}")
+
+
+def sb_midia(j, c):
+    """Vídeo no SilverBullet (toca no card) + linha do tempo: quadros do crv com timecode e o que acontece. Uma vez por Reel."""
+    d, a = j["data"], j["data"]["analysis"]
+    sb = d.setdefault("sb", {})
+    if sb.get("midia") or d.get("kind", "video") != "video" or not j["orig"]:
+        return
+    pasta = os.path.join(DATA, "sbmedia")
+    os.makedirs(pasta, exist_ok=True)
+    media = next(iter(glob.glob(os.path.join(pasta, f"{j['id']}.*"))), None)
+    out = os.path.join(DATA, "tmp", f"tl-{j['id']}")
+    try:
+        if not media:  # Reel antigo: baixa de novo
+            try:
+                media = cobalt_audio(c, j["orig"], os.path.join(pasta, str(j["id"])))
+            except Exception:
+                media = ytdlp_audio(c, j["orig"], os.path.join(pasta, str(j["id"])))
+        if media.endswith(".mp3"):
+            raise RuntimeError("só áudio, sem vídeo")
+        if os.path.getsize(media) <= 60 * 1024 * 1024:
+            sb_put(c, f"Reels/videos/{j['id']}.mp4", open(media, "rb").read(), "video/mp4")
+            sb["video"] = f"Reels/videos/{j['id']}.mp4"
+        run_crv(media, out, 24)
+        with open(os.path.join(out, "frames.json")) as f:
+            frames = json.load(f)["frames"]
+        def seg(x):
+            m = re.match(r"\s*(\d+):(\d{2})", x)
+            return int(m[1]) * 60 + int(m[2]) if m else None
+        eventos = [(seg(x), re.sub(r"^\s*\d+:\d{2}\s*[:\-–]?\s*", "", x)) for x in a.get("o_que_aparece") or []]
+        eventos = [e for e in eventos if e[0] is not None][:16] or [(int(fr["timestamp_sec"]), "") for fr in frames[::max(1, len(frames) // 8)]][:8]
+        from PIL import Image
+        linha = []
+        for i, (t, txt) in enumerate(eventos):
+            fr = min(frames, key=lambda x: abs(x["timestamp_sec"] - t))
+            src = next(iter(glob.glob(os.path.join(out, "**", fr["file"]), recursive=True)), None)
+            if not src:
+                continue
+            p = os.path.join(out, f"q{i}.jpg")
+            with Image.open(src) as im:
+                k = 360 / max(im.width, 1)
+                im.convert("RGB").resize((360, max(1, int(im.height * k)))).save(p, "JPEG", quality=78)
+            dest = f"Reels/quadros/{j['id']}/{i:02d}.jpg"
+            sb_put(c, dest, open(p, "rb").read(), "image/jpeg")
+            linha.append({"t": mmss(t), "img": dest, "txt": txt})
+        sb["linha"] = linha
+    except Exception as e:
+        log(f"job {j['id']} sem mídia no SilverBullet: {scrub(e)[:120]}")
+    finally:
+        sb["midia"] = True
+        shutil.rmtree(out, ignore_errors=True)
+        for f in glob.glob(os.path.join(pasta, f"{j['id']}.*")):
+            os.remove(f)
 
 
 def step_silverbullet(j, c):
     need(c, "sb_url", "sb_token")
     sb_reestilo(j, c)
+    sb_midia(j, c)
     d, a = j["data"], j["data"]["analysis"]
     page = "Reels/" + sb_nome(a["titulo"])
     capa = (d.get("sb") or {}).get("capa") or sb_capa(j, c)
@@ -716,18 +778,22 @@ def step_silverbullet(j, c):
     video = d.get("kind", "video") == "video"
     tags = [re.sub(r"[^\w-]+", "-", t.strip()).strip("-").lower() for t in a["tags"] if t.strip()]
     fm = {"type": "reel", "title": a["titulo"], "tema": a["tema"], "data": time.strftime("%Y-%m-%d", time.localtime(j.get("created") or time.time())),
-          "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "resumo": a["resumo"][:240]}
+          "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "gancho": a.get("gancho", ""), "resumo": a["resumo"][:240],
+          "video": (".fs/" + d["sb"]["video"]) if (d.get("sb") or {}).get("video") else ""}
+    linha = (d.get("sb") or {}).get("linha") or []
     md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in fm.items())
           + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n"
-          + (f"![]({fm['cover']})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
+          + (f"![]({fm['video']})\n\n" if fm["video"] else f"![]({fm['cover']})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
+          + (f"_{fm['gancho']}_\n\n" if fm["gancho"] else "")
           + (f"[▶ Abrir o original]({j['orig']})\n\n" if j["orig"] else "") + f"Assunto: [[{tema}]]\n\n"
           + f"## Resumo\n{a['resumo']}\n\n## Pontos-chave\n" + "\n".join("- " + p for p in a["pontos_chave"]) + "\n\n"
-          + ("## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
+          + ("## Linha do tempo\n" + "\n".join(f"**{x['t']}** {x['txt']}\n![]({'.fs/' + x['img']})\n" for x in linha) + "\n" if linha
+             else "## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
           + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
     sb_put(c, page + ".md", md)
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
-    d["sb"] = {"page": page, "capa": capa, "tema": tema}
-    d["sb5"] = True
+    d["sb"] = {**d.get("sb", {}), "page": page, "capa": capa, "tema": tema}
+    d["sb6"] = True
 
 
 def step_notebook(j, c):
@@ -1137,7 +1203,7 @@ class H(BaseHTTPRequestHandler):
         elif path == "/config":
             save_form(form)
             if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
-                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb5\"%'")
+                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb6\"%'")
                 WAKE.set()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
