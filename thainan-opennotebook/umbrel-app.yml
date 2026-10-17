@@ -24,7 +24,7 @@ repo: https://github.com/lfnovo/open-notebook
 support: https://github.com/lfnovo/open-notebook/issues
 gallery: []
 releaseNotes: >-
-  Liga a senha (OPEN_NOTEBOOK_PASSWORD = senha do Umbrel); antes a API 5055 ficava aberta na rede. Open Notebook 1.15.0, SurrealDB 2.6.5.
+  Abre pelo subdomínio notebook.nonve.dpdns.org (API_URL). Senha = senha do Umbrel. Open Notebook 1.15.0, SurrealDB 2.6.5.
 dependencies: []
 path: ""
 defaultUsername: ""
