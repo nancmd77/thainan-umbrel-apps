@@ -48,6 +48,8 @@ FIELDS = [
     ("karakeep_key", "API key do Karakeep", "secret", "Karakeep > Configurações > API keys.", ""),
     ("notebook_url", "URL do Open Notebook (API)", "text", "Porta 5055.", "http://thainan-opennotebook_web_1:5055"),
     ("notebook_pass", "Senha do Open Notebook", "secret", "Deixe vazio se não houver senha.", ""),
+    ("sb_url", "URL do SilverBullet", "text", "Segundo cérebro (porta 3002). Vazio = desligado.", "http://192.168.18.171:3002"),
+    ("sb_token", "Token do SilverBullet", "secret", "Token de API do SilverBullet.", ""),
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
     ("max_frames", "Visão: máximo de frames", "text", "Frames que o crv tira do vídeo (viram folhas 3x3 pro Gemini).", "60"),
     ("max_min", "Duração máxima de vídeo (min)", "text", "Vídeo mais longo não é transcrito (custo do Scribe). Vale pra links fora de IG/TikTok.", "60"),
@@ -68,9 +70,9 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb"}
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb_ok"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
-            "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook",
+            "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
 STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto"}
 
@@ -605,6 +607,71 @@ def step_karakeep(j, c):
     j["data"]["kk"] = True
 
 
+def sb_put(c, path, data, ctype="text/markdown"):
+    import urllib.request as ur
+    rq = ur.Request(c["sb_url"].rstrip("/") + "/.fs/" + ur.quote(path), data=data if isinstance(data, bytes) else data.encode(),
+                    method="PUT", headers={"Authorization": "Bearer " + c["sb_token"], "Content-Type": ctype})
+    with ur.urlopen(rq, timeout=60) as r:
+        return r.status
+
+
+def sb_nome(t):
+    return re.sub(r"[\\/#\[\]|^:*?\"<>]+", " ", t).strip()[:90] or "Sem título"
+
+
+def sb_capa(j, c):
+    """Capa = imagem que o Karakeep guardou do link (asset), salva no SilverBullet. Sem capa se não houver."""
+    try:
+        base, h = kk(c)
+        ct = bookmark(c, j["bookmark_id"]).get("content") or {}
+        aid = ct.get("imageAssetId") or ct.get("screenshotAssetId")
+        if not aid:
+            return ""
+        import urllib.request as ur
+        with ur.urlopen(ur.Request(f"{base}/assets/{aid}", headers=h), timeout=60) as r:
+            img = r.read()
+        p = f"Reels/capas/{j['id']}.jpg"
+        sb_put(c, p, img, "image/jpeg")
+        return p
+    except Exception as e:
+        log(f"job {j['id']} sem capa: {scrub(e)[:120]}")
+        return ""
+
+
+def sb_card(d):
+    a, sb = d["analysis"], d["sb"]
+    img = f"![]({sb['capa']})\n" if sb.get("capa") else ""
+    return f"{img}**[[{sb['page']}]]**\n{a['resumo'][:220]}\n"
+
+
+def step_silverbullet(j, c):
+    need(c, "sb_url", "sb_token")
+    d, a = j["data"], j["data"]["analysis"]
+    page = "Reels/" + sb_nome(a["titulo"])
+    capa = (d.get("sb") or {}).get("capa") or sb_capa(j, c)
+    tema = "Temas/" + sb_nome(a["tema"])
+    video = d.get("kind", "video") == "video"
+    md = ((f"![]({capa})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
+          + (f"[▶ Abrir o original]({j['orig']})\n\n" if j["orig"] else "")
+          + f"Assunto: [[{tema}]]  \nTags: " + " ".join("#" + re.sub(r"\s+", "-", t) for t in a["tags"]) + "\n\n"
+          + f"## Resumo\n{a['resumo']}\n\n## Pontos-chave\n" + "\n".join("- " + p for p in a["pontos_chave"]) + "\n\n"
+          + ("## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
+          + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
+    sb_put(c, page + ".md", md)
+    d["sb"] = {"page": page, "capa": capa, "tema": tema}
+    save(j)
+    feitos = [x for x in (json.loads(r["data"] or "{}") for r in q("SELECT data FROM jobs ORDER BY id DESC")) if x.get("sb")]
+    mesmos = [x for x in feitos if x["sb"]["tema"] == tema]
+    sb_put(c, tema + ".md", f"# {a['tema']}\n\n{len(mesmos)} salvos sobre isso.\n\n" + "\n---\n".join(sb_card(x) for x in mesmos))
+    temas = {}
+    for x in feitos:
+        temas.setdefault(x["sb"]["tema"], 0)
+        temas[x["sb"]["tema"]] += 1
+    sb_put(c, "Video KB.md", "# Meus salvos\n\n## Assuntos\n" + " · ".join(f"[[{t}]] ({n})" for t, n in sorted(temas.items(), key=lambda z: -z[1]))
+           + "\n\n## Recentes\n" + "\n---\n".join(sb_card(x) for x in feitos[:30]))
+    d["sb_ok"] = True
+
+
 def step_notebook(j, c):
     need(c, "notebook_url")
     base = c["notebook_url"].rstrip("/") + "/api"
@@ -629,7 +696,7 @@ def step_notebook(j, c):
 
 
 STEP_FN = {"tipo": step_tipo, "texto": step_texto, "audio": step_audio, "transcricao": step_transcricao, "visao": step_visao, "resumo": step_resumo,
-           "karakeep": step_karakeep, "notebook": step_notebook}
+           "karakeep": step_karakeep, "notebook": step_notebook, "silverbullet": step_silverbullet}
 
 
 def done(s, d):
@@ -641,7 +708,7 @@ def done(s, d):
 def steps(d):
     if "kind" not in d:
         return ["tipo"]
-    return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo", "karakeep", "notebook"]
+    return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo", "karakeep", "notebook"] + (["silverbullet"] if cfg().get("sb_url") and cfg().get("sb_token") else [])
 
 
 def run(jid):
@@ -1011,6 +1078,9 @@ class H(BaseHTTPRequestHandler):
             self.go("Link adicionado." if add_job(url) else "Esse link já está na fila.")
         elif path == "/config":
             save_form(form)
+            if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
+                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb_ok\"%'")
+                WAKE.set()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
             q("DELETE FROM jobs WHERE id=?", (int(m[1]),))  # só tira da fila do Video KB; `seen` fica, coletor não re-adiciona
