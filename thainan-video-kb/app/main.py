@@ -70,7 +70,7 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb3"}
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb4"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
@@ -477,6 +477,15 @@ PROMPT = (
     'parecidos, ex.: "Marketing", "Saúde", "Finanças"), '
     '"transcricao_limpa" (a transcrição com pontuação e erros de reconhecimento corrigidos, sem inventar conteúdo).'
 )
+ESTILO = (
+    " ESTILO do resumo, pontos-chave, o que aparece e síntese (nunca da transcrição, que fica fiel ao original): "
+    "humanizado: sem cara de IA, sem 'vale ressaltar', 'além disso', 'em suma', 'crucial', 'fundamental', 'jornada', 'mergulhar', "
+    "sem regra de três forçada, sem travessão de efeito, sem frase de abertura ou fecho genérica, sem elogio vazio; "
+    "caveman ultra: frase curta, corta artigo e enchimento quando der, sem rodeio, fato direto, palavra concreta; "
+    "TDAH: o mais útil primeiro, um assunto por item, ação prática quando existir, nada de parágrafo longo."
+)
+
+
 PROMPT_VISAO = (
     ' Você também recebe folhas 3x3 com frames do vídeo (cada célula tem o nome do frame; os tempos estão na lista "frames") '
     'e a transcrição com tempos [mm:ss]. Inclua a chave "o_que_aparece": lista curta e cronológica de strings "mm:ss: ..." '
@@ -560,7 +569,7 @@ def step_resumo(j, c):
                 for g in imgs]
         return req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
                    {"model": c["model"], "stream": False, "response_format": {"type": "json_object"},
-                    "messages": [{"role": "system", "content": (PROMPT + (PROMPT_VISAO if com_imagens else "") if video else PROMPT_TEXTO) + ctx},
+                    "messages": [{"role": "system", "content": (PROMPT + (PROMPT_VISAO if com_imagens else "") if video else PROMPT_TEXTO) + ESTILO + ctx},
                                  {"role": "user", "content": user}]}, timeout=300 if com_imagens else 180)
 
     if video and imgs:
@@ -694,7 +703,7 @@ def step_silverbullet(j, c):
     sb_put(c, page + ".md", md)
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
     d["sb"] = {"page": page, "capa": capa, "tema": tema}
-    d["sb3"] = True
+    d["sb4"] = True
 
 
 def step_notebook(j, c):
@@ -1104,7 +1113,7 @@ class H(BaseHTTPRequestHandler):
         elif path == "/config":
             save_form(form)
             if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
-                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb3\"%'")
+                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb4\"%'")
                 WAKE.set()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
