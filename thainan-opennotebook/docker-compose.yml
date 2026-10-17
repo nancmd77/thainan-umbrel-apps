@@ -22,6 +22,7 @@ services:
     environment:
       OPEN_NOTEBOOK_ENCRYPTION_KEY: ${APP_SEED}
       OPEN_NOTEBOOK_PASSWORD: ${APP_PASSWORD}
+      API_URL: https://notebook.nonve.dpdns.org
       SURREAL_URL: ws://thainan-opennotebook_surrealdb_1:8000/rpc
       SURREAL_USER: root
       SURREAL_PASSWORD: ${APP_SEED}
