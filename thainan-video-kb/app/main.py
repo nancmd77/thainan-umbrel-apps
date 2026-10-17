@@ -650,13 +650,7 @@ def sb_get(c, path):
 SB_TEMA = """# {tema}
 
 {sintese}
-${{query[[from p = index.tag("page") where p.type == "reel" and p.tema == "{tema}" order by p.data desc select template.new[==[
-![](${{_.cover}})
-**[[${{_.name}}]]**
-${{_.resumo}}
-
----
-]==](p)]]}}
+${{reelCards("{tema}")}}
 """
 
 
