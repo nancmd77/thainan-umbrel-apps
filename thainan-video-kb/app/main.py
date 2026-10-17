@@ -889,6 +889,8 @@ def queue_page(flash=""):
         title = (d.get("analysis") or {}).get("titulo") or r["orig"] or f"Bookmark {r['bookmark_id']}"
         retry_btn = (f'<form method="post" action="/retry/{r["id"]}"><button class="sec" type="submit">Reprocessar</button></form>'
                      if r["status"] == "erro" else "")
+        retry_btn += (f'<form method="post" action="/remover/{r["id"]}" onsubmit="return confirm(\'Remover da fila?\')">'
+                      f'<button class="sec" type="submit">Remover</button></form>')
         err = (f'<p class="err">{e(r["error"])}</p>' if r["error"] else "") + (f'<p class="hint">{e(d["aviso"])}</p>' if d.get("aviso") else "")
         rows.append(
             f'<article class="job"><h2>{e(title)}</h2><a href="{e(r["orig"])}" rel="noreferrer">{e(r["orig"])}</a>'
@@ -1010,6 +1012,9 @@ class H(BaseHTTPRequestHandler):
         elif path == "/config":
             save_form(form)
             self.send(200, config_page("Salvo."))
+        elif m := re.fullmatch(r"/remover/(\d+)", path):
+            q("DELETE FROM jobs WHERE id=?", (int(m[1]),))  # só tira da fila do Video KB; `seen` fica, coletor não re-adiciona
+            self.go("Removido.")
         elif m := re.fullmatch(r"/retry/(\d+)", path):
             retry(int(m[1]))
             self.go("Reprocessando.")
