@@ -70,7 +70,7 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb2"}
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb3"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
@@ -649,6 +649,7 @@ def sb_get(c, path):
 
 SB_TEMA = """# {tema}
 
+{sintese}
 ${{query[[from p = index.tag("page") where p.type == "reel" and p.tema == "{tema}" order by p.data desc select template.new[==[
 ![](${{_.cover}})
 **[[${{_.name}}]]**
@@ -657,6 +658,26 @@ ${{_.resumo}}
 ---
 ]==](p)]]}}
 """
+
+
+def sb_sintese(j, c, tema):
+    """Síntese do assunto: Gemini junta os resumos de todos os Reels do tema. Regerada a cada Reel novo."""
+    itens = [x["analysis"] for x in (json.loads(r["data"] or "{}") for r in q("SELECT data FROM jobs WHERE id<>?", (j["id"],)))
+             if x.get("analysis") and fold(x["analysis"].get("tema", "")) == fold(tema)] + [j["data"]["analysis"]]
+    lista = "\n\n".join(f"- {x['titulo']}: {x['resumo']}" for x in itens[-40:])
+    try:
+        r = req("POST", c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]},
+                {"model": c["model"], "stream": False, "messages": [
+                    {"role": "system", "content": "Você escreve em português do Brasil, direto, sem floreio e sem cara de texto de IA. "
+                     "Recebe resumos de vídeos salvos sobre um mesmo assunto. Escreva em Markdown: um parágrafo curto com o que esses vídeos têm em comum "
+                     "e o que dá pra aprender juntando eles; depois '### Ideias que se repetem' com 3 a 6 tópicos curtos; "
+                     "se houver, '### Onde eles discordam' com 1 a 3 tópicos. Não invente nada que não esteja nos resumos. Sem título principal."},
+                    {"role": "user", "content": f"Assunto: {tema}\n\n{lista}"}]}, timeout=180)
+        txt = r["choices"][0]["message"]["content"].strip()
+        return f"## Síntese\n_Atualizada pela IA em {time.strftime('%d/%m/%Y')} com {len(itens)} Reels._\n\n{txt}\n\n## Reels\n"
+    except Exception as e:
+        log(f"job {j['id']} sem síntese: {scrub(e)[:120]}")
+        return ""
 
 
 def step_silverbullet(j, c):
@@ -677,10 +698,9 @@ def step_silverbullet(j, c):
           + ("## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
           + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
     sb_put(c, page + ".md", md)
-    if sb_get(c, tema + ".md") is None or "_.cover" not in (sb_get(c, tema + ".md") or ""):
-        sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', "")))
+    sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
     d["sb"] = {"page": page, "capa": capa, "tema": tema}
-    d["sb2"] = True
+    d["sb3"] = True
 
 
 def step_notebook(j, c):
@@ -1090,7 +1110,7 @@ class H(BaseHTTPRequestHandler):
         elif path == "/config":
             save_form(form)
             if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
-                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb2\"%'")
+                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb3\"%'")
                 WAKE.set()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
