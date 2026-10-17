@@ -401,7 +401,7 @@ class T(unittest.TestCase):
         self.assertIn("## O que aparece na tela\n- 00:00", src["content"])
         self.assertEqual(os.listdir(os.path.join(self.tmp.name, "tmp")), [])  # vídeo e folhas apagados
         cob = [b for m, u, b in self.fake.calls if u == "http://cobalt/"][0]
-        self.assertEqual((cob["downloadMode"], cob["videoQuality"]), ("auto", "480"))  # baixa vídeo, não só áudio
+        self.assertEqual((cob["downloadMode"], cob["videoQuality"]), ("auto", "max"))  # v1.6: curto vem na qualidade original
 
     def test_modelo_recusa_imagem_segue_so_texto(self):
         self.com_visao()
@@ -589,6 +589,162 @@ class T(unittest.TestCase):
         main.sb_refila()
         self.assertEqual(main.job(1)["status"], "fila")
         self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='quadro_sujo' AND v='1'"))
+
+    # ---------- v1.6: vídeo e configurações ----------
+    def test_plano_video_comprimir_ou_nao(self):
+        c, MB = main.cfg(), main.MB
+        self.assertEqual(main.plano_video(c, 59 * MB, 90), ("enviar", 60 * MB, None))  # curto que cabe: original, sem reencodar
+        self.assertEqual(main.plano_video(c, 61 * MB, 90), ("comprimir", 60 * MB, None))  # curto grande: comprime, mantém resolução
+        self.assertEqual(main.plano_video(c, 61 * MB, 0), ("comprimir", 60 * MB, None))  # duração desconhecida (IG/TikTok) = curto
+        self.assertEqual(main.plano_video(c, 10 * MB, 181)[0], "link")  # longo, padrão: não envia
+        main.cfg_save({"longo_politica": "comprimir"})
+        c = main.cfg()
+        self.assertEqual(main.plano_video(c, 500 * MB, 600), ("comprimir", 200 * MB, 720))
+        self.assertEqual(main.plano_video(c, 150 * MB, 600), ("enviar", 200 * MB, 720))
+
+    def test_qualidade_do_download(self):
+        c = main.cfg()
+        self.assertEqual(main.qual_download(c, 0), "max")
+        self.assertEqual(main.qual_download(c, 3600), "720")  # longo: teto da resolução de longos
+        main.cfg_save({"dl_qualidade": "480"})
+        self.assertEqual(main.qual_download(main.cfg(), 3600), "480")  # nunca acima do pedido
+
+    def test_bitrate_alvo(self):
+        self.assertEqual(main.bitrate_alvo(60 * main.MB, 120), 3762)  # 60 MB em 2 min: 3858 kbps com margem de 8%, menos 96 de áudio
+        self.assertEqual(main.bitrate_alvo(1 * main.MB, 3600), 100)  # impossível caber: piso
+
+    def test_comprimir_nunca_aumenta(self):
+        src, dst = os.path.join(self.tmp.name, "a.mp4"), os.path.join(self.tmp.name, "b.mp4")
+        with open(src, "wb") as f:
+            f.write(b"x" * 1000)
+        tam = [0]
+        def ffmpeg(cmd, **k):
+            with open(cmd[-1], "wb") as f:
+                f.write(b"y" * tam[0])
+            return mock.Mock(returncode=0)
+        with mock.patch.object(main.shutil, "which", lambda x: "/usr/bin/ffmpeg"), mock.patch.object(main.subprocess, "run", ffmpeg):
+            tam[0] = 1200
+            self.assertIsNone(main.comprimir(src, dst, 10_000, 10))  # saiu maior que o original
+            tam[0] = 900
+            self.assertIsNone(main.comprimir(src, dst, 800, 10))  # menor, mas não coube no limite
+            self.assertEqual(main.comprimir(src, dst, 950, 10), dst)
+        self.assertIsNone(main.comprimir(src, dst, 950, 0))  # sem duração não dá pra calcular bitrate
+
+    def test_valida_numeros(self):
+        self.assertEqual(main.valida("curto_mb", " 80 "), "80")
+        for ruim in ("abc", "4", "2001", "1.5", ""):
+            with self.assertRaises(ValueError):
+                main.valida("curto_mb", ruim)
+        erros = main.save_form({"curto_mb": ["9999"], "tl_quadros": ["8"], "dl_ordem": ["xpto"], "model": ["m/x"]})
+        c = main.cfg()
+        self.assertEqual((c["curto_mb"], c["tl_quadros"], c["dl_ordem"], c["model"]), ("60", "8", "cobalt", "m/x"))  # inválido fica como estava
+        self.assertTrue(any("de 5 a 2000" in x for x in erros))
+        self.assertTrue(any("Ordem do download" in x for x in erros))
+        self.assertIn('type="number"', main.config_page())
+
+    def test_assuntos_fixos(self):
+        main.cfg_save({"assuntos_fixos": "Saúde\nFinanças\n"})
+        self.fake.analise = {**ANALISE, "tema": "saude"}
+        main.add_job("https://www.tiktok.com/@x/video/f1")
+        main.run(1)
+        self.assertEqual(main.job(1)["data"]["analysis"]["tema"], "Saúde")
+        self.assertIn('Assuntos permitidos: ["Saúde", "Finanças"]', self.fake.prompt)
+        self.assertNotIn("Cadernos", self.fake.prompt)
+        self.assertEqual(main.tema_fixo("Culinária", ["Saúde", "Finanças"]), "Saúde")  # fora da lista: primeiro
+
+    def test_estilo_extra_so_soma(self):
+        main.cfg_save({"estilo_extra": "use emoji no gancho", "resumo_frases": "6"})
+        main.add_job("https://www.tiktok.com/@x/video/e1")
+        main.run(1)
+        self.assertIn(main.ESTILO, self.fake.prompt)
+        self.assertIn("use emoji no gancho", self.fake.prompt)
+        self.assertIn('"resumo" (2 a 6 frases)', self.fake.prompt)
+
+    def test_export_sem_segredos_e_import(self):
+        main.cfg_save({"ig_cookies": "IG-COOKIE-XYZ", "reddit_feed": "https://reddit/feed?TOKEN", "curto_mb": "80"})
+        exp = main.exportar()
+        dump = json.dumps(exp)
+        for segredo in ("OR-KEY-5678", "EL-KEY-1234", "KK-KEY-9999", "tok-secreto", "IG-COOKIE-XYZ", "TOKEN"):
+            self.assertNotIn(segredo, dump)
+        self.assertEqual(exp["curto_mb"], "80")
+        erros = main.importar(json.dumps({**exp, "curto_mb": 120, "quadro_on": False, "llm_key": "ROUBADA", "tl_largura": "9", "x": 1}))
+        c = main.cfg()
+        self.assertEqual((c["curto_mb"], c["quadro_on"], c["llm_key"], c["tl_largura"]), ("120", "", "OR-KEY-5678", "360"))
+        self.assertEqual(len(erros), 1)  # só tl_largura fora da faixa
+        with self.assertRaises(ValueError):
+            main.importar("[1]")
+
+    def test_config_antiga_continua_valendo(self):
+        with open(main.cfg_path(), "w") as f:
+            json.dump({"llm_key": "K", "model": "m/velho", "max_frames": "40", "max_min": "abc", "col_reddit": "1"}, f)
+        c = main.cfg()
+        self.assertEqual((c["model"], main.num(c, "max_frames"), main.num(c, "max_min"), c["col_reddit"]), ("m/velho", 40, 60, "1"))
+        self.assertEqual((c["kk_on"], c["nb_on"], c["sb_on"], c["sintese_on"], c["sb_reels"], main.num(c, "curto_mb")), ("1", "1", "1", "1", "Reels", 60))
+        self.assertEqual(main.steps({"kind": "video"})[-2:], ["karakeep", "notebook"])
+
+    def test_reprocessar_so_silverbullet(self):
+        main.add_job("https://www.tiktok.com/@x/video/s1")
+        j = main.job(1)
+        j["data"].update(analysis=ANALISE, sb7=True, sb={"midia": True, "video": "Reels/videos/1.mp4", "capa": "Reels/capas/1.jpg"})
+        j["status"] = "pronto"
+        main.save(j)
+        main.reprocessar(True)
+        d = main.job(1)
+        self.assertEqual(d["status"], "fila")
+        self.assertNotIn("sb7", d["data"])
+        self.assertEqual(d["data"]["sb"], {"capa": "Reels/capas/1.jpg"})  # vídeo e quadros refeitos; capa fica
+        self.assertEqual(d["data"]["analysis"], ANALISE)
+
+    # ---------- v1.7: tela estilo Linkding ----------
+    def itens_demo(self):
+        for url, titulo, tema, tags, status, trans in (
+                ("https://www.instagram.com/reel/A/", "Dormir melhor", "Saúde", ["sono", "rotina"], "pronto", "dormir cedo ajuda"),
+                ("https://www.youtube.com/watch?v=b", "Planilha de gastos", "Finanças", ["planilha"], "pronto", "gastos fixos"),
+                ("https://blog.com/c", "Treino curto", "Saúde", ["treino"], "erro", "")):
+            main.add_job(url)
+            j = main.job(main.q("SELECT max(id) AS i FROM jobs")[0]["i"])
+            j["data"].update(analysis={**ANALISE, "titulo": titulo, "tema": tema, "tags": tags, "transcricao_limpa": trans})
+            j["status"] = status
+            main.save(j)
+
+    def test_busca_e_filtros(self):
+        self.itens_demo()
+        its = main.itens()
+        ids = lambda **p: [i["id"] for i in main.filtrar(its, p)]
+        self.assertEqual(ids(tag="Rotina"), [1])  # tag sem diferenciar maiúscula
+        self.assertEqual(ids(q="#treino"), [3])  # "#tag" na busca filtra tag
+        self.assertEqual(ids(tema="saude"), [3, 1])  # tema sem acento
+        self.assertEqual(ids(status="erro"), [3])
+        self.assertEqual(ids(fonte="youtube"), [2])
+        self.assertEqual(ids(q="DORMIR"), [1])  # busca na transcrição
+        self.assertEqual(ids(q="gastos inexistente"), [])  # todas as palavras
+        self.assertEqual(ids(tema="Saúde", status="pronto"), [1])
+        html_ = main.queue_page("", {"tag": "planilha"})
+        self.assertIn("Planilha de gastos", html_)
+        self.assertNotIn("Treino curto", html_)
+        self.assertIn('href="/?tema=Sa%C3%BAde"', html_)  # lateral: assunto clicável
+        self.assertIn("Limpar filtros", html_)
+
+    def test_lista_vazia_e_com_itens(self):
+        self.assertIn("Nenhum item ainda", main.queue_page())
+        self.itens_demo()
+        html_ = main.queue_page()
+        self.assertEqual(html_.count('<li class="item">'), 3)
+        self.assertIn('Tentar de novo', html_)  # item com erro retoma
+        self.assertIn('action="/item/1/reprocessar"', html_)
+        self.assertIn("Nada encontrado", main.queue_page("", {"q": "zzz"}))
+
+    def test_tela_sem_segredos(self):
+        main.cfg_save({"sb_url": "http://sb", "sb_token": "SB-TOKEN-XYZ", "ig_cookies": "IG-COOKIE-XYZ", "reddit_feed": "https://r/feed?TOKEN123"})
+        self.itens_demo()
+        html_ = main.queue_page() + main.config_page()
+        for segredo in ("OR-KEY-5678", "EL-KEY-1234", "KK-KEY-9999", "tok-secreto", "SB-TOKEN-XYZ", "IG-COOKIE-XYZ", "TOKEN123"):
+            self.assertNotIn(segredo, html_)
+
+    def test_tema_manual(self):
+        self.assertIn('<html lang="pt-BR"><head>', main.queue_page())  # automático: sem data-tema, segue o sistema
+        main.cfg_save({"ui_tema": "escuro"})
+        self.assertIn('<html lang="pt-BR" data-tema="escuro">', main.queue_page())
 
 
 if __name__ == "__main__":
