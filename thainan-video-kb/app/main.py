@@ -5,6 +5,7 @@ Só stdlib (+ yt-dlp opcional, fallback do Cobalt). Tudo num arquivo de propósi
 import base64
 import glob
 import html
+import io
 import json
 import os
 import re
@@ -70,7 +71,7 @@ SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
 DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb6"}
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb7"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
@@ -634,8 +635,29 @@ def sb_nome(t):
     return re.sub(r"[\\/#\[\]|^:*?\"<>]+", " ", t).strip()[:90] or "Sem título"
 
 
+def yt_capa(c, url):
+    """Capa que o criador escolheu (miniatura do Reel/TikTok no perfil) via yt-dlp, em JPEG."""
+    with cookie_file(site_cookies(c, url)) as ck:
+        p = subprocess.run([sys.executable, "-m", "yt_dlp", "-j", "--no-playlist", "--no-warnings", url] + (["--cookies", ck] if ck else []),
+                           capture_output=True, text=True, timeout=60)
+    info = json.loads(p.stdout.splitlines()[0])
+    u = info.get("thumbnail") or max(info["thumbnails"], key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))["url"]
+    from PIL import Image
+    out = io.BytesIO()
+    with Image.open(io.BytesIO(req("GET", u, timeout=60, raw=True))) as im:
+        im.convert("RGB").save(out, "JPEG", quality=85)
+    return out.getvalue()
+
+
 def sb_capa(j, c):
-    """Capa = imagem que o Karakeep guardou do link (asset), salva no SilverBullet. Sem capa se não houver."""
+    """Capa do card no SilverBullet: miniatura original (yt-dlp) → imagem que o Karakeep guardou → sem capa."""
+    p = f"Reels/capas/{j['id']}.jpg"
+    if j["orig"]:
+        try:
+            sb_put(c, p, yt_capa(c, j["orig"]), "image/jpeg")
+            return p
+        except Exception as e:
+            log(f"job {j['id']} sem capa do yt-dlp: {scrub(e)[:120]}")
     try:
         base, h = kk(c)
         ct = bookmark(c, j["bookmark_id"]).get("content") or {}
@@ -645,7 +667,6 @@ def sb_capa(j, c):
         import urllib.request as ur
         with ur.urlopen(ur.Request(f"{base}/assets/{aid}", headers=h), timeout=60) as r:
             img = r.read()
-        p = f"Reels/capas/{j['id']}.jpg"
         sb_put(c, p, img, "image/jpeg")
         return p
     except Exception as e:
@@ -773,27 +794,28 @@ def step_silverbullet(j, c):
     sb_midia(j, c)
     d, a = j["data"], j["data"]["analysis"]
     page = "Reels/" + sb_nome(a["titulo"])
-    capa = (d.get("sb") or {}).get("capa") or sb_capa(j, c)
+    sb = d.get("sb") or {}
+    capa = sb.get("capa", "") if sb.get("capa_orig") else sb_capa(j, c) or sb.get("capa", "")  # v1.4: troca a capa uma vez
     tema = "Temas/" + sb_nome(a["tema"])
     video = d.get("kind", "video") == "video"
     tags = [re.sub(r"[^\w-]+", "-", t.strip()).strip("-").lower() for t in a["tags"] if t.strip()]
     fm = {"type": "reel", "title": a["titulo"], "tema": a["tema"], "data": time.strftime("%Y-%m-%d", time.localtime(j.get("created") or time.time())),
-          "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "gancho": a.get("gancho", ""), "resumo": a["resumo"][:240],
-          "video": (".fs/" + d["sb"]["video"]) if (d.get("sb") or {}).get("video") else ""}
-    linha = (d.get("sb") or {}).get("linha") or []
+          "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "gancho": a.get("gancho", ""), "resumo": a["resumo"],
+          "video": (".fs/" + sb["video"]) if sb.get("video") else ""}
+    linha = sb.get("linha") or []
     md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in fm.items())
           + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n"
-          + (f"![]({fm['video']})\n\n" if fm["video"] else f"![]({fm['cover']})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
+          + (f"![](/{sb['video']})\n\n" if sb.get("video") else f"![](/{capa})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
           + (f"_{fm['gancho']}_\n\n" if fm["gancho"] else "")
           + (f"[▶ Abrir o original]({j['orig']})\n\n" if j["orig"] else "") + f"Assunto: [[{tema}]]\n\n"
           + f"## Resumo\n{a['resumo']}\n\n## Pontos-chave\n" + "\n".join("- " + p for p in a["pontos_chave"]) + "\n\n"
-          + ("## Linha do tempo\n" + "\n".join(f"**{x['t']}** {x['txt']}\n![]({'.fs/' + x['img']})\n" for x in linha) + "\n" if linha
+          + ("## Linha do tempo\n" + "\n".join(f"**{x['t']}** {x['txt']}\n![](/{x['img']})\n" for x in linha) + "\n" if linha
              else "## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
           + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
     sb_put(c, page + ".md", md)
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
-    d["sb"] = {**d.get("sb", {}), "page": page, "capa": capa, "tema": tema}
-    d["sb6"] = True
+    d["sb"] = {**sb, "page": page, "capa": capa, "capa_orig": True, "tema": tema}
+    d["sb7"] = True
 
 
 def step_notebook(j, c):
@@ -1203,7 +1225,7 @@ class H(BaseHTTPRequestHandler):
         elif path == "/config":
             save_form(form)
             if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
-                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb6\"%'")
+                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb7\"%'")
                 WAKE.set()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
