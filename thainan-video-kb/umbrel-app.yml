@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs do Karakeep viram resumo, tags e fonte pesquisável
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.3.3"
+version: "1.4.0"
 port: 8519
 description: >-
   Salvou algo no Karakeep (Reels, TikTok, post do Reddit, página, PDF, nota)? Vídeo: o worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook. Página/PDF/nota: usa o texto que o Karakeep extraiu, resume do mesmo jeito; página entra no Open Notebook pela URL, PDF e nota pelo texto.
@@ -22,7 +22,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  SilverBullet: vídeo e quadros da linha do tempo voltam a aparecer na página do Reel. O resumo do card não é mais cortado. A capa do card agora é a capa original que o criador escolheu no Instagram/TikTok (o print do Karakeep fica só de reserva); os Reels antigos trocam a capa uma vez.
+  A página "Video KB" do SilverBullet abre com um quadro infinito (Excalidraw) com todos os Reels agrupados por assunto: capa, título e gancho, com link para a página do Reel. O que você mover ou desenhar no quadro fica. Reel novo entra no fim da área do assunto. O mural continua embaixo. Precisa do plug silverbullet-excalidraw no SilverBullet.
 dependencies: []
 path: ""
 defaultUsername: ""
