@@ -24,12 +24,9 @@ services:
     command:
       - |
         set -e
-        # código: usa a pasta app/ copiada pelo Umbrel; senão baixa do GitHub (REF fixo)
-        D=/app
-        if [ ! -f /app/main.py ]; then
-          D=/data/app; mkdir -p $$D
-          python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-video-kb/app/main.py', '$$D/main.py')"
-        fi
+        # código: sempre baixa main.py da tag REF (o Umbrel não atualiza a pasta app/ no update); sem rede, usa /app
+        D=/data/app; mkdir -p $$D
+        python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-video-kb/app/main.py', '$$D/main.py.new')" && mv $$D/main.py.new $$D/main.py || { [ -f $$D/main.py ] || D=/app; echo "download do código falhou, usando $$D"; }
         # ffmpeg/ffprobe (visão via crv); só instala se faltar no container
         command -v ffprobe >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null; } || echo "sem ffmpeg: worker segue sem visão"
         # yt-dlp (fallback do Cobalt, YouTube) + gallery-dl (coletores) + claude-real-video (visão, revisado pelo Hark 16 out, hash fixo, sem deps), versões fixas, uma vez no volume
