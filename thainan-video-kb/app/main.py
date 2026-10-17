@@ -15,12 +15,14 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import textwrap
 import time
 import unicodedata
 import urllib.error
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
+import zlib
 from contextlib import closing, contextmanager
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -675,12 +677,15 @@ def sb_capa(j, c):
 
 
 def sb_get(c, path):
+    """Bytes do arquivo no SilverBullet; None só se não existe (404). Outro erro sobe: nunca confundir "fora do ar" com "vazio"."""
     import urllib.request as ur
     try:
         with ur.urlopen(ur.Request(c["sb_url"].rstrip("/") + "/.fs/" + ur.quote(path), headers={"Authorization": "Bearer " + c["sb_token"]}), timeout=30) as r:
-            return r.read().decode()
-    except Exception:
-        return None
+            return r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
 
 
 SB_TEMA = """# {tema}
@@ -788,6 +793,113 @@ def sb_midia(j, c):
             os.remove(f)
 
 
+QUADRO = "Video KB/Quadro.excalidraw"
+BLOCO_QUADRO = "```excalidraw\nurl:Video KB/Quadro.excalidraw\nheight:750px\ntheme:dark\n```\n\n"
+CAPA_W, CAPA_H, CARD_H, COLS = 240, 427, 620, 4  # card 240x427 (9:16) + textos; 4 cards por linha na área
+AREA_W = COLS * (CAPA_W + 40) + 40
+
+
+def ex_el(eid, tipo, x, y, w, h, **k):
+    """Elemento Excalidraw com os campos padrão."""
+    return {"id": eid, "type": tipo, "x": x, "y": y, "width": w, "height": h, "angle": 0, "strokeColor": "#e9ecef",
+            "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
+            "opacity": 100, "groupIds": [], "frameId": None, "roundness": None, "seed": zlib.crc32(eid.encode()), "version": 1,
+            "versionNonce": 0, "isDeleted": False, "boundElements": None, "updated": int(time.time() * 1000), "link": None, "locked": False, **k}
+
+
+def ex_txt(eid, x, y, txt, size, **k):
+    t = "\n".join(textwrap.wrap(txt, max(8, int(CAPA_W / (size * 0.55))))) or " "
+    return ex_el(eid, "text", x, y, CAPA_W, (t.count("\n") + 1) * size * 1.25, text=t, originalText=t, fontSize=size, fontFamily=2,
+                 textAlign="left", verticalAlign="top", containerId=None, lineHeight=1.25, **k)
+
+
+def ex_capa(img):
+    """Capa reduzida pro quadro: JPEG 240x427 (corta o centro se não for 9:16), pro arquivo não explodir."""
+    from PIL import Image, ImageOps
+    out = io.BytesIO()
+    with Image.open(io.BytesIO(img)) as im:
+        ImageOps.fit(im.convert("RGB"), (CAPA_W, CAPA_H)).save(out, "JPEG", quality=70)
+    return out.getvalue()
+
+
+def sb_quadro(c, desde):
+    """Quadro Excalidraw com todos os Reels por assunto. Mantém x/y/tamanho dos nossos elementos (reel-*, tema-*),
+    tudo que o nan criou, e só posiciona os novos no fim da área do assunto. desde: capa de Reel mexido depois disso é baixada de novo."""
+    velho = json.loads(sb_get(c, QUADRO) or b"{}")
+    els = {e["id"]: e for e in velho.get("elements", []) if not e.get("isDeleted")}
+    files = velho.get("files") or {}
+    nosso = lambda i: i.startswith(("reel-", "tema-", "capa-"))
+    out, out_files = [], {k: v for k, v in files.items() if not nosso(k)}
+    manter = lambda e: {**e, **{k: els[e["id"]][k] for k in ("x", "y", "width", "height") if k in els[e["id"]]}} if e["id"] in els else e
+    temas = {}
+    for r in q("SELECT id, data FROM jobs ORDER BY created DESC"):
+        d = json.loads(r["data"] or "{}")
+        if (d.get("sb") or {}).get("page"):
+            temas.setdefault(d["analysis"]["tema"], []).append((r["id"], d))
+    direita = max((e["x"] + e["width"] for e in els.values()), default=-200) + 200
+    for tema, lista in sorted(temas.items(), key=lambda t: fold(t[0])):
+        aid = "tema-" + (re.sub(r"[^a-z0-9]+", "-", fold(tema)).strip("-") or "x")
+        if aid in els:
+            ax, ay = els[aid]["x"], els[aid]["y"]
+        else:
+            ax, ay, direita = direita, 0, direita + AREA_W + 200
+        n = sum(f"reel-{i}-capa" in els for i, _ in lista)  # slots já ocupados na área
+        cards = []
+        for i, d in lista:
+            s, a, cid, fid = d["sb"], d["analysis"], f"reel-{i}", f"capa-{i}"
+            if cid + "-capa" in els:
+                x, y = els[cid + "-capa"]["x"], els[cid + "-capa"]["y"]
+            else:
+                x, y, n = ax + 40 + n % COLS * (CAPA_W + 40), ay + 120 + n // COLS * CARD_H, n + 1
+            if s.get("capa") and (fid not in files or s.get("t", 0) > desde):
+                try:
+                    jpg = ex_capa(sb_get(c, s["capa"]))
+                    files[fid] = {"id": fid, "mimeType": "image/jpeg", "created": int(time.time() * 1000),
+                                  "dataURL": "data:image/jpeg;base64," + base64.b64encode(jpg).decode()}
+                except Exception as e:
+                    log(f"job {i} sem capa no quadro: {scrub(e)[:120]}")
+            g = {"groupIds": [cid], "link": "/" + s["page"]}
+            if fid in files:
+                out_files[fid] = files[fid]
+                cards.append(ex_el(cid + "-capa", "image", x, y, CAPA_W, CAPA_H, fileId=fid, status="saved", scale=[1, 1], **g))
+            else:
+                cards.append(ex_el(cid + "-capa", "rectangle", x, y, CAPA_W, CAPA_H, backgroundColor="#343a40", **g))
+            cards.append(ex_txt(cid + "-titulo", x, y + CAPA_H + 10, a["titulo"], 20, **g))
+            if a.get("gancho"):
+                cards.append(ex_txt(cid + "-gancho", x, cards[-1]["y"] + cards[-1]["height"] + 6, a["gancho"], 14, strokeColor="#adb5bd", **g))
+        cards = [manter(e) for e in cards]
+        area = manter(ex_el(aid, "rectangle", ax, ay, AREA_W, 0, strokeColor="#868e96", roundness={"type": 3}))
+        area["height"] = max(area["height"], max(e["y"] + e["height"] for e in cards) - ay + 40)
+        out += [area, manter(ex_txt(aid + "-titulo", ax + 40, ay + 30, tema, 36))] + cards
+    sb_put(c, QUADRO, json.dumps({"type": "excalidraw", "version": 2, "source": "video-kb", "elements": out + [e for e in els.values() if not nosso(e["id"])],
+                                  "appState": velho.get("appState") or {}, "files": out_files}, ensure_ascii=False), "application/json")
+    pg = sb_get(c, "Video KB.md")
+    if pg is not None and "```excalidraw" not in pg.decode() and "## Assuntos" in pg.decode():
+        sb_put(c, "Video KB.md", pg.decode().replace("## Assuntos", BLOCO_QUADRO + "## Assuntos", 1))
+
+
+def quadro():
+    """Regera o quadro quando a fila esvazia e algum Reel mudou: N Reels (ex.: os antigos na 1ª vez) = uma escrita só."""
+    c = cfg()
+    if not (c.get("sb_url") and c.get("sb_token")) or not q("SELECT 1 FROM kv WHERE k='quadro_sujo' AND v='1'"):
+        return
+    desde = float((q("SELECT v FROM kv WHERE k='quadro_t'") or [{"v": "0"}])[0]["v"])
+    q("INSERT OR REPLACE INTO kv VALUES('quadro_t',?)", (str(time.time()),))
+    q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','0')")
+    try:
+        sb_quadro(c, desde)
+    except Exception as e:  # ponytail: tenta de novo no próximo Reel ou ao salvar o Config
+        log(f"quadro não gerado: {scrub(e)[:200]}")
+
+
+def sb_refila():
+    """SilverBullet ligado: prontos sem a marca atual passam de novo pelo step; quadro regera."""
+    if cfg().get("sb_url") and cfg().get("sb_token"):
+        q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb7\"%'")
+        q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','1')")
+        WAKE.set()
+
+
 def step_silverbullet(j, c):
     need(c, "sb_url", "sb_token")
     sb_reestilo(j, c)
@@ -814,8 +926,9 @@ def step_silverbullet(j, c):
           + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
     sb_put(c, page + ".md", md)
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
-    d["sb"] = {**sb, "page": page, "capa": capa, "capa_orig": True, "tema": tema}
+    d["sb"] = {**sb, "page": page, "capa": capa, "capa_orig": True, "tema": tema, "t": time.time()}
     d["sb7"] = True
+    q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','1')")
 
 
 def step_notebook(j, c):
@@ -901,6 +1014,7 @@ def worker():
         if r:
             run(r[0]["id"])
         else:
+            quadro()
             WAKE.wait(5)
             WAKE.clear()
 
@@ -1224,9 +1338,7 @@ class H(BaseHTTPRequestHandler):
             self.go("Link adicionado." if add_job(url) else "Esse link já está na fila.")
         elif path == "/config":
             save_form(form)
-            if cfg().get("sb_url") and cfg().get("sb_token"):  # SilverBullet ligado: prontos antigos ganham a página
-                q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb7\"%'")
-                WAKE.set()
+            sb_refila()
             self.send(200, config_page("Salvo."))
         elif m := re.fullmatch(r"/remover/(\d+)", path):
             q("DELETE FROM jobs WHERE id=?", (int(m[1]),))  # só tira da fila do Video KB; `seen` fica, coletor não re-adiciona
@@ -1240,6 +1352,7 @@ class H(BaseHTTPRequestHandler):
 
 def main():
     init()
+    sb_refila()  # v1.3.3+: não depende do nan clicar Salvar
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=poller, daemon=True).start()
     threading.Thread(target=collector, daemon=True).start()
