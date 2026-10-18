@@ -15,14 +15,12 @@ import sqlite3
 import subprocess
 import sys
 import threading
-import textwrap
 import time
 import unicodedata
 import urllib.error
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
-import zlib
 from contextlib import closing, contextmanager
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -83,11 +81,8 @@ FIELDS = [
     ("sb_reels", "SilverBullet: pasta dos Reels", "text", "Mudar o nome não apaga a pasta antiga.", "Reels"),
     ("sb_temas", "SilverBullet: pasta dos assuntos", "text", "", "Temas"),
     ("sb_pagina", "SilverBullet: página principal", "text", "", "Video KB"),
-    ("h_quadro", "Quadro Excalidraw", "h", "Precisa do plug silverbullet-excalidraw.", ""),
-    ("quadro_on", "Gerar o quadro", "bool", "", "1"),
-    ("quadro_cols", "Colunas por assunto", "num", "", "4"),
-    ("quadro_altura", "Altura na página (px)", "num", "", "750"),
-    ("quadro_tema", "Tema do quadro", "choice", "", "dark"),
+    ("h_mural", "Mural", "h", "Galeria de cards (capa + vídeo) no topo de Video KB e index.", ""),
+    ("mural_on", "Gerar o mural", "bool", "", "1"),
     ("h_col", "Coletores e fila", "h", "Cada item novo vira bookmark no Karakeep e entra na fila.", ""),
     ("col_min", "Intervalo da coleta (min)", "num", "", "30"),
     ("first_run", "Itens na 1ª coleta", "num", "1ª coleta de cada fonte: só os N mais recentes. O resto vira visto.", "20"),
@@ -109,13 +104,12 @@ FIELDS = [
     ("ui_tema", "Tema da tela", "choice", "Automático segue o sistema (claro/escuro).", "auto"),
 ]
 NUM = {"resumo_frases": (2, 10), "pontos_max": (3, 15), "tags_max": (3, 20), "curto_min": (1, 60), "curto_mb": (5, 2000), "longo_mb": (10, 4000),
-       "tl_quadros": (1, 60), "tl_largura": (120, 1920), "max_frames": (9, 200), "max_min": (1, 600), "quadro_cols": (1, 12),
-       "quadro_altura": (300, 3000), "col_min": (5, 1440), "first_run": (1, 200), "crawl_tries": (0, 20), "crawl_wait": (30, 3600), "poll_secs": (60, 3600)}
+       "tl_quadros": (1, 60), "tl_largura": (120, 1920), "max_frames": (9, 200), "max_min": (1, 600),
+       "col_min": (5, 1440), "first_run": (1, 200), "crawl_tries": (0, 20), "crawl_wait": (30, 3600), "poll_secs": (60, 3600)}
 CHOICES = {"dl_ordem": [("cobalt", "Cobalt, depois yt-dlp"), ("ytdlp", "yt-dlp, depois Cobalt")],
            "dl_qualidade": [("max", "Máxima (original)"), ("1080", "1080p"), ("720", "720p"), ("480", "480p")],
            "longo_politica": [("link", "Não enviar o vídeo: link do original + capa + quadros"), ("comprimir", "Enviar comprimido")],
            "longo_res": [("1080", "1080p"), ("720", "720p"), ("480", "480p"), ("360", "360p")],
-           "quadro_tema": [("dark", "Escuro"), ("light", "Claro")],
            "ui_tema": [("auto", "Automático"), ("claro", "Claro"), ("escuro", "Escuro")]}
 SECRETS = {k for k, _, t, _, _ in FIELDS if t in ("secret", "area")}
 COOKIES = {"instagram.com": "ig_cookies", "tiktok.com": "tt_cookies", "youtube.com": "yt_cookies", "youtu.be": "yt_cookies"}
@@ -816,7 +810,8 @@ def sb_get(c, path):
         raise
 
 
-SB_TEMA = """# {tema}
+SB_TEMA = """
+# {tema}
 
 {sintese}
 ${{reelCards("{tema}")}}
@@ -973,123 +968,88 @@ def sb_midia(j, c):
             os.remove(f)
 
 
-CAPA_W, CAPA_H, CARD_H = 240, 427, 620  # card 240x427 (9:16) + textos
+MURAL = re.compile(r"\$\{widget\.html\(\[==\[<!--vkb-->.*?\]==\]\)\}\n\n?|```excalidraw\n.*?```\n\n?", re.S)  # mural nosso + Excalidraw (removido na 1.6.2)
 
 
-def bloco_quadro(c, arq):
-    return f"```excalidraw\nurl:{arq}\nheight:{num(c, 'quadro_altura')}px\ntheme:{c.get('quadro_tema') or 'dark'}\n```\n\n"
-
-
-def ex_el(eid, tipo, x, y, w, h, **k):
-    """Elemento Excalidraw com os campos padrão."""
-    return {"id": eid, "type": tipo, "x": x, "y": y, "width": w, "height": h, "angle": 0, "strokeColor": "#e9ecef",
-            "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
-            "opacity": 100, "groupIds": [], "frameId": None, "roundness": None, "seed": zlib.crc32(eid.encode()), "version": 1,
-            "versionNonce": 0, "isDeleted": False, "boundElements": None, "updated": int(time.time() * 1000), "link": None, "locked": False, **k}
-
-
-def ex_txt(eid, x, y, txt, size, **k):
-    t = "\n".join(textwrap.wrap(txt, max(8, int(CAPA_W / (size * 0.55))))) or " "
-    return ex_el(eid, "text", x, y, CAPA_W, (t.count("\n") + 1) * size * 1.25, text=t, originalText=t, fontSize=size, fontFamily=2,
-                 textAlign="left", verticalAlign="top", containerId=None, lineHeight=1.25, **k)
-
-
-def ex_capa(img):
-    """Capa reduzida pro quadro: JPEG 240x427 (corta o centro se não for 9:16), pro arquivo não explodir."""
-    from PIL import Image, ImageOps
-    out = io.BytesIO()
-    with Image.open(io.BytesIO(img)) as im:
-        ImageOps.fit(im.convert("RGB"), (CAPA_W, CAPA_H)).save(out, "JPEG", quality=70)
-    return out.getvalue()
-
-
-def sb_quadro(c, desde):
-    """Quadro Excalidraw com todos os Reels por assunto. Mantém x/y/tamanho dos nossos elementos (reel-*, tema-*),
-    tudo que o nan criou, e só posiciona os novos no fim da área do assunto. desde: capa de Reel mexido depois disso é baixada de novo."""
-    arq, pagina = pasta(c, "sb_pagina") + "/Quadro.excalidraw", pasta(c, "sb_pagina") + ".md"
-    cols = num(c, "quadro_cols")
-    area_w = cols * (CAPA_W + 40) + 40
-    velho = json.loads(sb_get(c, arq) or b"{}")
-    els = {e["id"]: e for e in velho.get("elements", []) if not e.get("isDeleted")}
-    files = velho.get("files") or {}
-    nosso = lambda i: i.startswith(("reel-", "tema-", "capa-"))
-    out, out_files = [], {k: v for k, v in files.items() if not nosso(k)}
-    manter = lambda e: {**e, **{k: els[e["id"]][k] for k in ("x", "y", "width", "height") if k in els[e["id"]]}} if e["id"] in els else e
-    temas = {}
-    for r in q("SELECT id, data FROM jobs ORDER BY created DESC"):
+def mural_html(c):
+    """Cards de todos os Reels (capa, vídeo tocável, assunto, título, gancho). widget.html: o SB tira <div>/<img> do HTML cru da página."""
+    e = lambda s: html.escape(str(s)).replace("{", "&#123;").replace("}", "&#125;")
+    fs = lambda p: "/.fs/" + urllib.request.quote(p)
+    cards = []
+    for r in q("SELECT data FROM jobs ORDER BY created DESC"):
         d = json.loads(r["data"] or "{}")
-        if (d.get("sb") or {}).get("page"):
-            temas.setdefault(d["analysis"]["tema"], []).append((r["id"], d))
-    direita = max((e["x"] + e["width"] for e in els.values()), default=-200) + 200
-    for tema, lista in sorted(temas.items(), key=lambda t: fold(t[0])):
-        aid = "tema-" + (re.sub(r"[^a-z0-9]+", "-", fold(tema)).strip("-") or "x")
-        if aid in els:
-            ax, ay = els[aid]["x"], els[aid]["y"]
-        else:
-            ax, ay, direita = direita, 0, direita + area_w + 200
-        n = sum(f"reel-{i}-capa" in els for i, _ in lista)  # slots já ocupados na área
-        cards = []
-        for i, d in lista:
-            s, a, cid, fid = d["sb"], d["analysis"], f"reel-{i}", f"capa-{i}"
-            if cid + "-capa" in els:
-                x, y = els[cid + "-capa"]["x"], els[cid + "-capa"]["y"]
-            else:
-                x, y, n = ax + 40 + n % cols * (CAPA_W + 40), ay + 120 + n // cols * CARD_H, n + 1
-            if s.get("capa") and (fid not in files or s.get("t", 0) > desde):
-                try:
-                    jpg = ex_capa(sb_get(c, s["capa"]))
-                    files[fid] = {"id": fid, "mimeType": "image/jpeg", "created": int(time.time() * 1000),
-                                  "dataURL": "data:image/jpeg;base64," + base64.b64encode(jpg).decode()}
-                except Exception as e:
-                    log(f"job {i} sem capa no quadro: {scrub(e)[:120]}")
-            g = {"groupIds": [cid], "link": "/" + s["page"]}
-            if fid in files:
-                out_files[fid] = files[fid]
-                cards.append(ex_el(cid + "-capa", "image", x, y, CAPA_W, CAPA_H, fileId=fid, status="saved", scale=[1, 1], **g))
-            else:
-                cards.append(ex_el(cid + "-capa", "rectangle", x, y, CAPA_W, CAPA_H, backgroundColor="#343a40", **g))
-            cards.append(ex_txt(cid + "-titulo", x, y + CAPA_H + 10, a["titulo"], 20, **g))
-            if a.get("gancho"):
-                cards.append(ex_txt(cid + "-gancho", x, cards[-1]["y"] + cards[-1]["height"] + 6, a["gancho"], 14, strokeColor="#adb5bd", **g))
-        cards = [manter(e) for e in cards]
-        area = manter(ex_el(aid, "rectangle", ax, ay, area_w, 0, strokeColor="#868e96", roundness={"type": 3}))
-        area["height"] = max(area["height"], max(e["y"] + e["height"] for e in cards) - ay + 40)
-        out += [area, manter(ex_txt(aid + "-titulo", ax + 40, ay + 30, tema, 36))] + cards
-    sb_put(c, arq, json.dumps({"type": "excalidraw", "version": 2, "source": "video-kb", "elements": out + [e for e in els.values() if not nosso(e["id"])],
-                               "appState": velho.get("appState") or {}, "files": out_files}, ensure_ascii=False), "application/json")
-    pg = sb_get(c, pagina)
-    if pg is not None:  # bloco do plug antes de "## Assuntos"; altura/tema mudaram na config = troca o bloco
+        s, a = d.get("sb") or {}, d.get("analysis") or {}
+        if not s.get("page"):
+            continue
+        capa = s.get("capa")
+        m = (f'<video controls preload="none" playsinline src="{fs(s["video"])}"' + (f' poster="{fs(capa)}"' if capa else "") + ' style="width:100%;display:block"></video>' if s.get("video")
+             else f'<img src="{fs(capa)}" loading="lazy" style="width:100%;display:block">' if capa else "")
+        cards.append(f'<div style="border:1px solid #8884;border-radius:6px;overflow:hidden">{m}<div style="padding:6px 8px"><small>{e(a.get("tema", ""))}</small><br>'
+                     f'<a href="/{urllib.request.quote(s["page"])}"><b>{e(a.get("titulo", ""))}</b></a><br><small>{e(a.get("gancho", ""))}</small></div></div>')
+    return ('${widget.html([==[<!--vkb--><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">'
+            + "".join(cards) + "</div>]==])}\n\n")
+
+
+def sb_mural(c):
+    """Põe o mural antes de "## Assuntos" em Video KB.md e index.md (index.md = página inicial real do space) e tira o bloco Excalidraw.
+    Idempotente: troca o mural anterior. Só GET/PUT no SB. Não mexe em Quadro.excalidraw (notas do nan)."""
+    bloco = mural_html(c) if c.get("mural_on") == "1" else ""
+    for pagina in (pasta(c, "sb_pagina") + ".md", "index.md"):
+        pg = sb_get(c, pagina)
+        if pg is None:
+            continue
         txt = pg.decode()
-        velho_bloco = re.search(r"```excalidraw\nurl:" + re.escape(arq) + r"\n.*?```\n\n?", txt, re.S)
-        novo = (txt.replace(velho_bloco[0], bloco_quadro(c, arq), 1) if velho_bloco
-                else txt.replace("## Assuntos", bloco_quadro(c, arq) + "## Assuntos", 1))
+        novo = sb_topo(MURAL.sub("", txt).replace("## Assuntos", bloco + "## Assuntos", 1))
         if novo != txt:
             sb_put(c, pagina, novo)
+
+
+def sb_topo(txt):
+    """Linha vazia no início do corpo. O SB abre a página com o cursor ali e mostra essa linha crua:
+    vídeo vira texto `![](...mp4)`, título mostra o `#`. Testado no SB 2.12.1."""
+    m = re.match(r"---\n.*?\n---\n", txt, re.S)
+    i = m.end() if m else 0
+    return txt if txt[i:i + 1] == "\n" else txt[:i] + "\n" + txt[i:]
+
+
+def sb_topo_todos(c):
+    """Uma vez: põe a linha vazia (sb_topo) nas páginas já gravadas. Só GET/PUT no SB, sem IA nem refazer mídia."""
+    paginas = [json.loads(r["data"] or "{}").get("sb", {}).get("page") for r in q("SELECT data FROM jobs")]
+    paginas += [pasta(c, "sb_temas") + "/" + sb_nome(json.loads(r["data"])["analysis"]["tema"])
+                for r in q("SELECT data FROM jobs WHERE data LIKE '%\"sb7\"%'")]
+    for p in sorted({p + ".md" for p in paginas if p}) + [pasta(c, "sb_pagina") + ".md", "index.md"]:
+        pg = sb_get(c, p)
+        if pg is not None and sb_topo(pg.decode()) != pg.decode():
+            sb_put(c, p, sb_topo(pg.decode()))
+    q("INSERT OR REPLACE INTO kv VALUES('sb_topo','1')")
 
 
 def sb_ligado(c):
     return c.get("sb_on") == "1" and bool(c.get("sb_url") and c.get("sb_token"))
 
 
-def quadro():
-    """Regera o quadro quando a fila esvazia e algum Reel mudou: N Reels (ex.: os antigos na 1ª vez) = uma escrita só."""
+def mural():
+    """Regera o mural quando a fila esvazia e algum Reel mudou: N Reels (ex.: os antigos na 1ª vez) = uma escrita só."""
     c = cfg()
-    if not (sb_ligado(c) and c.get("quadro_on") == "1") or not q("SELECT 1 FROM kv WHERE k='quadro_sujo' AND v='1'"):
+    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_topo'"):
+        try:
+            sb_topo_todos(c)
+        except Exception as e:  # tenta de novo na próxima fila vazia
+            log(f"sb_topo: {scrub(e)[:200]}")
+    if not sb_ligado(c) or not q("SELECT 1 FROM kv WHERE k='mural_sujo' AND v='1'"):
         return
-    desde = float((q("SELECT v FROM kv WHERE k='quadro_t'") or [{"v": "0"}])[0]["v"])
-    q("INSERT OR REPLACE INTO kv VALUES('quadro_t',?)", (str(time.time()),))
-    q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','0')")
+    q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','0')")
     try:
-        sb_quadro(c, desde)
+        sb_mural(c)
     except Exception as e:  # ponytail: tenta de novo no próximo Reel ou ao salvar o Config
-        log(f"quadro não gerado: {scrub(e)[:200]}")
+        log(f"mural não gerado: {scrub(e)[:200]}")
 
 
 def sb_refila():
-    """SilverBullet ligado: prontos sem a marca atual passam de novo pelo step; quadro regera."""
+    """SilverBullet ligado: prontos sem a marca atual passam de novo pelo step; mural regera."""
     if sb_ligado(cfg()):
         q("UPDATE jobs SET status='fila' WHERE status='pronto' AND data NOT LIKE '%\"sb7\"%'")
-        q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','1')")
+        q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
         WAKE.set()
 
 
@@ -1109,7 +1069,7 @@ def step_silverbullet(j, c):
           "video": (".fs/" + sb["video"]) if sb.get("video") else ""}
     linha = sb.get("linha") or []
     md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in fm.items())
-          + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n"
+          + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n\n"  # linha vazia: ver sb_topo
           + (f"![](/{sb['video']})\n\n" if sb.get("video") else f"![](/{capa})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
           + (f"_{fm['gancho']}_\n\n" if fm["gancho"] else "")
           + (f"[▶ Abrir o original]({j['orig']})\n\n" if j["orig"] else "") + f"Assunto: [[{tema}]]\n\n"
@@ -1121,7 +1081,7 @@ def step_silverbullet(j, c):
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
     d["sb"] = {**sb, "page": page, "capa": capa, "capa_orig": True, "tema": tema, "t": time.time()}
     d["sb7"] = True
-    q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','1')")
+    q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
 
 
 def step_notebook(j, c):
@@ -1209,7 +1169,7 @@ def worker():
         if r:
             run(r[0]["id"])
         else:
-            quadro()
+            mural()
             WAKE.wait(5)
             WAKE.clear()
 
@@ -1610,7 +1570,7 @@ def config_page(flash=""):
                '<details><summary>Manutenção</summary><div class="row">'
                '<form method="post" action="/reprocessar/tudo" onsubmit="return confirm(\'Reprocessar TUDO? Baixa, transcreve e resume de novo cada item (gasta Scribe e IA).\')">'
                '<button class="sec" type="submit">Reprocessar tudo</button></form>'
-               '<form method="post" action="/reprocessar/sb" onsubmit="return confirm(\'Refazer no SilverBullet todos os itens (página, vídeo na qualidade atual, quadros, quadro)?\')">'
+               '<form method="post" action="/reprocessar/sb" onsubmit="return confirm(\'Refazer no SilverBullet todos os itens (página, vídeo na qualidade atual, quadros, mural)?\')">'
                '<button class="sec" type="submit">Reprocessar só SilverBullet</button></form>'
                '<form method="get" action="/config/export"><button class="sec" type="submit">Exportar configuração (sem segredos)</button></form></div>'
                '<form method="post" action="/config/import"><label for="imp">Importar configuração</label>'
@@ -1706,7 +1666,7 @@ def reprocessar_item(jid):
 
 
 def reprocessar(so_sb):
-    """Tudo: zera os dados e refaz do zero. Só SilverBullet: refaz página, vídeo (na qualidade atual), quadros e quadro."""
+    """Tudo: zera os dados e refaz do zero. Só SilverBullet: refaz página, vídeo (na qualidade atual), quadros e mural."""
     for r in q("SELECT id FROM jobs"):
         j = job(r["id"])
         if so_sb:
@@ -1719,7 +1679,7 @@ def reprocessar(so_sb):
             j["data"] = {}
         j.update(status="fila", error="", after=0)
         save(j)
-    q("INSERT OR REPLACE INTO kv VALUES('quadro_sujo','1')")
+    q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
     WAKE.set()
 
 
