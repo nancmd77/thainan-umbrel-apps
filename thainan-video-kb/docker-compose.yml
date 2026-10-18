@@ -12,7 +12,7 @@ services:
     environment:
       PORT: "8080"
       DATA_DIR: /data
-      REF: video-kb-v1.6.0
+      REF: video-kb-v1.6.2
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
       CRV_NO_MEMORY: "1"
