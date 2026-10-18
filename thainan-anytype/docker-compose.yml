@@ -15,18 +15,97 @@ services:
       - "33020:33020/udp"
     volumes:
       - ${APP_DATA_DIR}/data:/data
+  bot:
+    image: ghcr.io/anyproto/anytype-cli:v0.5.0
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      - sync
+    volumes:
+      - ${APP_DATA_DIR}/bot:/bot
+      - ${APP_DATA_DIR}/data:/sync:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export HOME=/bot/home; mkdir -p $$HOME /bot/ctl; umask 077
+        A=0.0.0.0:31012; C=$$HOME/.anytype/config.json
+        start() { anytype serve --no-update-check -q --listen-address $$A & P=$$!; sleep 15; }
+        until [ -s /sync/client-config.yml ]; do sleep 5; done
+        start
+        if [ ! -f $$C ]; then
+          anytype auth create Hark --network-config /sync/client-config.yml --root-path /bot/data --listen-address $$A --no-update-check > /bot/ctl/create.out 2>&1
+          kill $$P; wait $$P; start
+        fi
+        ACC=$$(sed -nE 's/.*"accountId": *"([^"]+)".*/\1/p' $$C)
+        echo "$$ACC" > /bot/ctl/account
+        n=0
+        while [ ! -s /bot/ctl/key.json ] || ! grep -q '"api_key"' /bot/ctl/key.json; do
+          anytype --json --expect-account "$$ACC" auth apikey create hark --all-spaces --read-write --include-secret --operation-id hark-key-0001 | cat > /bot/ctl/key.json
+          n=$$((n+1)); [ $$n -gt 20 ] && break; sleep 10
+        done
+        while kill -0 $$P 2>/dev/null; do
+          if [ -s /bot/ctl/join ]; then
+            J=$$(date +%s); mv /bot/ctl/join /bot/ctl/join.cur
+            anytype --json --expect-account "$$ACC" space join --invite-stdin --operation-id "join-$$J" < /bot/ctl/join.cur | cat > /bot/ctl/join.out 2>&1
+            rm -f /bot/ctl/join.cur
+          fi
+          sleep 5
+        done
+        exit 1
   web:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
     restart: on-failure
     working_dir: /data
     environment:
       EXTRA_ADDRS: "nonve.taila412b1.ts.net:10000"
+    ports:
+      - "127.0.0.1:31099:8081"
     volumes:
       - ${APP_DATA_DIR}/data:/data:ro
+      - ${APP_DATA_DIR}/bot/ctl:/ctl
     entrypoint: ["python", "-c"]
     command:
       - |
-        import http.server, os, html
+        import http.server, os, html, json, threading, urllib.request, urllib.parse
+        def key():
+            try: return json.load(open("/ctl/key.json"))["result"]["api_key"]
+            except Exception: return ""
+        def status():
+            d = {"account": open("/ctl/account").read().strip() if os.path.exists("/ctl/account") else "", "key_ready": bool(key())}
+            if os.path.exists("/ctl/join.out"): d["last_join"] = open("/ctl/join.out").read()[-1500:]
+            d["join_pending"] = os.path.exists("/ctl/join") or os.path.exists("/ctl/join.cur")
+            return d
+        def queue_join(link):
+            link = link.strip()
+            if not (link.startswith("https://") or link.startswith("anytype://")): return False
+            with open("/ctl/join", "w") as f: f.write(link + "\n")
+            return True
+        class P(http.server.BaseHTTPRequestHandler):
+            def ok(self):
+                if not self.client_address[0].endswith(".1"):
+                    self.send_response(403); self.end_headers(); return False
+                return True
+            def reply(self, code, body, ct="application/json"):
+                self.send_response(code); self.send_header("Content-Type", ct); self.end_headers(); self.wfile.write(body)
+            def handle_any(self, m):
+                if not self.ok(): return
+                n = int(self.headers.get("Content-Length") or 0); b = self.rfile.read(n) if n else None
+                if self.path == "/hark/status": return self.reply(200, json.dumps(status()).encode())
+                if self.path == "/hark/join" and m == "POST": return self.reply(200 if queue_join((b or b"").decode()) else 400, b"{}")
+                r = urllib.request.Request("http://thainan-anytype_bot_1:31012" + self.path, data=b, method=m)
+                r.add_header("Authorization", "Bearer " + key()); r.add_header("Host", "127.0.0.1:31012")
+                r.add_header("Anytype-Version", self.headers.get("Anytype-Version") or "2025-11-08")
+                if b is not None: r.add_header("Content-Type", self.headers.get("Content-Type") or "application/json")
+                try:
+                    with urllib.request.urlopen(r, timeout=60) as x: self.reply(x.status, x.read(), x.headers.get("Content-Type") or "application/json")
+                except urllib.error.HTTPError as e: self.reply(e.code, e.read())
+                except Exception as e: self.reply(502, json.dumps({"error": str(e)}).encode())
+            def do_GET(self): self.handle_any("GET")
+            def do_POST(self): self.handle_any("POST")
+            def do_PATCH(self): self.handle_any("PATCH")
+            def do_DELETE(self): self.handle_any("DELETE")
+            def log_message(self, *a): pass
+        threading.Thread(target=lambda: http.server.ThreadingHTTPServer(("0.0.0.0", 8081), P).serve_forever(), daemon=True).start()
         F = "/data/client-config.yml"
         EXTRA = os.environ.get("EXTRA_ADDRS", "").split(",")
         def cfg():
@@ -39,6 +118,12 @@ services:
                 out.append(l)
             return "\n".join(out) + "\n"
         class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                v = urllib.parse.parse_qs(self.rfile.read(n).decode()).get("link", [""])[0]
+                good = queue_join(v)
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.end_headers()
+                self.wfile.write(("<meta charset=utf-8><body style='font-family:system-ui;max-width:760px;margin:40px auto'><p>" + ("Convite recebido. O Hark entra no espaço em instantes." if good else "Link inválido. Cole o link de convite do Anytype.") + "</p><p><a href='./'>Voltar</a></p>").encode())
             def do_GET(self):
                 ok = os.path.exists(F)
                 if self.path.startswith("/client-config.yml") and ok:
@@ -51,6 +136,7 @@ services:
                      "<title>Anytype Sync</title><body style='font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px'>"
                      "<h1>Anytype Sync</h1><p>Servidor rodando. No Anytype: tela inicial &gt; engrenagem &gt; Networks &gt; Self-hosted &gt; importe o arquivo abaixo e crie uma identidade nova.</p>"
                      + ("<p><a href='client-config.yml' style='display:inline-block;padding:10px 18px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none'>Baixar client-config.yml</a></p>" if ok else "")
+                     + "<h2>Membro Hark</h2><p>Para o Hark organizar um espaço, gere um convite de editor no Anytype (Compartilhar espaço) e cole aqui.</p><form method=post><input name=link placeholder='https://invite.any.coop/...' style='width:100%;padding:8px'><p><button style='padding:8px 16px'>Enviar convite ao Hark</button></p></form><p style='color:#555;font-size:13px'>" + html.escape(json.dumps({k: v for k, v in status().items() if k != "last_join"})) + "</p>"
                      + "<p>Funciona fora de casa sem Tailscale (endereço público nonve.taila412b1.ts.net:10000, via Tailscale Funnel).</p><pre style='background:#f4f4f5;padding:12px;border-radius:8px;overflow:auto;font-size:12px'>" + txt + "</pre>")
                 self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.end_headers(); self.wfile.write(p.encode())
             def log_message(self, *a): pass
