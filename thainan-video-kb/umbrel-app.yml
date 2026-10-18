@@ -1,19 +1,17 @@
 manifestVersion: 1
 id: thainan-video-kb
 name: Video KB Worker
-tagline: Vídeos, páginas e PDFs do Karakeep viram resumo, tags e fonte pesquisável
+tagline: Vídeos, páginas e PDFs viram resumo, tags e página no SilverBullet
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.7.0"
+version: "1.8.0"
 port: 8519
 description: >-
-  Salvou algo no Karakeep (Reels, TikTok, post do Reddit, página, PDF, nota)? Vídeo: o worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook. Página/PDF/nota: usa o texto que o Karakeep extraiu, resume do mesmo jeito; página entra no Open Notebook pela URL, PDF e nota pelo texto.
+  Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página no SilverBullet (mural, assuntos, player) e, se ligado, fonte no Open Notebook.
 
-  Coletores (opcional): em Configurações ligue YouTube, Instagram salvos, Reddit salvos ou TikTok favoritos; cole os cookies (cookies.txt) ou o feed RSS do Reddit. O README explica como exportar.
+  Karakeep é opcional: ligue em Configurações para usar bookmarks como entrada e gravar resumo, nota e tags lá.
 
-  Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, Karakeep, Open Notebook). As chaves ficam só no volume do app.
-
-  Webhook no Karakeep: Configurações > Webhooks > URL http://<IP-do-Nonve>:8519/webhook/karakeep, evento "created", mesmo token definido aqui. Se o Karakeep bloquear IP privado, defina CRAWLER_ALLOWED_INTERNAL_HOSTNAMES nele. Sem webhook, o polling de 5 minutos pega os links novos.
+  Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, SilverBullet, Open Notebook). As chaves ficam só no volume do app.
 developer: Thainan Caldeira
 website: https://github.com/nancmd77/thainan-umbrel-apps
 submitter: Thainan Caldeira
@@ -22,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  SilverBullet com visual novo: página do Reel com player vertical ao lado do título, resumo e botões; linha do tempo em grade com miniaturas; transcrição recolhível. Mural e páginas de assunto com cards de capa, selo de vídeo e título em duas linhas. As páginas já existentes são regravadas sozinhas, sem gastar IA.
+  Funciona sem o Karakeep: coletores e a caixa de link põem o item direto na fila, páginas e PDFs são lidos pelo próprio worker (com capa da página) e as tags existentes vêm dos itens já prontos. Karakeep virou opcional e começa desligado. Cards e página do Reel mostram data de postagem, data em que foi salvo, autor e métricas do original (visualizações, curtidas, comentários, quando o site informa), com título e resumo mais legíveis.
 dependencies: []
 path: ""
 defaultUsername: ""
