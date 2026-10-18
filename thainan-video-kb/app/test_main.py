@@ -73,7 +73,7 @@ class T(unittest.TestCase):
         main.init()
         main.cfg_save({"elevenlabs_key": "EL-KEY-1234", "llm_key": "OR-KEY-5678", "llm_url": "http://router/v1", "cobalt_url": "http://cobalt",
                        "karakeep_url": "http://kk", "karakeep_key": "KK-KEY-9999", "notebook_url": "http://nb",
-                       "webhook_token": "tok-secreto"})
+                       "webhook_token": "tok-secreto", "kk_on": "1"})  # testes antigos: modo com Karakeep
         self.fake = Fake()
         main.req = self.fake
 
@@ -572,15 +572,28 @@ class T(unittest.TestCase):
         main.init()
         # Idempotente: não remarca se já migrou
         self.assertEqual(main.q("SELECT v FROM kv WHERE k='mural_sujo'")[0]["v"], "0")
-    def test_regrava_todos_v17_uma_vez(self):
+    def test_regrava_todos_v18_uma_vez(self):
         j = self.sb_job({"video": "Reels/videos/1.mp4", "page": "Reels/Dica de foco", "capa": "Reels/capas/1.jpg"})
         j["data"]["sb7"] = True
         main.save(j)
         put = {}
-        with mock.patch.object(main, "sb_put", lambda c, p, b, *_: put.__setitem__(p, b)):
+        info = {"timestamp": 1760000000, "uploader": "fulano", "view_count": 1234567, "like_count": 45210, "comment_count": 320}
+        with mock.patch.object(main, "sb_put", lambda c, p, b, *_: put.__setitem__(p, b)), mock.patch.object(main, "yt_info", lambda c, u: info):
             main.sb_regrava_todos(main.cfg())
-        self.assertIn("<!--vkb-reel-->", put["Reels/Dica de foco.md"])
-        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v17'"))
+        md = put["Reels/Dica de foco.md"]
+        self.assertIn("<!--vkb-reel-->", md)
+        self.assertIn("1,2 mi", md)
+        self.assertIn("45,2 mil", md)
+        self.assertIn("Postado 09/10/2025", md)
+        self.assertIn('views: 1234567', md)  # frontmatter pra Lua dos assuntos
+        self.assertEqual(main.job(1)["data"]["meta"]["autor"], "fulano")
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v18'"))
+
+    def test_num_br_e_metricas_sem_inventar(self):
+        self.assertEqual([main.num_br(n) for n in (999, 1000, 1250, 1_500_000, 2_000_000_000)], ["999", "1 mil", "1,2 mil", "1,5 mi", "2 bi"])
+        self.assertEqual(main.metricas_html({}), "")
+        m = main.meta_de_info({"upload_date": "20261001", "view_count": None, "like_count": 10})
+        self.assertEqual((m["postado"], m.get("views"), m["likes"]), ("2026-10-01", None, 10))
 
     def test_mural_desligado_so_tira_o_bloco(self):
         self.sb_fake()
@@ -705,8 +718,42 @@ class T(unittest.TestCase):
             json.dump({"llm_key": "K", "model": "m/velho", "max_frames": "40", "max_min": "abc", "col_reddit": "1"}, f)
         c = main.cfg()
         self.assertEqual((c["model"], main.num(c, "max_frames"), main.num(c, "max_min"), c["col_reddit"]), ("m/velho", 40, 60, "1"))
-        self.assertEqual((c["kk_on"], c["nb_on"], c["sb_on"], c["sintese_on"], c["sb_reels"], main.num(c, "curto_mb")), ("1", "1", "1", "1", "Reels", 60))
-        self.assertEqual(main.steps({"kind": "video"})[-2:], ["karakeep", "notebook"])
+        self.assertEqual((c["kk_on"], c["nb_on"], c["sb_on"], c["sintese_on"], c["sb_reels"], main.num(c, "curto_mb")), ("0", "1", "1", "1", "Reels", 60))  # v1.8: Karakeep desligado por padrão
+        self.assertEqual(main.steps({"kind": "video"})[-1:], ["notebook"])
+
+    def test_sem_karakeep_pagina_lida_direto(self):
+        main.cfg_save({"kk_on": "0"})
+        main.add_job("https://blog.exemplo.com/post")
+        j = main.job(1)
+        h = ('<html><head><title>T</title><meta property="og:title" content="Título bom"><meta property="og:image" content="/capa.jpg"></head>'
+             '<body><nav>menu menu</nav><article><p>' + "conteúdo útil " * 40 + '</p></article></body></html>')
+        with mock.patch.object(main, "has_media", lambda u: 0), mock.patch.object(main, "baixa_url", lambda u, *a: ("text/html", h.encode())):
+            main.step_tipo(j, main.cfg())
+            main.step_texto(j, main.cfg())
+        self.assertEqual(j["data"]["kind"], "pagina")
+        self.assertTrue(j["data"]["transcript"].startswith("Título bom\n\nconteúdo útil"))
+        self.assertNotIn("menu", j["data"]["transcript"])
+        self.assertEqual(j["data"]["og_image"], "https://blog.exemplo.com/capa.jpg")
+        self.assertFalse(any("kk" in str(c) for c in self.fake.calls))  # nada pro Karakeep
+
+    def test_sem_karakeep_pdf_e_coletor_direto(self):
+        main.cfg_save({"kk_on": "0"})
+        main.add_job("https://x.com/a/doc.pdf")
+        j = main.job(1)
+        main.step_tipo(j, main.cfg())
+        self.assertEqual(j["data"]["kind"], "pdf")
+        self.assertEqual(main.ingest(main.cfg(), "reddit:saved", ["https://reddit.com/r/a/1"]), 1)
+        self.assertIsNone(main.job(2)["bookmark_id"])
+        self.assertEqual(main.poll_once(), 0)
+        self.assertNotIn("karakeep", main.steps({"kind": "video"}))
+
+    def test_init_v1_8_desliga_karakeep_uma_vez(self):
+        main.q("DELETE FROM kv WHERE k='v1.8.0'")
+        main.init()
+        self.assertEqual(main.cfg()["kk_on"], "0")
+        main.cfg_save({"kk_on": "1"})
+        main.init()
+        self.assertEqual(main.cfg()["kk_on"], "1")  # nan religou: fica
 
     def test_reprocessar_so_silverbullet(self):
         main.add_job("https://www.tiktok.com/@x/video/s1")
