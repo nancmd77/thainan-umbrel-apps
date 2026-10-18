@@ -4,7 +4,7 @@ name: Anytype Sync
 tagline: Servidor próprio do Anytype, sem limite de armazenamento
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-anytype/icon.png
 category: Productivity
-version: "1.8.0"
+version: "1.8.1"
 port: 8523
 description: >-
   Servidor de sincronização e backup do Anytype (any-sync-bundle, tudo em um container). Seus cofres ficam criptografados no Umbrel, sem o limite de 100 MB da rede oficial.
