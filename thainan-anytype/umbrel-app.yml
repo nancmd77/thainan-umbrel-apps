@@ -4,7 +4,7 @@ name: Anytype Sync
 tagline: Servidor próprio do Anytype, sem limite de armazenamento
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-anytype/icon.png
 category: Productivity
-version: "1.7.1"
+version: "1.8.0"
 port: 8523
 description: >-
   Servidor de sincronização e backup do Anytype (any-sync-bundle, tudo em um container). Seus cofres ficam criptografados no Umbrel, sem o limite de 100 MB da rede oficial.
@@ -20,7 +20,7 @@ repo: https://github.com/grishy/any-sync-bundle
 support: https://github.com/grishy/any-sync-bundle/issues
 gallery: []
 releaseNotes: >-
-  O client-config.yml baixado pela página inclui o endereço público nonve.taila412b1.ts.net:10000, para sincronizar fora de casa sem Tailscale.
+  Novo membro Hark (anytype-cli) rodando no próprio Umbrel, 24h, sem depender de computador. Para ele organizar um espaço, cole um convite de editor na página do app.
 dependencies: []
 path: ""
 defaultUsername: ""
