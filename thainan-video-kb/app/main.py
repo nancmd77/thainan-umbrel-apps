@@ -974,23 +974,117 @@ def sb_midia(j, c):
 MURAL = re.compile(r"\$\{widget\.html\(\[==\[<!--vkb-->.*?\]==\]\)\}\n\n?|```excalidraw\n.*?```\n\n?", re.S)  # mural nosso + Excalidraw (removido na 1.6.2)
 
 
+# ---- v1.7: página do Reel e mural redesenhados (widget.html; o SB tira <div>/<img>/<video> do HTML cru) ----
+CHIP = "display:inline-block;padding:2px 10px;border-radius:999px;background:#8882;font-size:.78em;line-height:1.6;white-space:nowrap"
+BTN = ("display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;border:1px solid #8885;"
+       "text-decoration:none;color:inherit;font-size:.9em;font-weight:600")
+
+
+def esc(s):
+    """HTML seguro dentro de ${widget.html([==[...]==])}: escapa <>&" e chaves (o SB interpreta ${...}) e o fecho ]==]."""
+    return html.escape(str(s)).replace("{", "&#123;").replace("}", "&#125;").replace("]==]", "]&#61;&#61;]")
+
+
+def rel(page, alvo):
+    """Link pra `alvo` (ex.: ".fs/Reels/videos/1.mp4") sem "/" no começo: o SB põe <base href> na raiz do space,
+    então resolve igual em qualquer página e com ou sem Path (/cerebro). "../" quebra (testado no SB, 17 out)."""
+    return urllib.request.quote(alvo)
+
+
+def widget(tag, corpo):
+    return f"${{widget.html([==[<!--{tag}-->{corpo}]==])}}\n\n"
+
+
+def fonte_nome(url):
+    u = (url or "").lower()
+    return next((n for k, n in (("instagram", "Instagram"), ("tiktok", "TikTok"), ("youtu", "YouTube"), ("reddit", "Reddit"),
+                                ("x.com", "X"), ("twitter", "X")) if k in u), "o original")
+
+
+def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video, texto):
+    """Markdown da página do Reel: frontmatter + topo (player 9:16 ao lado de assunto, título, gancho, resumo, botões),
+    pontos-chave, linha do tempo em grade e transcrição recolhível. Sem `# título` em markdown: o título está no topo."""
+    r = lambda p: rel(page, p)
+    if sb.get("video"):
+        midia = (f'<video controls preload="metadata" playsinline src="{r(".fs/" + sb["video"])}"'
+                 + (f' poster="{r(".fs/" + capa)}"' if capa else "")
+                 + ' style="width:100%;aspect-ratio:9/16;object-fit:contain;background:#000;border-radius:16px;display:block;'
+                   'box-shadow:0 8px 28px #0005"></video>')
+    elif capa:
+        midia = (f'<a href="{esc(orig)}" target="_blank" rel="noopener" style="display:block;position:relative">'
+                 f'<img src="{r(".fs/" + capa)}" style="width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:16px;display:block">'
+                 '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">'
+                 '<span style="width:64px;height:64px;border-radius:50%;background:#000a;color:#fff;font-size:26px;display:flex;'
+                 'align-items:center;justify-content:center">▶</span></span></a>')
+    else:
+        midia = ""
+    tema_nome = tema_page.rsplit("/", 1)[-1]
+    meta = f'<span style="{CHIP}">{esc(a.get("tema", ""))}</span> <span style="opacity:.6;font-size:.82em;margin-left:6px">{esc(data)}</span>'
+    botoes = ((f'<a href="{esc(orig)}" target="_blank" rel="noopener" style="{BTN}">↗ Abrir no {esc(fonte_nome(orig))}</a> ' if orig else "")
+              + f'<a href="{r(tema_page)}" style="{BTN}">Mais sobre {esc(tema_nome)}</a>')
+    topo = ('<div style="display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start;margin:6px 0 4px">'
+            + (f'<div style="flex:0 1 300px;min-width:220px;max-width:340px">{midia}</div>' if midia else "")
+            + '<div style="flex:1 1 300px;min-width:0">'
+            + f'<div>{meta}</div>'
+            + f'<div style="font-size:1.7em;font-weight:700;line-height:1.2;margin:10px 0 8px">{esc(a["titulo"])}</div>'
+            + (f'<div style="font-size:1.08em;opacity:.75;font-style:italic;margin-bottom:14px">{esc(a["gancho"])}</div>' if a.get("gancho") else "")
+            + f'<div style="line-height:1.6;margin-bottom:16px">{esc(a["resumo"])}</div>'
+            + f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">{botoes}</div>'
+            + "</div></div>")
+    md = fm_txt + widget("vkb-reel", topo)
+    if a.get("pontos_chave"):
+        md += "## Pontos-chave\n" + "\n".join("- " + p for p in a["pontos_chave"]) + "\n\n"
+    if linha:
+        cards = "".join(
+            '<div style="border-radius:12px;overflow:hidden;background:#8881;border:1px solid #8883">'
+            f'<div style="position:relative"><img src="{r(".fs/" + x["img"])}" loading="lazy" style="width:100%;aspect-ratio:9/16;object-fit:cover;display:block">'
+            f'<span style="position:absolute;left:8px;top:8px;padding:1px 8px;border-radius:6px;background:#000b;color:#fff;font:600 .78em ui-monospace,monospace">{esc(x["t"])}</span></div>'
+            f'<div style="padding:8px 10px;font-size:.85em;line-height:1.45">{esc(x["txt"])}</div></div>'
+            for x in linha)
+        md += "## Linha do tempo\n" + widget("vkb-linha", f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">{cards}</div>')
+    elif a.get("o_que_aparece"):
+        md += "## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n"
+    titulo_txt = "Transcrição" if video else "Texto"
+    paras = "".join(f'<p style="margin:0 0 .8em">{esc(p)}</p>' for p in re.split(r"\n\s*\n|\n", texto or "") if p.strip())
+    md += ("## " + titulo_txt + "\n" + widget("vkb-transcricao",
+           f'<details style="border:1px solid #8883;border-radius:12px;padding:10px 14px"><summary style="cursor:pointer;font-weight:600">'
+           f'Mostrar {titulo_txt.lower()} completa</summary><div style="margin-top:10px;line-height:1.65;opacity:.9">{paras}</div></details>'))
+    return md
+
+
+def mural_card(page, a, s, data):
+    """Card do mural: capa 9:16 com ▶ e assunto por cima; título e gancho (2 linhas cada). O card todo abre a página do Reel."""
+    capa = s.get("capa")
+    img = (f'<img src="{rel("index", ".fs/" + capa)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">' if capa
+           else '<div style="width:100%;height:100%;background:linear-gradient(135deg,#8884,#8881)"></div>')
+    play = ('<span style="position:absolute;right:10px;bottom:10px;width:36px;height:36px;border-radius:50%;background:#000a;color:#fff;'
+            'font-size:14px;display:flex;align-items:center;justify-content:center">▶</span>' if s.get("video") else "")
+    clamp = lambda n: f"display:-webkit-box;-webkit-line-clamp:{n};-webkit-box-orient:vertical;overflow:hidden"
+    return (f'<a href="{urllib.request.quote(s["page"])}" style="display:block;text-decoration:none;color:inherit;border-radius:14px;overflow:hidden;'
+            'background:#8881;border:1px solid #8883">'
+            f'<div style="position:relative;aspect-ratio:9/14;background:#000">{img}'
+            '<div style="position:absolute;inset:auto 0 0 0;height:45%;background:linear-gradient(transparent,#000c)"></div>'
+            f'<span style="position:absolute;left:10px;top:10px;padding:2px 10px;border-radius:999px;background:#000a;color:#fff;font-size:.72em">{esc(a.get("tema", ""))}</span>'
+            f'{play}</div>'
+            f'<div style="padding:10px 12px 12px"><div style="font-weight:700;font-size:.95em;line-height:1.3;{clamp(2)}">{esc(a.get("titulo", ""))}</div>'
+            f'<div style="opacity:.65;font-size:.8em;line-height:1.4;margin-top:4px;{clamp(2)}">{esc(a.get("gancho", ""))}</div>'
+            f'<div style="opacity:.45;font-size:.72em;margin-top:6px">{esc(data)}</div></div></a>')
+
+
+def mural_bloco(cards):
+    return widget("vkb", f'<div style="opacity:.6;font-size:.85em;margin:-4px 0 12px">{len(cards)} vídeos salvos · mais recentes primeiro</div>'
+                  '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px">' + "".join(cards) + "</div>")
+
+
 def mural_html(c):
-    """Cards de todos os Reels (capa, vídeo tocável, assunto, título, gancho). widget.html: o SB tira <div>/<img> do HTML cru da página."""
-    e = lambda s: html.escape(str(s)).replace("{", "&#123;").replace("}", "&#125;")
-    fs = lambda p: ".fs/" + urllib.request.quote(p)
+    """Cards de todos os Reels, mais recentes primeiro (mural_card). widget.html: o SB tira <div>/<img> do HTML cru da página."""
     cards = []
-    for r in q("SELECT data FROM jobs ORDER BY created DESC"):
+    for r in q("SELECT data, created FROM jobs ORDER BY created DESC"):
         d = json.loads(r["data"] or "{}")
         s, a = d.get("sb") or {}, d.get("analysis") or {}
-        if not s.get("page"):
-            continue
-        capa = s.get("capa")
-        m = (f'<video controls preload="none" playsinline src="{fs(s["video"])}"' + (f' poster="{fs(capa)}"' if capa else "") + ' style="width:100%;display:block"></video>' if s.get("video")
-             else f'<img src="{fs(capa)}" loading="lazy" style="width:100%;display:block">' if capa else "")
-        cards.append(f'<div style="border:1px solid #8884;border-radius:6px;overflow:hidden">{m}<div style="padding:6px 8px"><small>{e(a.get("tema", ""))}</small><br>'
-                     f'<a href="{urllib.request.quote(s["page"])}"><b>{e(a.get("titulo", ""))}</b></a><br><small>{e(a.get("gancho", ""))}</small></div></div>')
-    return ('${widget.html([==[<!--vkb--><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">'
-            + "".join(cards) + "</div>]==])}\n\n")
+        if s.get("page"):
+            cards.append(mural_card(s["page"], a, s, time.strftime("%d/%m/%Y", time.localtime(r["created"] or time.time()))))
+    return mural_bloco(cards)
 
 
 def sb_mural(c):
@@ -1039,6 +1133,11 @@ def mural():
             sb_topo_todos(c)
         except Exception as e:  # tenta de novo na próxima fila vazia
             log(f"sb_topo: {scrub(e)[:200]}")
+    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_v17'"):
+        try:
+            sb_regrava_todos(c)
+        except Exception as e:  # tenta de novo na próxima fila vazia
+            log(f"sb_v17: {scrub(e)[:200]}")
     if not sb_ligado(c) or not q("SELECT 1 FROM kv WHERE k='mural_sujo' AND v='1'"):
         return
     q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','0')")
@@ -1056,6 +1155,40 @@ def sb_refila():
         WAKE.set()
 
 
+def sb_reel_md(j, page, a, sb, capa, tema, fm, tags, video):
+    """Página do Reel (v1.7): frontmatter (as queries do space leem) + reel_md."""
+    fm_txt = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in fm.items())
+              + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n\n")  # linha vazia: ver sb_topo
+    d = j["data"]
+    return reel_md(fm_txt, page, a, j["orig"] or "", sb, capa, tema, fm["data"], tags, sb.get("linha") or [], video,
+                   a.get("transcricao_limpa", "") if video else d.get("transcript", "")[:20000])
+
+
+def sb_reel_campos(j, c, capa):
+    """frontmatter, tags, página do assunto e se é vídeo: o mesmo pro step e pra regravação da v1.7."""
+    d, a = j["data"], j["data"]["analysis"]
+    sb = d.get("sb") or {}
+    tema = pasta(c, "sb_temas") + "/" + sb_nome(a["tema"])
+    tags = [re.sub(r"[^\w-]+", "-", t.strip()).strip("-").lower() for t in a["tags"] if t.strip()]
+    fm = {"type": "reel", "title": a["titulo"], "tema": a["tema"], "data": time.strftime("%Y-%m-%d", time.localtime(j.get("created") or time.time())),
+          "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "gancho": a.get("gancho", ""), "resumo": a["resumo"],
+          "video": (".fs/" + sb["video"]) if sb.get("video") else ""}
+    return fm, tags, tema, d.get("kind", "video") == "video"
+
+
+def sb_regrava_todos(c):
+    """v1.7, uma vez: regrava as páginas de Reel já prontas no layout novo. Só PUT no SB; sem IA, sem baixar vídeo de novo."""
+    for r in q("SELECT id FROM jobs WHERE data LIKE '%\"sb7\"%'"):
+        j = job(r["id"])
+        sb = j["data"].get("sb") or {}
+        if not sb.get("page") or not j["data"].get("analysis"):
+            continue
+        fm, tags, tema, video = sb_reel_campos(j, c, sb.get("capa", ""))
+        sb_put(c, sb["page"] + ".md", sb_reel_md(j, sb["page"], j["data"]["analysis"], sb, sb.get("capa", ""), tema, fm, tags, video))
+    q("INSERT OR REPLACE INTO kv VALUES('sb_v17','1')")
+    q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
+
+
 def step_silverbullet(j, c):
     need(c, "sb_url", "sb_token")
     sb_reestilo(j, c)
@@ -1064,22 +1197,8 @@ def step_silverbullet(j, c):
     page = pasta(c, "sb_reels") + "/" + sb_nome(a["titulo"])
     sb = d.get("sb") or {}
     capa = sb.get("capa", "") if sb.get("capa_orig") else sb_capa(j, c) or sb.get("capa", "")  # v1.4: troca a capa uma vez
-    tema = pasta(c, "sb_temas") + "/" + sb_nome(a["tema"])
-    video = d.get("kind", "video") == "video"
-    tags = [re.sub(r"[^\w-]+", "-", t.strip()).strip("-").lower() for t in a["tags"] if t.strip()]
-    fm = {"type": "reel", "title": a["titulo"], "tema": a["tema"], "data": time.strftime("%Y-%m-%d", time.localtime(j.get("created") or time.time())),
-          "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "gancho": a.get("gancho", ""), "resumo": a["resumo"],
-          "video": (".fs/" + sb["video"]) if sb.get("video") else ""}
-    linha = sb.get("linha") or []
-    md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in fm.items())
-          + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n\n"  # linha vazia: ver sb_topo
-          + (f"![](/{sb['video']})\n\n" if sb.get("video") else f"![](/{capa})\n\n" if capa else "") + f"# {a['titulo']}\n\n"
-          + (f"_{fm['gancho']}_\n\n" if fm["gancho"] else "")
-          + (f"[▶ Abrir o original]({j['orig']})\n\n" if j["orig"] else "") + f"Assunto: [[{tema}]]\n\n"
-          + f"## Resumo\n{a['resumo']}\n\n## Pontos-chave\n" + "\n".join("- " + p for p in a["pontos_chave"]) + "\n\n"
-          + ("## Linha do tempo\n" + "\n".join(f"**{x['t']}** {x['txt']}\n![](/{x['img']})\n" for x in linha) + "\n" if linha
-             else "## O que aparece\n" + "\n".join("- " + x for x in a["o_que_aparece"]) + "\n\n" if a.get("o_que_aparece") else "")
-          + ("## Transcrição\n" + a["transcricao_limpa"] if video else "## Texto\n" + d["transcript"][:20000]) + "\n")
+    fm, tags, tema, video = sb_reel_campos(j, c, capa)
+    md = sb_reel_md(j, page, a, sb, capa, tema, fm, tags, video)
     sb_put(c, page + ".md", md)
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
     d["sb"] = {**sb, "page": page, "capa": capa, "capa_orig": True, "tema": tema, "t": time.time()}
