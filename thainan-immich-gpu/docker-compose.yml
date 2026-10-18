@@ -1,0 +1,26 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-immich-gpu_web_1
+      APP_PORT: 8080
+  web:
+    image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
+    restart: on-failure
+    ports:
+      - "127.0.0.1:31098:8080"
+    volumes:
+      - /:/host:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        {
+        echo "== dev"; ls -la /host/dev | grep -i nvidia
+        echo "== libs"; ls -la /host/usr/lib/x86_64-linux-gnu 2>/dev/null | grep -E "libcuda|libnvidia-ml|libnvidia-ptxjitcompiler|libnvcuvid|libnvidia-encode" 
+        echo "== bins"; ls -la /host/usr/bin | grep -i nvidia
+        echo "== docker"; cat /host/etc/docker/daemon.json 2>&1
+        echo "== nct"; ls /host/etc/nvidia-container-runtime 2>&1; ls /host/etc/cdi /host/var/run/cdi 2>&1
+        echo "== os"; head -3 /host/etc/os-release
+        echo "== dpkg"; grep -E "^Package: (nvidia|libnvidia|libcuda|firmware-nvidia)" /host/var/lib/dpkg/status | head -40
+        } > /tmp/r.txt 2>&1
+        cd /tmp && mkdir -p w && cp r.txt w/index.html && exec python -m http.server 8080 -d w
