@@ -77,6 +77,7 @@ FIELDS = [
     ("h_dest", "Destinos", "h", "Desligar para de gravar ali. Entrada dos links: caixa no topo da fila e coletores (Karakeep é opcional).", ""),
     ("kk_on", "Usar o Karakeep (entrada por bookmark e gravar resumo, nota, tags, lista)", "bool", "Desligado: o Video KB lê páginas e PDFs sozinho.", "0"),
     ("nb_on", "Enviar ao Open Notebook", "bool", "", "1"),
+    ("pular_humor", "Pular memes e humor", "bool", "Meme, piada, esquete ou trend engraçada sem informação útil não entra (fica como Ignorado na lista). Post só de foto também não entra.", "1"),
     ("sb_on", "Escrever no SilverBullet", "bool", "", "1"),
     ("sb_reels", "SilverBullet: pasta dos Reels", "text", "Mudar o nome não apaga a pasta antiga.", "Reels"),
     ("sb_temas", "SilverBullet: pasta dos assuntos", "text", "", "Temas"),
@@ -121,7 +122,7 @@ KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo o texto", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
-STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto"}
+STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto", "ignorado": "Ignorado"}
 
 WAKE = threading.Event()
 LOCK = threading.Lock()
@@ -546,9 +547,17 @@ def qual_download(c, dur):
     return q
 
 
+SO_FOTO = ("No video formats found", "There is no video in this post")
+
+
 def step_audio(j, c):
     need(c, "elevenlabs_key")  # sem chave não adianta baixar
-    j["data"]["audio"] = baixar(c, j["orig"], os.path.join(DATA, "tmp", str(j["id"])), qual_download(c, j["data"].get("dur", 0)))
+    try:
+        j["data"]["audio"] = baixar(c, j["orig"], os.path.join(DATA, "tmp", str(j["id"])), qual_download(c, j["data"].get("dur", 0)))
+    except RuntimeError as e:  # carrossel/foto do Instagram: Cobalt devolve picker e o yt-dlp não acha vídeo
+        if c.get("pular_humor") == "1" and not j["data"].get("forcar") and any(s in str(e) for s in SO_FOTO):
+            raise Ignorado("post só de foto (só vídeo entra)")
+        raise
 
 
 def so_audio(media):
@@ -678,7 +687,11 @@ def estilo(c):
 
 
 def prompt(c, video):
-    return (PROMPT if video else PROMPT_TEXTO).format(frases=num(c, "resumo_frases"), pontos=num(c, "pontos_max"), tags=num(c, "tags_max"))
+    return (PROMPT if video else PROMPT_TEXTO).format(frases=num(c, "resumo_frases"), pontos=num(c, "pontos_max"), tags=num(c, "tags_max")) + HUMOR
+
+
+class Ignorado(Exception):
+    """Item fora do que o usuário quer guardar (meme/humor, post só de foto): para sem erro."""
 
 
 def llm(c, body, modelo, timeout=180):
@@ -707,7 +720,9 @@ PROMPT_VISAO = (
     'e a transcrição com tempos [mm:ss]. Inclua a chave "o_que_aparece": lista curta e cronológica de strings "mm:ss: ..." '
     "com o que aparece na tela, texto escrito na tela e ações, alinhado com o que é dito. Só o que dá pra ver, sem inventar."
 )
-PROMPT_TEXTO = PROMPT.split(', "transcricao_limpa"')[0] + "."  # página/PDF/texto: não reescreve o original
+PROMPT_TEXTO = PROMPT.split(', "transcricao_limpa"')[0] + "."
+HUMOR = (' Inclua também "humor": true se o conteúdo é meme, piada, esquete de humor, trend ou entretenimento engraçado sem informação útil para guardar; '
+         'false se ensina, informa ou mostra algo útil, mesmo com tom leve ou piada no meio.')  # página/PDF/texto: não reescreve o original
 
 
 def fold(s):
@@ -768,6 +783,7 @@ def parse_analysis(raw, transcript, tags_max=8):
         "transcricao_limpa": str(a.get("transcricao_limpa") or "").strip() or transcript,
         "o_que_aparece": [str(x).strip() for x in (a.get("o_que_aparece") if isinstance(a.get("o_que_aparece"), list)
                           else [a.get("o_que_aparece")] if a.get("o_que_aparece") else []) if str(x).strip()],
+        "humor": a.get("humor") is True or str(a.get("humor")).lower() == "true",
     }
 
 
@@ -821,6 +837,8 @@ def step_resumo(j, c):
     j["data"]["analysis"] = a
     if vis.get("dir"):
         shutil.rmtree(vis["dir"], ignore_errors=True)  # folhas já usadas
+    if a["humor"] and c.get("pular_humor") == "1" and not d.get("forcar"):
+        raise Ignorado("meme/humor: " + a["titulo"][:80])
 
 
 NOTE_MARK = "Pontos-chave (Video KB):"  # nota do nan fica; só o bloco depois do marcador é nosso
@@ -1443,6 +1461,13 @@ def run(jid):
                 j.update(status="fila", error=f"{e}: tentativa {n}/{tries}, de novo em {max(1, wait // 60)} min", after=time.time() + wait)
             save(j)
             return
+        except Ignorado as e:  # não é erro: some da fila, fica visível como Ignorado
+            j.update(status="ignorado", error=str(e)[:300])
+            for f in glob.glob(os.path.join(DATA, "sbmedia", f"{jid}.*")) + glob.glob(os.path.join(DATA, "tmp", f"{jid}*")):
+                shutil.rmtree(f, ignore_errors=True) if os.path.isdir(f) else os.remove(f)
+            save(j)
+            log(f"job {jid} ignorado: {j['error']}")
+            return
         except Exception as e:  # erro fica no job; reprocessar retoma desta etapa
             j.update(status="erro", error=scrub(e)[:500])
             save(j)
@@ -1665,7 +1690,7 @@ button.sec{background:transparent;color:var(--fg);border-color:var(--line)}butto
 .meta form{display:inline}.sep{color:var(--line)}
 .lnk{background:none;border:0;padding:6px 0;min-height:32px;color:var(--mut);font-weight:400;font-size:.84rem}
 .lnk:hover{background:none;color:var(--acc);text-decoration:underline}.meta a{color:var(--mut);padding:6px 0}.meta a:hover{color:var(--acc)}
-.st.erro{color:var(--err);font-weight:600}.st.rodando,.st.fila{color:var(--warn)}
+.st.erro{color:var(--err);font-weight:600}.st.ignorado{opacity:.7}.st.rodando,.st.fila{color:var(--warn)}
 .err{color:var(--err);font-size:.875rem;margin:4px 0 0;overflow-wrap:anywhere}
 .hint{color:var(--mut);font-size:.875rem;margin:0 0 4px}
 .empty{color:var(--mut);padding:32px 0}
@@ -1763,9 +1788,9 @@ def item_html(i, sb_url):
     acoes = []
     if i["page"] and sb_url:
         acoes.append(f'<a href="{e(sb_url.rstrip("/") + "/" + urllib.request.quote(i["page"]))}" rel="noreferrer">Abrir no SilverBullet</a>')
-    conf = "" if i["status"] == "erro" else ' onsubmit="return confirm(\'Refazer este item do zero? Baixa, transcreve e resume de novo.\')"'
+    conf = "" if i["status"] in ("erro", "ignorado") else ' onsubmit="return confirm(\'Refazer este item do zero? Baixa, transcreve e resume de novo.\')"'
     acoes.append(f'<form method="post" action="/item/{i["id"]}/reprocessar"{conf}><button class="lnk" type="submit">'
-                 f'{"Tentar de novo" if i["status"] == "erro" else "Reprocessar"}</button></form>')
+                 f'{"Tentar de novo" if i["status"] == "erro" else "Guardar mesmo assim" if i["status"] == "ignorado" else "Reprocessar"}</button></form>')
     acoes.append(f'<form method="post" action="/remover/{i["id"]}" onsubmit="return confirm(\'Apagar da lista do Video KB? O que já está no SilverBullet fica.\')">'
                  '<button class="lnk" type="submit">Apagar</button></form>')
     return (f'<li class="item"><a class="thumb"{link} tabindex="-1" aria-hidden="true">{thumb}</a><div>'
@@ -1773,7 +1798,7 @@ def item_html(i, sb_url):
             + (f'<p class="desc">{tags}{e(i["texto"])}</p>' if tags or i["texto"] else "")
             + f'<div class="meta"><span>{quando(i["created"])}</span><span>{e(i["fonte"])}</span><span>{KIND_PT.get(i["kind"], "Tipo ?")}</span>{st}'
             f'<span class="sep" aria-hidden="true">|</span>{"".join(acoes)}</div>'
-            + (f'<p class="err">{e(i["error"])}</p>' if i["error"] else "") + (f'<p class="hint">{e(i["aviso"])}</p>' if i["aviso"] else "")
+            + (f'<p class="{"hint" if i["status"] == "ignorado" else "err"}">{e(i["error"])}</p>' if i["error"] else "") + (f'<p class="hint">{e(i["aviso"])}</p>' if i["aviso"] else "")
             + "</div></li>")
 
 
@@ -1789,7 +1814,7 @@ def queue_page(flash="", p=None):
     busca = (f'<form class="busca" method="get" action="/" role="search">'
              + "".join(f'<input type="hidden" name="{k}" value="{e(p[k])}">' for k in ("tag", "tema") if p.get(k))
              + f'<label for="q" class="vh">Buscar</label><input id="q" name="q" type="search" value="{e(p.get("q", ""))}" placeholder="Buscar palavras ou #tags">'
-             + sel("status", [(s, STATUS_PT[s]) for s in ("pronto", "fila", "rodando", "erro")], "Status")
+             + sel("status", [(s, STATUS_PT[s]) for s in ("pronto", "fila", "rodando", "erro", "ignorado")], "Status")
              + sel("fonte", [(f, f) for f in fontes], "Fonte") + '<button class="sec" type="submit">Buscar</button></form>')
     chips = [f'{rot}: <strong>{e(p[k])}</strong>' for k, rot in (("tema", "Assunto"), ("tag", "Tag")) if p.get(k)]
     chips = (f'<p class="chips">{" · ".join(chips)} <a href="/">Limpar filtros</a></p>' if p else "")
@@ -1961,6 +1986,12 @@ def reprocessar_item(jid):
     j = job(jid)
     if not j or j["status"] == "erro":
         return retry(jid)
+    if j["status"] == "ignorado":  # "Guardar mesmo assim": refaz pulando o filtro
+        j["data"] = {"forcar": True}
+        j.update(status="fila", error="", after=0)
+        save(j)
+        WAKE.set()
+        return
     j["data"] = {}
     j.update(status="fila", error="", after=0)
     save(j)
