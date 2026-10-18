@@ -467,8 +467,12 @@ class T(unittest.TestCase):
         self.assertEqual(self.put["Reels/capas/1.jpg"], b"capa-orig")
         self.assertIn('cover: ".fs/Reels/capas/1.jpg"\n', md)  # frontmatter continua .fs/ (MediaGallery)
         self.assertIn('video: ".fs/Reels/videos/1.mp4"\n', md)
-        self.assertIn("---\n\n![](/Reels/videos/1.mp4)", md)  # corpo: absoluto, depois de linha vazia (sb_topo)
-        self.assertIn("![](/Reels/quadros/1/00.jpg)", md)
+        self.assertIn('---\n\n${widget.html([==[<!--vkb-reel-->', md)  # v1.7: topo em widget, depois de linha vazia (sb_topo)
+        self.assertIn('src=".fs/Reels/videos/1.mp4" poster=".fs/Reels/capas/1.jpg"', md)  # relativo à pasta Reels/: com e sem Path
+        self.assertIn("aspect-ratio:9/16", md)
+        self.assertIn("<details", md)  # transcrição recolhível
+        self.assertIn("Abrir no Instagram", md)
+        self.assertIn('<img src=".fs/Reels/quadros/1/00.jpg"', md)
         self.assertNotIn("](.fs/", md)
         self.assertIn(f'resumo: "{"R" * 300}"\n', md)  # sem corte em 240
         self.assertTrue(j["data"]["sb7"] and j["data"]["sb"]["capa_orig"])
@@ -484,7 +488,7 @@ class T(unittest.TestCase):
             main.step_silverbullet(j, main.cfg())
         yt.assert_called_once()
         self.assertEqual(self.fake.n("includeContent=true"), 1)  # caiu pro Karakeep
-        self.assertIn("![](/Reels/capas/1.jpg)", self.put["Reels/Dica de foco.md"])
+        self.assertIn('<img src=".fs/Reels/capas/1.jpg"', self.put["Reels/Dica de foco.md"])
         self.assertEqual(j["data"]["sb"]["capa"], "Reels/capas/1.jpg")
 
     def test_yt_capa_maior_thumbnail_em_jpeg(self):
@@ -534,9 +538,10 @@ class T(unittest.TestCase):
             t = self.sb[pg].decode()
             self.assertNotIn("excalidraw", t)
             self.assertTrue(t.startswith("\n# "))
-            self.assertIn('<video controls preload="none" playsinline src=".fs/Reels/videos/1.mp4" poster=".fs/Reels/capas/1.jpg"', t)  # preview + player no card (relativo: resolve com/sem Path)
+            self.assertIn('<a href="Reels/Com%20video"', t)  # v1.7: card todo abre a página
+            self.assertIn('<img src=".fs/Reels/capas/1.jpg"', t)  # capa relativa: resolve com/sem Path
+            self.assertIn("▶", t)  # selo de vídeo
             self.assertIn('<img src=".fs/Reels/capas/2.jpg"', t)  # sem vídeo: capa
-            self.assertIn('<a href="Reels/Com%20video"><b>Com video</b></a>', t)
             self.assertIn("So capa &#123;x&#125;", t)  # chaves não quebram o ${...}
             self.assertEqual(t.count("]==])}\n\n## Assuntos"), 1)
         self.assertEqual(self.sb["Video KB/Quadro.excalidraw"], b"{}")  # arquivo do nan intacto
@@ -553,8 +558,7 @@ class T(unittest.TestCase):
         main.sb_mural(main.cfg())
         t = self.sb["index.md"].decode()
         # URLs relativas resolvem com e sem Path (ex.: /cerebro)
-        self.assertIn('src=".fs/Reels/videos/1.mp4"', t)
-        self.assertIn('poster=".fs/Reels/capas/1.jpg"', t)
+        self.assertIn('src=".fs/Reels/capas/1.jpg"', t)
         self.assertIn('href="Reels/Video%20Um"', t)
         self.assertNotIn('src="/.fs/', t)
         self.assertNotIn('href="/Reels/', t)
@@ -568,6 +572,16 @@ class T(unittest.TestCase):
         main.init()
         # Idempotente: não remarca se já migrou
         self.assertEqual(main.q("SELECT v FROM kv WHERE k='mural_sujo'")[0]["v"], "0")
+    def test_regrava_todos_v17_uma_vez(self):
+        j = self.sb_job({"video": "Reels/videos/1.mp4", "page": "Reels/Dica de foco", "capa": "Reels/capas/1.jpg"})
+        j["data"]["sb7"] = True
+        main.save(j)
+        put = {}
+        with mock.patch.object(main, "sb_put", lambda c, p, b, *_: put.__setitem__(p, b)):
+            main.sb_regrava_todos(main.cfg())
+        self.assertIn("<!--vkb-reel-->", put["Reels/Dica de foco.md"])
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v17'"))
+
     def test_mural_desligado_so_tira_o_bloco(self):
         self.sb_fake()
         self.reel("Foco", "A")
