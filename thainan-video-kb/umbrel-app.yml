@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs do Karakeep viram resumo, tags e fonte pesquisável
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.6.0"
+version: "1.6.2"
 port: 8519
 description: >-
   Salvou algo no Karakeep (Reels, TikTok, post do Reddit, página, PDF, nota)? Vídeo: o worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook. Página/PDF/nota: usa o texto que o Karakeep extraiu, resume do mesmo jeito; página entra no Open Notebook pela URL, PDF e nota pelo texto.
@@ -22,9 +22,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Vídeos curtos (Reels/TikTok) agora em qualidade original/1080p; compressão só acima de 60 MB, sem baixar a resolução. Vídeos longos (YouTube) por padrão não sobem ao SilverBullet: a página traz capa, link e quadros. Configurações novas em seções, com validação, botões de teste, reprocessar e exportar/importar.
-
-  Tela nova inspirada no Linkding: lista limpa com capa, título, gancho e tags clicáveis; busca no topo (título, resumo, tags e transcrição) com filtros de status e fonte; lateral com assuntos e nuvem de tags com contagem; campo "Adicionar link" no topo; ações por item (Abrir no SilverBullet, Reprocessar, Apagar). Tema claro/escuro automático ou escolhido nas configurações, e funciona no celular.
+  SilverBullet: Excalidraw removido (o worker tira o bloco da index e do Video KB; Quadro.excalidraw não é apagado). Novo mural no topo da index: cada card mostra a capa e toca o vídeo ali mesmo, sem abrir o link original. Corrige sozinho as páginas já gravadas, sem IA.
 dependencies: []
 path: ""
 defaultUsername: ""
