@@ -467,7 +467,7 @@ class T(unittest.TestCase):
         self.assertEqual(self.put["Reels/capas/1.jpg"], b"capa-orig")
         self.assertIn('cover: ".fs/Reels/capas/1.jpg"\n', md)  # frontmatter continua .fs/ (MediaGallery)
         self.assertIn('video: ".fs/Reels/videos/1.mp4"\n', md)
-        self.assertIn("![](/Reels/videos/1.mp4)", md)  # corpo: absoluto
+        self.assertIn("---\n\n![](/Reels/videos/1.mp4)", md)  # corpo: absoluto, depois de linha vazia (sb_topo)
         self.assertIn("![](/Reels/quadros/1/00.jpg)", md)
         self.assertNotIn("](.fs/", md)
         self.assertIn(f'resumo: "{"R" * 300}"\n', md)  # sem corte em 240
@@ -502,83 +502,73 @@ class T(unittest.TestCase):
         self.assertEqual(pedidos, ["http://img/g"])
         self.assertTrue(jpg.startswith(b"\xff\xd8"))
 
-    # ---------- v1.5: quadro Excalidraw ----------
+    # ---------- v1.6.2: mural (sem Excalidraw) ----------
     def sb_fake(self):
         main.cfg_save({"sb_url": "http://sb", "sb_token": "SB"})
         self.sb = {"Video KB.md": b"# Video KB\n\n## Assuntos\n${mural()}\n"}
-        self.capas = 0
-        def capa(b):
-            self.capas += 1
-            return b"JPG"
-        for nome, f in (("sb_get", lambda c, p: self.sb.get(p)), ("sb_put", lambda c, p, d, t="": self.sb.__setitem__(p, d if isinstance(d, bytes) else d.encode())),
-                        ("ex_capa", capa)):
+        for nome, f in (("sb_get", lambda c, p: self.sb.get(p)), ("sb_put", lambda c, p, d, t="": self.sb.__setitem__(p, d if isinstance(d, bytes) else d.encode()))):
             p = mock.patch.object(main, nome, f)
             p.start(), self.addCleanup(p.stop)
 
-    def reel(self, tema, titulo):
+    def reel(self, tema, titulo, video=True, capa=True):
         main.add_job(f"https://www.instagram.com/reel/{titulo}/")
         j = main.job(main.q("SELECT max(id) AS i FROM jobs")[0]["i"])
-        j["data"].update(kind="video", analysis={**ANALISE, "tema": tema, "titulo": titulo, "gancho": "Gancho curto."},
-                         sb={"page": "Reels/" + titulo, "capa": f"Reels/capas/{j['id']}.jpg", "t": time.time()})
-        self.sb[f"Reels/capas/{j['id']}.jpg"] = b"capa"
+        sb = {"page": "Reels/" + titulo, "t": time.time()}
+        if capa:
+            sb["capa"] = f"Reels/capas/{j['id']}.jpg"
+        if video:
+            sb["video"] = f"Reels/videos/{j['id']}.mp4"
+        j["data"].update(kind="video", analysis={**ANALISE, "tema": tema, "titulo": titulo, "gancho": "Gancho curto."}, sb=sb)
         main.save(j)
-        return j["id"]
 
-    def quadro(self, desde=0):
-        main.sb_quadro(main.cfg(), desde)
-        return json.loads(self.sb["Video KB/Quadro.excalidraw"])
-
-    def test_quadro_gera_json_e_bloco_na_pagina(self):
+    def test_mural_card_com_capa_e_video_e_troca_excalidraw(self):
         self.sb_fake()
-        self.reel("Saúde", "Sono")
-        self.reel("Foco", "Pomodoro")
-        qd = self.quadro()
-        el = {e["id"]: e for e in qd["elements"]}
-        self.assertEqual((qd["type"], qd["version"]), ("excalidraw", 2))
-        self.assertEqual((el["reel-1-capa"]["type"], el["reel-1-capa"]["fileId"], el["reel-1-capa"]["link"]), ("image", "capa-1", "/Reels/Sono"))
-        self.assertEqual({e["id"] for e in qd["elements"] if e["groupIds"] == ["reel-1"]}, {"reel-1-capa", "reel-1-titulo", "reel-1-gancho"})
-        self.assertEqual(qd["files"]["capa-1"]["dataURL"], "data:image/jpeg;base64,SlBH")
-        self.assertLess(el["tema-foco"]["x"], el["tema-saude"]["x"])  # áreas lado a lado
-        self.assertEqual(el["tema-foco"]["y"], el["tema-saude"]["y"])
-        self.assertGreater(el["reel-2-capa"]["x"], el["tema-foco"]["x"])  # card dentro da área do assunto
-        pg = self.sb["Video KB.md"].decode()
-        self.assertIn("```excalidraw\nurl:Video KB/Quadro.excalidraw\nheight:750px\ntheme:dark\n```\n\n## Assuntos\n${mural()}", pg)
-        self.quadro()
-        self.assertEqual(self.sb["Video KB.md"].decode(), pg)  # não duplica o bloco
+        bloco = "```excalidraw\nurl:Video KB/Quadro.excalidraw\nheight:750px\ntheme:dark\n```\n\n"
+        self.sb["index.md"] = ("# Meus salvos\n\n" + bloco + "## Assuntos\nfim\n").encode()
+        self.sb["Video KB/Quadro.excalidraw"] = b"{}"
+        self.reel("Foco", "Com video")
+        self.reel("Foco", "So capa {x}", video=False)
+        self.reel("Foco", "Nada", video=False, capa=False)
+        main.sb_mural(main.cfg())
+        for pg in ("index.md", "Video KB.md"):
+            t = self.sb[pg].decode()
+            self.assertNotIn("excalidraw", t)
+            self.assertTrue(t.startswith("\n# "))
+            self.assertIn('<video controls preload="none" playsinline src="/.fs/Reels/videos/1.mp4" poster="/.fs/Reels/capas/1.jpg"', t)  # preview + player no card
+            self.assertIn('<img src="/.fs/Reels/capas/2.jpg"', t)  # sem vídeo: capa
+            self.assertIn('<a href="/Reels/Com%20video"><b>Com video</b></a>', t)
+            self.assertIn("So capa &#123;x&#125;", t)  # chaves não quebram o ${...}
+            self.assertEqual(t.count("]==])}\n\n## Assuntos"), 1)
+        self.assertEqual(self.sb["Video KB/Quadro.excalidraw"], b"{}")  # arquivo do nan intacto
+        self.reel("Foco", "Novo")
+        main.sb_mural(main.cfg())
+        t = self.sb["index.md"].decode()
+        self.assertEqual(t.count("<!--vkb-->"), 1)  # troca, não duplica
+        self.assertIn("Novo", t)
 
-    def test_quadro_preserva_o_que_o_nan_mexeu(self):
+    def test_mural_desligado_so_tira_o_bloco(self):
         self.sb_fake()
         self.reel("Foco", "A")
-        qd = self.quadro()
-        for e in qd["elements"]:
-            if e["id"] == "reel-1-capa":
-                e.update(x=5000, y=-300, width=100, height=180)
-        qd["elements"].append(main.ex_txt("seta-do-nan", 0, -500, "minha ideia", 20))
-        qd["files"]["img-do-nan"] = {"id": "img-do-nan", "dataURL": "data:image/png;base64,AA"}
-        self.sb["Video KB/Quadro.excalidraw"] = json.dumps(qd).encode()
-        t, n = time.time(), self.capas
-        self.reel("Foco", "B")
-        qd = self.quadro(t)
-        el = {e["id"]: e for e in qd["elements"]}
-        self.assertEqual([el["reel-1-capa"][k] for k in ("x", "y", "width", "height")], [5000, -300, 100, 180])
-        self.assertEqual(el["seta-do-nan"]["text"], "minha ideia")
-        self.assertIn("img-do-nan", qd["files"])
-        self.assertEqual(self.capas - n, 1)  # só a capa do Reel novo é baixada
-        area = el["tema-foco"]
-        self.assertEqual(el["reel-2-capa"]["x"], area["x"] + 40 + 280)  # 2º slot da área
-        self.assertLessEqual(el["reel-2-gancho"]["y"] + el["reel-2-gancho"]["height"], area["y"] + area["height"])
+        main.sb_mural(main.cfg())
+        main.cfg_save({"mural_on": ""})
+        main.sb_mural(main.cfg())
+        self.assertNotIn("<!--vkb-->", self.sb["Video KB.md"].decode())
+        self.assertIn("## Assuntos", self.sb["Video KB.md"].decode())
 
-    def test_ex_capa_tamanho(self):
-        try:
-            from PIL import Image
-        except ImportError:
-            self.skipTest("Pillow não instalado (no container vem com o crv)")
-        png = io.BytesIO()
-        Image.frombytes("RGB", (1080, 1920), os.urandom(1080 * 1920 * 3)).save(png, "PNG")
-        jpg = main.ex_capa(png.getvalue())
-        with Image.open(io.BytesIO(jpg)) as im:
-            self.assertEqual((im.format, im.size), ("JPEG", (240, 427)))
-        self.assertLess(len(jpg), 120_000)
+    def test_sb_topo(self):
+        self.assertEqual(main.sb_topo("---\na: 1\n---\n![](/v.mp4)\n"), "---\na: 1\n---\n\n![](/v.mp4)\n")
+        self.assertEqual(main.sb_topo("# T\n"), "\n# T\n")
+        self.assertEqual(main.sb_topo("\n# T\n"), "\n# T\n")
+        self.sb_fake()
+        i = self.reel("Foco", "A")
+        main.q("UPDATE jobs SET data=replace(data, '\"analysis\"', '\"sb7\": true, \"analysis\"')")
+        self.sb["Reels/A.md"] = b"---\ntype: reel\n---\n![](/Reels/videos/1.mp4)\n"
+        self.sb["Temas/Foco.md"] = b"# Foco\n"
+        main.sb_topo_todos(main.cfg())
+        self.assertEqual(self.sb["Reels/A.md"], b"---\ntype: reel\n---\n\n![](/Reels/videos/1.mp4)\n")
+        self.assertEqual(self.sb[main.pasta(main.cfg(), "sb_temas") + "/Foco.md"], b"\n# Foco\n")
+        self.assertNotIn("index.md", self.sb)  # não cria página que não existe
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_topo'"))
 
     def test_inicio_refila_prontos_sem_marca(self):
         main.add_job("https://www.tiktok.com/@x/video/r1")
@@ -588,7 +578,7 @@ class T(unittest.TestCase):
         main.cfg_save({"sb_url": "http://sb", "sb_token": "SB"})
         main.sb_refila()
         self.assertEqual(main.job(1)["status"], "fila")
-        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='quadro_sujo' AND v='1'"))
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='mural_sujo' AND v='1'"))
 
     # ---------- v1.6: vídeo e configurações ----------
     def test_plano_video_comprimir_ou_nao(self):
@@ -667,9 +657,9 @@ class T(unittest.TestCase):
         for segredo in ("OR-KEY-5678", "EL-KEY-1234", "KK-KEY-9999", "tok-secreto", "IG-COOKIE-XYZ", "TOKEN"):
             self.assertNotIn(segredo, dump)
         self.assertEqual(exp["curto_mb"], "80")
-        erros = main.importar(json.dumps({**exp, "curto_mb": 120, "quadro_on": False, "llm_key": "ROUBADA", "tl_largura": "9", "x": 1}))
+        erros = main.importar(json.dumps({**exp, "curto_mb": 120, "mural_on": False, "llm_key": "ROUBADA", "tl_largura": "9", "x": 1}))
         c = main.cfg()
-        self.assertEqual((c["curto_mb"], c["quadro_on"], c["llm_key"], c["tl_largura"]), ("120", "", "OR-KEY-5678", "360"))
+        self.assertEqual((c["curto_mb"], c["mural_on"], c["llm_key"], c["tl_largura"]), ("120", "", "OR-KEY-5678", "360"))
         self.assertEqual(len(erros), 1)  # só tl_largura fora da faixa
         with self.assertRaises(ValueError):
             main.importar("[1]")
