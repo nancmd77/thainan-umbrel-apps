@@ -1,4 +1,4 @@
-"""Video KB worker: link Reels/TikTok -> áudio -> transcrição -> resumo -> Karakeep + Open Notebook.
+"""Video KB worker: link Reels/TikTok/página/PDF -> transcrição ou texto -> resumo -> SilverBullet + Open Notebook (Karakeep opcional).
 
 Só stdlib (+ yt-dlp opcional, fallback do Cobalt). Tudo num arquivo de propósito.
 """
@@ -74,8 +74,8 @@ FIELDS = [
     ("idioma", "Idioma da transcrição", "text", "Vazio = automático. Ou código ISO: por, eng, spa.", ""),
     ("max_frames", "Visão: máximo de frames", "num", "Frames que o crv tira do vídeo (viram folhas 3x3 pro Gemini).", "60"),
     ("max_min", "Duração máxima de vídeo (min)", "num", "Vídeo mais longo não é transcrito (custo do Scribe). Vale pra links fora de IG/TikTok.", "60"),
-    ("h_dest", "Destinos", "h", "Desligar para de gravar ali. O Karakeep continua sendo a entrada dos links.", ""),
-    ("kk_on", "Gravar no Karakeep (resumo, nota, tags, lista)", "bool", "", "1"),
+    ("h_dest", "Destinos", "h", "Desligar para de gravar ali. Entrada dos links: caixa no topo da fila e coletores (Karakeep é opcional).", ""),
+    ("kk_on", "Usar o Karakeep (entrada por bookmark e gravar resumo, nota, tags, lista)", "bool", "Desligado: o Video KB lê páginas e PDFs sozinho.", "0"),
     ("nb_on", "Enviar ao Open Notebook", "bool", "", "1"),
     ("sb_on", "Escrever no SilverBullet", "bool", "", "1"),
     ("sb_reels", "SilverBullet: pasta dos Reels", "text", "Mudar o nome não apaga a pasta antiga.", "Reels"),
@@ -83,7 +83,7 @@ FIELDS = [
     ("sb_pagina", "SilverBullet: página principal", "text", "", "Video KB"),
     ("h_mural", "Mural", "h", "Galeria de cards (capa + vídeo) no topo de Video KB e index.", ""),
     ("mural_on", "Gerar o mural", "bool", "", "1"),
-    ("h_col", "Coletores e fila", "h", "Cada item novo vira bookmark no Karakeep e entra na fila.", ""),
+    ("h_col", "Coletores e fila", "h", "Cada item novo entra direto na fila (e vira bookmark no Karakeep só se ele estiver ligado).", ""),
     ("col_min", "Intervalo da coleta (min)", "num", "", "30"),
     ("first_run", "Itens na 1ª coleta", "num", "1ª coleta de cada fonte: só os N mais recentes. O resto vira visto.", "20"),
     ("crawl_tries", "Karakeep lendo a página: tentativas", "num", "", "3"),
@@ -118,7 +118,7 @@ TYPE = {k: t for k, _, t, _, _ in FIELDS}
 LABEL = {k: l for k, l, _, _, _ in FIELDS}
 
 KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb7"}
-STAGE_PT = {"tipo": "Identificando", "texto": "Lendo texto do Karakeep", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
+STAGE_PT = {"tipo": "Identificando", "texto": "Lendo o texto", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
 STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto"}
@@ -207,6 +207,9 @@ def init():
         if col not in cols:
             q(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
     q("UPDATE jobs SET status='fila' WHERE status='rodando'")  # crash no meio -> retoma
+    if not q("SELECT 1 FROM kv WHERE k='v1.8.0'"):  # v1.8.0: nan tirou o Karakeep da stack (17 out); liga de novo em Configurações
+        cfg_save({"kk_on": "0"})
+        q("INSERT OR REPLACE INTO kv VALUES('v1.8.0','1')")
     if not q("SELECT 1 FROM kv WHERE k='v1.6.3'"):  # v1.6.3: URLs relativas no mural; regera nos dois
         q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
         q("INSERT OR REPLACE INTO kv VALUES('v1.6.3','1')")
@@ -347,6 +350,49 @@ def kk(c):
     return c["karakeep_url"].rstrip("/") + "/api/v1", {"Authorization": "Bearer " + c["karakeep_key"]}
 
 
+def kk_ativo(c):
+    """Karakeep em uso: ligado em Configurações e com URL e chave."""
+    return c.get("kk_on") == "1" and bool(c.get("karakeep_url") and c.get("karakeep_key"))
+
+
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
+
+
+def baixa_url(url, limite=25 * 1024 * 1024):
+    """(content-type, bytes) do link, até `limite`. Sem Karakeep: o Video KB lê a página/PDF sozinho."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8"}), timeout=60) as r:
+            return (r.headers.get("Content-Type") or "").lower(), r.read(limite)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Página respondeu HTTP {e.code}: bloqueada ou exige login?")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise RuntimeError(scrub(f"Não consegui abrir a página: {getattr(e, 'reason', e)}"))
+
+
+def eh_pdf(url, ctype=""):
+    return "pdf" in ctype or urlsplit(url).path.lower().endswith(".pdf")
+
+
+def pdf_texto(dados):
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise RuntimeError("Leitor de PDF (pypdf) não instalado: reinicie o app pra ele instalar")
+    try:
+        return "\n\n".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(dados)).pages[:200])
+    except Exception as e:
+        raise RuntimeError(f"PDF não abriu ({type(e).__name__}): corrompido ou protegido?")
+
+
+def meta_html(h, *nomes):
+    for n in nomes:
+        m = (re.search(rf'<meta[^>]+(?:property|name)=["\']{re.escape(n)}["\'][^>]*content=["\']([^"\']+)', h, re.I)
+             or re.search(rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property|name)=["\']{re.escape(n)}["\']', h, re.I))
+        if m:
+            return html.unescape(m[1]).strip()
+    return ""
+
+
 def ensure_bookmark(j, c):
     if not j["bookmark_id"]:  # link colado à mão: cria o bookmark (Karakeep devolve o existente se a URL já está lá)
         base, h = kk(c)
@@ -373,6 +419,16 @@ def has_media(url):
 def step_tipo(j, c):
     if j["orig"] and is_target(j["orig"]):
         j["data"]["kind"] = "video"
+        return
+    if not kk_ativo(c):  # sem Karakeep: o próprio link decide
+        if not j["orig"]:
+            raise RuntimeError("Item antigo do Karakeep sem link: ligue o Karakeep em Configurações ou apague")
+        dur, lim = (0 if eh_pdf(j["orig"]) else has_media(j["orig"])), num(c, "max_min")
+        if dur > lim * 60:
+            raise RuntimeError(f"Vídeo longo ({dur // 60:.0f} min, limite {lim} min): não transcrevi pra não gastar Scribe. "
+                               "Aumente o limite em Configurações e reprocesse.")
+        j["data"]["kind"] = "video" if dur else "pdf" if eh_pdf(j["orig"]) else "pagina"
+        j["data"]["dur"] = dur
         return
     ct = bookmark(c, ensure_bookmark(j, c)).get("content") or {}
     t = ct.get("type")
@@ -418,7 +474,9 @@ def html_text(h):
 
 
 def step_texto(j, c):
-    """Página/PDF/texto: usa o que o Karakeep já extraiu. Nada de inventar."""
+    """Página/PDF/texto: sem Karakeep lê o link direto; com Karakeep usa o que ele extraiu. Nada de inventar."""
+    if not kk_ativo(c):
+        return texto_direto(j, c)
     ct = bookmark(c, ensure_bookmark(j, c)).get("content") or {}
     kind = j["data"]["kind"]
     if kind == "texto":
@@ -438,6 +496,34 @@ def step_texto(j, c):
         raise RuntimeError(f"Sem texto suficiente pra resumir ({len(text)} caracteres extraídos pelo Karakeep). "
                            + {"pdf": "PDF escaneado/imagem?", "texto": "Nota curta demais.", "pagina": "Página bloqueada ou só imagem/vídeo?"}[kind])
     j["data"]["transcript"] = text
+
+
+def texto_direto(j, c):
+    kind = j["data"]["kind"]
+    if kind == "texto":
+        raise RuntimeError("Nota do Karakeep: ligue o Karakeep em Configurações ou apague o item")
+    ctype, dados = baixa_url(j["orig"])
+    if kind == "pdf" or eh_pdf(j["orig"], ctype):
+        j["data"]["kind"], text = "pdf", pdf_texto(dados)
+    else:
+        h = dados.decode("utf-8", "replace")
+        titulo = meta_html(h, "og:title", "twitter:title") or html.unescape((re.search(r"<title[^>]*>(.*?)</title>", h, re.I | re.S) or [None, ""])[1]).strip()
+        corpo = re.search(r"<(article|main)\b.*?</\1>", h, re.I | re.S)
+        text = html_text(re.sub(r"<(nav|header|footer|aside|form|svg|noscript)\b.*?</\1>", "", corpo[0] if corpo else h, flags=re.I | re.S))
+        text = text or meta_html(h, "og:description", "description")
+        if titulo and len(text) >= MIN_TEXT:
+            text = titulo + "\n\n" + text
+        if pub := meta_html(h, "article:published_time", "og:published_time", "date", "pubdate"):
+            j["data"].setdefault("meta", {})["postado"] = pub[:10]
+        if a := meta_html(h, "author", "article:author", "og:site_name"):
+            j["data"].setdefault("meta", {}).setdefault("autor", a[:80])
+        if img := meta_html(h, "og:image", "twitter:image"):
+            j["data"]["og_image"] = urllib.parse.urljoin(j["orig"], img)
+    text = re.sub(r"[ \t]+", " ", text).strip()
+    if len(text) < MIN_TEXT:
+        raise RuntimeError(f"Sem texto suficiente pra resumir ({len(text)} caracteres). "
+                           + ("PDF escaneado/imagem?" if j["data"]["kind"] == "pdf" else "Página bloqueada, exige login ou é só imagem/vídeo?"))
+    j["data"]["transcript"] = text[:200000]
 
 
 def baixar(c, url, out, qual):
@@ -653,6 +739,15 @@ def notebooks(c):
     return req("GET", c["notebook_url"].rstrip("/") + "/api/notebooks", nb_headers(c), timeout=20)
 
 
+def sb_tags_existentes():
+    """Sem Karakeep: tags já usadas nos itens prontos (as 200 mais comuns), pra reaproveitar a grafia."""
+    n = {}
+    for r in q("SELECT data FROM jobs WHERE data LIKE '%\"analysis\"%'"):
+        for t in (json.loads(r["data"] or "{}").get("analysis") or {}).get("tags") or []:
+            n[t] = n.get(t, 0) + 1
+    return sorted(n, key=lambda t: -n[t])[:200]
+
+
 def kk_tags(c):
     r = req("GET", c["karakeep_url"].rstrip("/") + "/api/v1/tags",
             {"Authorization": "Bearer " + c["karakeep_key"]}, timeout=20)
@@ -684,7 +779,7 @@ def step_resumo(j, c):
            else "\n\nCadernos (temas) que já existem: " + json.dumps(temas, ensure_ascii=False)
            + ". O tema DEVE ser um desses, escrito igual, quando couber. Só crie tema novo se nenhum servir: nome curto em português do Brasil."
            if temas else "")
-    tags = nomes(lambda: kk_tags(c)) if c.get("karakeep_url") and c.get("karakeep_key") else []
+    tags = nomes(lambda: kk_tags(c)) if kk_ativo(c) else sb_tags_existentes()
     ctx += ("\nTags que já existem: " + json.dumps(tags, ensure_ascii=False)
             + ". Reaproveite essas quando couberem; crie tag nova só se nenhuma servir." if tags else "")
     d = j["data"]
@@ -762,12 +857,63 @@ def sb_nome(t):
     return re.sub(r"[\\/#\[\]|^:*?\"<>]+", " ", t).strip()[:90] or "Sem título"
 
 
-def yt_capa(c, url):
-    """Capa que o criador escolheu (miniatura do Reel/TikTok no perfil) via yt-dlp, em JPEG."""
+def yt_info(c, url):
+    """Metadados do yt-dlp (-j) com os cookies do site."""
     with cookie_file(site_cookies(c, url)) as ck:
         p = subprocess.run([sys.executable, "-m", "yt_dlp", "-j", "--no-playlist", "--no-warnings", url] + (["--cookies", ck] if ck else []),
                            capture_output=True, text=True, timeout=60)
-    info = json.loads(p.stdout.splitlines()[0])
+    return json.loads(p.stdout.splitlines()[0])
+
+
+METRICAS = (("views", "view_count"), ("likes", "like_count"), ("comentarios", "comment_count"), ("compart", "repost_count"))
+
+
+def meta_de_info(info):
+    """Data de postagem, autor e números do original (só o que o site informa; nada estimado)."""
+    m = {}
+    ts, ud = info.get("timestamp"), info.get("upload_date")
+    if ts:
+        m["postado"] = time.strftime("%Y-%m-%d", time.localtime(ts))
+    elif ud and re.fullmatch(r"\d{8}", str(ud)):
+        m["postado"] = f"{ud[:4]}-{ud[4:6]}-{ud[6:]}"
+    nome, handle = info.get("uploader") or "", info.get("channel") or info.get("uploader_id") or ""
+    if nome or handle:
+        m["autor"] = (f"{nome} (@{handle})" if nome and handle and nome != handle else nome or "@" + str(handle).lstrip("@"))[:80]
+    for k, src in METRICAS:
+        if isinstance(info.get(src), int) and info[src] >= 0:
+            m[k] = info[src]
+    m["lido"] = time.strftime("%Y-%m-%d")
+    return m
+
+
+def sb_meta(j, c, forcar=False):
+    """Uma vez por item (ou de novo com forcar): guarda em data["meta"]. Falhou = segue sem métricas."""
+    d = j["data"]
+    if (d.get("meta") and not forcar) or not j["orig"] or d.get("kind", "video") != "video":
+        return
+    try:
+        d["meta"] = {**d.get("meta", {}), **meta_de_info(yt_info(c, j["orig"]))}
+    except Exception as e:
+        log(f"job {j['id']} sem métricas do original: {scrub(e)[:120]}")
+
+
+def num_br(n):
+    """1234 -> 1,2 mil; 1500000 -> 1,5 mi (pt-BR)."""
+    for lim, suf in ((1_000_000_000, " bi"), (1_000_000, " mi"), (1_000, " mil")):
+        if n >= lim:
+            v = f"{n / lim:.1f}".rstrip("0").rstrip(".")
+            return v.replace(".", ",") + suf
+    return str(n)
+
+
+def data_br(iso):
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", str(iso or "")[:10])
+    return f"{m[3]}/{m[2]}/{m[1]}" if m else ""
+
+
+def yt_capa(c, url):
+    """Capa que o criador escolheu (miniatura do Reel/TikTok no perfil) via yt-dlp, em JPEG."""
+    info = yt_info(c, url)
     u = info.get("thumbnail") or max(info["thumbnails"], key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))["url"]
     from PIL import Image
     out = io.BytesIO()
@@ -785,6 +931,14 @@ def sb_capa(j, c):
             return p
         except Exception as e:
             log(f"job {j['id']} sem capa do yt-dlp: {scrub(e)[:120]}")
+    if j["data"].get("og_image"):  # página lida direto: imagem de compartilhamento
+        try:
+            sb_put(c, p, req("GET", j["data"]["og_image"], {"User-Agent": UA}, raw=True), "image/jpeg")
+            return p
+        except Exception as e:
+            log(f"job {j['id']} sem og:image: {scrub(e)[:120]}")
+    if not (kk_ativo(c) and j["bookmark_id"]):
+        return ""
     try:
         base, h = kk(c)
         ct = bookmark(c, j["bookmark_id"]).get("content") or {}
@@ -1001,9 +1155,23 @@ def fonte_nome(url):
                                 ("x.com", "X"), ("twitter", "X")) if k in u), "o original")
 
 
-def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video, texto):
-    """Markdown da página do Reel: frontmatter + topo (player 9:16 ao lado de assunto, título, gancho, resumo, botões),
+def metricas_html(meta, tam=".85em"):
+    """▶ views · ♥ curtidas · 💬 comentários · ↻ compartilhamentos (só os que o site informou)."""
+    ic = (("views", "▶", "visualizações"), ("likes", "♥", "curtidas"), ("comentarios", "💬", "comentários"), ("compart", "↻", "compartilhamentos"))
+    itens = [f'<span title="{t}" style="white-space:nowrap"><span style="opacity:.6">{i}</span> {num_br(meta[k])}</span>'
+             for k, i, t in ic if isinstance(meta.get(k), int)]
+    return f'<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:{tam};font-weight:600">{"".join(itens)}</div>' if itens else ""
+
+
+def datas_html(meta, salvo, tam=".8em"):
+    partes = ([f"Postado {data_br(meta['postado'])}"] if data_br(meta.get("postado")) else []) + ([f"Salvo {data_br(salvo)}"] if data_br(salvo) else [])
+    return f'<div style="font-size:{tam};opacity:.75">{esc(" · ".join(partes))}</div>' if partes else ""
+
+
+def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video, texto, meta=None):
+    """Markdown da página do Reel: frontmatter + topo (player 9:16 ao lado de assunto, datas, métricas, título, gancho, resumo, botões),
     pontos-chave, linha do tempo em grade e transcrição recolhível. Sem `# título` em markdown: o título está no topo."""
+    meta = meta or {}
     r = lambda p: rel(page, p)
     if sb.get("video"):
         midia = (f'<video controls preload="metadata" playsinline src="{r(".fs/" + sb["video"])}"'
@@ -1019,15 +1187,16 @@ def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video
     else:
         midia = ""
     tema_nome = tema_page.rsplit("/", 1)[-1]
-    meta = f'<span style="{CHIP}">{esc(a.get("tema", ""))}</span> <span style="opacity:.6;font-size:.82em;margin-left:6px">{esc(data)}</span>'
+    autor = f'<span style="font-size:.85em;font-weight:600">{esc(meta["autor"])}</span>' if meta.get("autor") else ""
     botoes = ((f'<a href="{esc(orig)}" target="_blank" rel="noopener" style="{BTN}">↗ Abrir no {esc(fonte_nome(orig))}</a> ' if orig else "")
               + f'<a href="{r(tema_page)}" style="{BTN}">Mais sobre {esc(tema_nome)}</a>')
     topo = ('<div style="display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start;margin:6px 0 4px">'
             + (f'<div style="flex:0 1 300px;min-width:220px;max-width:340px">{midia}</div>' if midia else "")
             + '<div style="flex:1 1 300px;min-width:0">'
-            + f'<div>{meta}</div>'
-            + f'<div style="font-size:1.7em;font-weight:700;line-height:1.2;margin:10px 0 8px">{esc(a["titulo"])}</div>'
-            + (f'<div style="font-size:1.08em;opacity:.75;font-style:italic;margin-bottom:14px">{esc(a["gancho"])}</div>' if a.get("gancho") else "")
+            + f'<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="{CHIP}">{esc(a.get("tema", ""))}</span>{autor}</div>'
+            + f'<div style="font-size:1.7em;font-weight:800;line-height:1.2;margin:10px 0 8px">{esc(a["titulo"])}</div>'
+            + (f'<div style="font-size:1.08em;font-style:italic;margin-bottom:12px;opacity:.9">{esc(a["gancho"])}</div>' if a.get("gancho") else "")
+            + f'<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">{datas_html(meta, data, ".85em")}{metricas_html(meta, ".95em")}</div>'
             + f'<div style="line-height:1.6;margin-bottom:16px">{esc(a["resumo"])}</div>'
             + f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">{botoes}</div>'
             + "</div></div>")
@@ -1052,28 +1221,32 @@ def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video
     return md
 
 
-def mural_card(page, a, s, data):
-    """Card do mural: capa 9:16 com ▶ e assunto por cima; título e gancho (2 linhas cada). O card todo abre a página do Reel."""
+def mural_card(page, a, s, data, meta=None):
+    """Card do mural: capa 9:16 com assunto e métricas por cima; título (3 linhas) e gancho (3 linhas) com contraste cheio;
+    datas de postagem e de quando foi salvo. O card todo abre a página do Reel."""
+    meta = meta or {}
     capa = s.get("capa")
     img = (f'<img src="{rel("index", ".fs/" + capa)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">' if capa
            else '<div style="width:100%;height:100%;background:linear-gradient(135deg,#8884,#8881)"></div>')
-    play = ('<span style="position:absolute;right:10px;bottom:10px;width:36px;height:36px;border-radius:50%;background:#000a;color:#fff;'
-            'font-size:14px;display:flex;align-items:center;justify-content:center">▶</span>' if s.get("video") else "")
+    play = ('<span style="position:absolute;right:10px;top:10px;width:30px;height:30px;border-radius:50%;background:#000a;color:#fff;'
+            'font-size:12px;display:flex;align-items:center;justify-content:center">▶</span>' if s.get("video") else "")
+    mt = metricas_html(meta, ".78em")
     clamp = lambda n: f"display:-webkit-box;-webkit-line-clamp:{n};-webkit-box-orient:vertical;overflow:hidden"
-    return (f'<a href="{urllib.request.quote(s["page"])}" style="display:block;text-decoration:none;color:inherit;border-radius:14px;overflow:hidden;'
-            'background:#8881;border:1px solid #8883">'
-            f'<div style="position:relative;aspect-ratio:9/14;background:#000">{img}'
-            '<div style="position:absolute;inset:auto 0 0 0;height:45%;background:linear-gradient(transparent,#000c)"></div>'
-            f'<span style="position:absolute;left:10px;top:10px;padding:2px 10px;border-radius:999px;background:#000a;color:#fff;font-size:.72em">{esc(a.get("tema", ""))}</span>'
+    return (f'<a href="{urllib.request.quote(s["page"])}" style="display:flex;flex-direction:column;text-decoration:none;color:inherit;border-radius:14px;overflow:hidden;'
+            'background:#8881;border:1px solid #8884">'
+            f'<div style="position:relative;aspect-ratio:4/5;background:#000">{img}'
+            + (f'<div style="position:absolute;inset:auto 0 0 0;padding:28px 10px 8px;background:linear-gradient(transparent,#000d);color:#fff">{mt}</div>' if mt else "")
+            + f'<span style="position:absolute;left:10px;top:10px;padding:3px 10px;border-radius:999px;background:#000b;color:#fff;font-size:.72em;font-weight:600">{esc(a.get("tema", ""))}</span>'
             f'{play}</div>'
-            f'<div style="padding:10px 12px 12px"><div style="font-weight:700;font-size:.95em;line-height:1.3;{clamp(2)}">{esc(a.get("titulo", ""))}</div>'
-            f'<div style="opacity:.65;font-size:.8em;line-height:1.4;margin-top:4px;{clamp(2)}">{esc(a.get("gancho", ""))}</div>'
-            f'<div style="opacity:.45;font-size:.72em;margin-top:6px">{esc(data)}</div></div></a>')
+            f'<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:6px">'
+            f'<div style="font-weight:800;font-size:1em;line-height:1.3;{clamp(3)}">{esc(a.get("titulo", ""))}</div>'
+            f'<div style="font-size:.85em;line-height:1.45;opacity:.85;{clamp(3)}">{esc(a.get("gancho", ""))}</div>'
+            f'{datas_html(meta, data, ".74em")}</div></a>')
 
 
 def mural_bloco(cards):
-    return widget("vkb", f'<div style="opacity:.6;font-size:.85em;margin:-4px 0 12px">{len(cards)} vídeos salvos · mais recentes primeiro</div>'
-                  '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px">' + "".join(cards) + "</div>")
+    return widget("vkb", f'<div style="opacity:.75;font-size:.85em;margin:-4px 0 12px">{len(cards)} vídeos salvos · mais recentes primeiro</div>'
+                  '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px">' + "".join(cards) + "</div>")
 
 
 def mural_html(c):
@@ -1083,7 +1256,7 @@ def mural_html(c):
         d = json.loads(r["data"] or "{}")
         s, a = d.get("sb") or {}, d.get("analysis") or {}
         if s.get("page"):
-            cards.append(mural_card(s["page"], a, s, time.strftime("%d/%m/%Y", time.localtime(r["created"] or time.time()))))
+            cards.append(mural_card(s["page"], a, s, time.strftime("%Y-%m-%d", time.localtime(r["created"] or time.time())), d.get("meta")))
     return mural_bloco(cards)
 
 
@@ -1133,11 +1306,11 @@ def mural():
             sb_topo_todos(c)
         except Exception as e:  # tenta de novo na próxima fila vazia
             log(f"sb_topo: {scrub(e)[:200]}")
-    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_v17'"):
+    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_v18'"):
         try:
             sb_regrava_todos(c)
         except Exception as e:  # tenta de novo na próxima fila vazia
-            log(f"sb_v17: {scrub(e)[:200]}")
+            log(f"sb_v18: {scrub(e)[:200]}")
     if not sb_ligado(c) or not q("SELECT 1 FROM kv WHERE k='mural_sujo' AND v='1'"):
         return
     q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','0')")
@@ -1161,7 +1334,7 @@ def sb_reel_md(j, page, a, sb, capa, tema, fm, tags, video):
               + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n\n")  # linha vazia: ver sb_topo
     d = j["data"]
     return reel_md(fm_txt, page, a, j["orig"] or "", sb, capa, tema, fm["data"], tags, sb.get("linha") or [], video,
-                   a.get("transcricao_limpa", "") if video else d.get("transcript", "")[:20000])
+                   a.get("transcricao_limpa", "") if video else d.get("transcript", "")[:20000], d.get("meta"))
 
 
 def sb_reel_campos(j, c, capa):
@@ -1173,19 +1346,23 @@ def sb_reel_campos(j, c, capa):
     fm = {"type": "reel", "title": a["titulo"], "tema": a["tema"], "data": time.strftime("%Y-%m-%d", time.localtime(j.get("created") or time.time())),
           "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "gancho": a.get("gancho", ""), "resumo": a["resumo"],
           "video": (".fs/" + sb["video"]) if sb.get("video") else ""}
+    meta = d.get("meta") or {}
+    fm.update({k: meta[k] for k in ("postado", "autor", "views", "likes", "comentarios", "compart") if k in meta})  # Lua dos assuntos lê
     return fm, tags, tema, d.get("kind", "video") == "video"
 
 
-def sb_regrava_todos(c):
-    """v1.7, uma vez: regrava as páginas de Reel já prontas no layout novo. Só PUT no SB; sem IA, sem baixar vídeo de novo."""
+def sb_regrava_todos(c, flag="sb_v18"):
+    """Uma vez por versão do layout: regrava as páginas prontas. Só PUT no SB (v1.8: + métricas do original pelo yt-dlp); sem IA, sem baixar vídeo."""
     for r in q("SELECT id FROM jobs WHERE data LIKE '%\"sb7\"%'"):
         j = job(r["id"])
+        sb_meta(j, c)
+        save(j)
         sb = j["data"].get("sb") or {}
         if not sb.get("page") or not j["data"].get("analysis"):
             continue
         fm, tags, tema, video = sb_reel_campos(j, c, sb.get("capa", ""))
         sb_put(c, sb["page"] + ".md", sb_reel_md(j, sb["page"], j["data"]["analysis"], sb, sb.get("capa", ""), tema, fm, tags, video))
-    q("INSERT OR REPLACE INTO kv VALUES('sb_v17','1')")
+    q("INSERT OR REPLACE INTO kv VALUES(?,'1')", (flag,))
     q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
 
 
@@ -1193,6 +1370,7 @@ def step_silverbullet(j, c):
     need(c, "sb_url", "sb_token")
     sb_reestilo(j, c)
     sb_midia(j, c)
+    sb_meta(j, c)
     d, a = j["data"], j["data"]["analysis"]
     page = pasta(c, "sb_reels") + "/" + sb_nome(a["titulo"])
     sb = d.get("sb") or {}
@@ -1244,7 +1422,7 @@ def steps(d):
         return ["tipo"]
     c = cfg()
     return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo"] + [
-        s for s, on in (("karakeep", c.get("kk_on") == "1"), ("notebook", c.get("nb_on") == "1"), ("silverbullet", sb_ligado(c))) if on]
+        s for s, on in (("karakeep", kk_ativo(c)), ("notebook", c.get("nb_on") == "1"), ("silverbullet", sb_ligado(c))) if on]
 
 
 def run(jid):
@@ -1254,13 +1432,13 @@ def run(jid):
         j.update(stage=s, status="rodando", error="")
         save(j)
         try:
-            need(c, "llm_url", "llm_key", "karakeep_url", "karakeep_key", *(["notebook_url"] if c.get("nb_on") == "1" else []))
+            need(c, "llm_url", "llm_key", *(["notebook_url"] if c.get("nb_on") == "1" else []))
             STEP_FN[s](j, c)
         except Later as e:  # reagenda; depois de crawl_tries vira erro com motivo
             n, tries, wait = j["data"].get("tentativas", 0) + 1, num(c, "crawl_tries"), num(c, "crawl_wait")
             j["data"]["tentativas"] = n
             if n > tries:
-                j.update(status="erro", error=f"{e} depois de {tries} tentativas. Abra o bookmark no Karakeep e reprocesse.")
+                j.update(status="erro", error=f"{e} depois de {tries} tentativas. Reprocesse mais tarde.")
             else:
                 j.update(status="fila", error=f"{e}: tentativa {n}/{tries}, de novo em {max(1, wait // 60)} min", after=time.time() + wait)
             save(j)
@@ -1317,7 +1495,7 @@ def handle_webhook(headers, body):
 
 def poll_once():
     c = cfg()
-    if not (c["karakeep_url"] and c["karakeep_key"]):
+    if not kk_ativo(c):
         return 0
     row = q("SELECT v FROM kv WHERE k='poll_since'")
     now = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
@@ -1400,7 +1578,7 @@ COLLECTORS = {"youtube": ("YouTube: playlists", col_youtube), "instagram": ("Ins
 
 
 def ingest(c, fonte, urls):
-    """Itens novos -> bookmark no Karakeep + fila. Dedupe por URL normalizada + tabela seen."""
+    """Itens novos -> fila (e bookmark no Karakeep se ligado). Dedupe por URL normalizada + tabela seen."""
     seen = {r["url"] for r in q("SELECT url FROM seen WHERE fonte=?", (fonte,))}
     first, novos = not seen, 0
     for i, u in enumerate(dict.fromkeys(urls)):
@@ -1408,8 +1586,11 @@ def ingest(c, fonte, urls):
         if n in seen:
             continue
         if not (first and i >= num(c, "first_run")) and not q("SELECT 1 FROM jobs WHERE url=?", (n,)):  # 1ª vez: resto só vira "visto"
-            base, h = kk(c)
-            novos += add_job(u, req("POST", base + "/bookmarks", h, {"type": "link", "url": u})["id"])
+            if kk_ativo(c):
+                base, h = kk(c)
+                novos += add_job(u, req("POST", base + "/bookmarks", h, {"type": "link", "url": u})["id"])
+            else:
+                novos += add_job(u)
         q("INSERT OR IGNORE INTO seen VALUES(?,?)", (fonte, n))
         seen.add(n)
     return novos
@@ -1422,7 +1603,6 @@ def collect_once():
             continue
         st = {"quando": time.time(), "novos": 0, "erro": ""}
         try:
-            need(c, "karakeep_url", "karakeep_key")
             for fonte, urls in fn(c):
                 st["novos"] += ingest(c, f"{name}:{fonte}", urls)
         except Exception as e:
@@ -1586,7 +1766,7 @@ def item_html(i, sb_url):
     conf = "" if i["status"] == "erro" else ' onsubmit="return confirm(\'Refazer este item do zero? Baixa, transcreve e resume de novo.\')"'
     acoes.append(f'<form method="post" action="/item/{i["id"]}/reprocessar"{conf}><button class="lnk" type="submit">'
                  f'{"Tentar de novo" if i["status"] == "erro" else "Reprocessar"}</button></form>')
-    acoes.append(f'<form method="post" action="/remover/{i["id"]}" onsubmit="return confirm(\'Apagar da lista do Video KB? O bookmark no Karakeep fica.\')">'
+    acoes.append(f'<form method="post" action="/remover/{i["id"]}" onsubmit="return confirm(\'Apagar da lista do Video KB? O que já está no SilverBullet fica.\')">'
                  '<button class="lnk" type="submit">Apagar</button></form>')
     return (f'<li class="item"><a class="thumb"{link} tabindex="-1" aria-hidden="true">{thumb}</a><div>'
             f'<h2><a{link}>{e(i["titulo"])}</a></h2>'
@@ -1614,7 +1794,7 @@ def queue_page(flash="", p=None):
     chips = [f'{rot}: <strong>{e(p[k])}</strong>' for k, rot in (("tema", "Assunto"), ("tag", "Tag")) if p.get(k)]
     chips = (f'<p class="chips">{" · ".join(chips)} <a href="/">Limpar filtros</a></p>' if p else "")
     vazio = ('<p class="empty">Nada encontrado com esses filtros. <a href="/">Limpar filtros</a></p>' if todos
-             else '<p class="empty">Nenhum item ainda. Cole um link no topo ou salve no Karakeep.</p>')
+             else '<p class="empty">Nenhum item ainda. Cole um link no topo ou ligue um coletor.</p>')
     corpo = (f'<ul class="lista">{"".join(item_html(i, sb_url) for i in lista[:200])}</ul>' if lista else vazio)
     if len(lista) > 200:
         corpo += f'<p class="hint">Mostrando 200 de {len(lista)}. Refine a busca.</p>'
