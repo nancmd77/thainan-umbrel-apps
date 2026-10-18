@@ -587,7 +587,7 @@ class T(unittest.TestCase):
         self.assertIn("Postado 09/10/2025", md)
         self.assertIn('views: 1234567', md)  # frontmatter pra Lua dos assuntos
         self.assertEqual(main.job(1)["data"]["meta"]["autor"], "fulano")
-        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v18'"))
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v182'"))
 
     def test_humor_ignorado_e_guardar_mesmo_assim(self):
         main.add_job("https://www.instagram.com/reel/MEME1/")
