@@ -12,7 +12,7 @@ services:
     environment:
       PORT: "8080"
       DATA_DIR: /data
-      REF: video-kb-v1.7.0
+      REF: video-kb-v1.8.0
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
       CRV_NO_MEMORY: "1"
@@ -31,4 +31,6 @@ services:
         command -v ffprobe >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null; } || echo "sem ffmpeg: worker segue sem visão"
         # yt-dlp (fallback do Cobalt, YouTube) + gallery-dl (coletores) + claude-real-video (visão, revisado pelo Hark 16 out, hash fixo, sem deps), versões fixas, uma vez no volume
         [ -f /data/pylib/.v1.3 ] || { pip install -q --upgrade --target /data/pylib yt-dlp==2026.8.19 gallery-dl==1.32.16 Pillow==11.3.0 && echo "claude-real-video==0.10.7 --hash=sha256:44654741dd041c93e357331114e7f83e09af994c69016c0f1d632ed2bb0418c4" > /tmp/crv-req.txt && pip install -q --no-deps --require-hashes --target /data/pylib -r /tmp/crv-req.txt && touch /data/pylib/.v1.3; } || echo "pip falhou: só Cobalt, sem coletores nem visão"
+        # pypdf: PDF lido direto, sem Karakeep (v1.8)
+        [ -f /data/pylib/.pypdf ] || { pip install -q --target /data/pylib pypdf==6.21.1 && touch /data/pylib/.pypdf; } || echo "pip falhou: sem leitor de PDF"
         PYTHONPATH=/data/pylib exec python -u $$D/main.py
