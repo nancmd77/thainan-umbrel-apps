@@ -32,15 +32,17 @@ services:
         start() { anytype serve --no-update-check -q --listen-address $$A & P=$$!; sleep 15; }
         until [ -s /sync/client-config.yml ]; do sleep 5; done
         start
-        if [ ! -f $$C ]; then
+        if ! grep -q accountId $$C 2>/dev/null; then
           anytype auth create Hark --network-config /sync/client-config.yml --root-path /bot/data --listen-address $$A --no-update-check > /bot/ctl/create.out 2>&1
           kill $$P; wait $$P; start
         fi
+        until grep -q accountId $$C 2>/dev/null; do sleep 30; done
         ACC=$$(sed -nE 's/.*"accountId": *"([^"]+)".*/\1/p' $$C)
         echo "$$ACC" > /bot/ctl/account
-        n=0
+        n=0; grep -q '"api_key"' /bot/ctl/key.json 2>/dev/null || rm -f /bot/ctl/key.json
         while [ ! -s /bot/ctl/key.json ] || ! grep -q '"api_key"' /bot/ctl/key.json; do
-          anytype --json --expect-account "$$ACC" auth apikey create hark --all-spaces --read-write --include-secret --operation-id hark-key-0001 | cat > /bot/ctl/key.json
+          anytype --json --expect-account "$$ACC" auth apikey create hark --all-spaces --read-write --include-secret --operation-id hark-key-000$$n | cat > /bot/ctl/key.json
+          grep -q '"api_key"' /bot/ctl/key.json || { cp /bot/ctl/key.json /bot/ctl/key.err; rm -f /bot/ctl/key.json; }
           n=$$((n+1)); [ $$n -gt 20 ] && break; sleep 10
         done
         while kill -0 $$P 2>/dev/null; do
