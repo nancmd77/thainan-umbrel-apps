@@ -1239,6 +1239,32 @@ def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video
     return md
 
 
+def datas_card(meta, salvo):
+    """Rodapé do card: rótulo pequeno em cima da data, Postado e Salvo lado a lado, separado do texto por uma linha."""
+    itens = [(r, data_br(v)) for r, v in (("Postado", (meta or {}).get("postado")), ("Salvo", salvo)) if data_br(v)]
+    if not itens:
+        return ""
+    col = "".join(f'<div><div style="font-size:.85em;opacity:.55;text-transform:uppercase;letter-spacing:.06em;font-weight:600">{r}</div>'
+                  f'<div style="font-weight:600;opacity:.9">{v}</div></div>' for r, v in itens)
+    return f'<div style="margin-top:auto;padding-top:9px;border-top:1px solid #8883;display:flex;gap:18px;font-size:.72em">{col}</div>'
+
+
+def previa_html(frames, resumo, base):
+    """Hover (CSS do Config.md, .vkb-card:hover): quadros do vídeo passando em sequência + resumo por cima da capa. Sem JS."""
+    fr = (frames * 6)[:6] if frames else []
+    imgs = "".join(f'<img src="{rel(base, f)}" loading="lazy" style="animation-delay:{i}s">' for i, f in enumerate(fr))
+    txt = f'<div class="vkb-prev-txt">{esc(resumo)}</div>' if resumo else ""
+    return f'<div class="vkb-prev">{imgs}{txt}</div>' if imgs or txt else ""
+
+
+def previa_frames(s):
+    """Até 6 quadros da linha do tempo, espalhados (".fs/..." para o widget e para o frontmatter)."""
+    lin = [x["img"] for x in s.get("linha") or [] if x.get("img")]
+    if len(lin) > 6:
+        lin = [lin[round(i * (len(lin) - 1) / 5)] for i in range(6)]
+    return [".fs/" + x for x in lin]
+
+
 def mural_card(page, a, s, data, meta=None):
     """Card do mural: capa 9:16 com assunto e métricas por cima; título e gancho inteiros (sem corte), letra menor;
     datas de postagem e de quando foi salvo. O card todo abre a página do Reel."""
@@ -1249,16 +1275,17 @@ def mural_card(page, a, s, data, meta=None):
     play = ('<span style="position:absolute;right:10px;top:10px;width:30px;height:30px;border-radius:50%;background:#000a;color:#fff;'
             'font-size:12px;display:flex;align-items:center;justify-content:center">▶</span>' if s.get("video") else "")
     mt = metricas_html(meta, ".78em")
-    return (f'<a href="{urllib.request.quote(s["page"])}" style="display:flex;flex-direction:column;text-decoration:none;color:inherit;border-radius:14px;overflow:hidden;'
+    return (f'<a class="vkb-card" href="{urllib.request.quote(s["page"])}" style="display:flex;flex-direction:column;text-decoration:none;color:inherit;border-radius:14px;overflow:hidden;'
             'background:#8881;border:1px solid #8884">'
             f'<div style="position:relative;aspect-ratio:4/5;background:#000">{img}'
             + (f'<div style="position:absolute;inset:auto 0 0 0;padding:28px 10px 8px;background:linear-gradient(transparent,#000d);color:#fff">{mt}</div>' if mt else "")
             + f'<span style="position:absolute;left:10px;top:10px;padding:3px 10px;border-radius:999px;background:#000b;color:#fff;font-size:.72em;font-weight:600">{esc(a.get("tema", ""))}</span>'
-            f'{play}</div>'
-            f'<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:6px">'
+            + previa_html(previa_frames(s), a.get("resumo", ""), "index")
+            + f'{play}</div>'
+            f'<div style="padding:12px 12px 12px;display:flex;flex-direction:column;gap:6px;flex:1">'
             f'<div style="font-weight:700;font-size:.9em;line-height:1.3;overflow-wrap:anywhere">{esc(a.get("titulo", ""))}</div>'
             f'<div style="font-size:.78em;line-height:1.4;opacity:.85;overflow-wrap:anywhere">{esc(a.get("gancho", ""))}</div>'
-            f'{datas_html(meta, data, ".74em")}</div></a>')
+            f'{datas_card(meta, data)}</div></a>')
 
 
 def mural_bloco(cards):
@@ -1277,6 +1304,9 @@ def mural_html(c):
     return mural_bloco(cards)
 
 
+ASSUNTOS = "## Assuntos\n${reelAssuntos()}"
+
+
 def sb_mural(c):
     """Põe o mural antes de "## Assuntos" em Video KB.md e index.md (index.md = página inicial real do space) e tira o bloco Excalidraw.
     Idempotente: troca o mural anterior. Só GET/PUT no SB. Não mexe em Quadro.excalidraw (notas do nan)."""
@@ -1286,7 +1316,12 @@ def sb_mural(c):
         if pg is None:
             continue
         txt = pg.decode()
-        novo = sb_topo(MURAL.sub("", txt).replace("## Assuntos", bloco + "## Assuntos", 1))
+        base = MURAL.sub("", txt)
+        if ASSUNTOS in base:  # v1.8.3: assuntos (chips) no topo, mural depois
+            novo = base.replace(ASSUNTOS, ASSUNTOS + "\n\n" + bloco, 1)
+        else:
+            novo = base.replace("## Assuntos", bloco + "## Assuntos", 1)
+        novo = sb_topo(re.sub(r"\n{3,}", "\n\n", novo))
         if novo != txt:
             sb_put(c, pagina, novo)
 
@@ -1323,11 +1358,11 @@ def mural():
             sb_topo_todos(c)
         except Exception as e:  # tenta de novo na próxima fila vazia
             log(f"sb_topo: {scrub(e)[:200]}")
-    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_v182'"):
+    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_v183'"):
         try:
             sb_regrava_todos(c)
         except Exception as e:  # tenta de novo na próxima fila vazia
-            log(f"sb_v182: {scrub(e)[:200]}")
+            log(f"sb_v183: {scrub(e)[:200]}")
     if not sb_ligado(c) or not q("SELECT 1 FROM kv WHERE k='mural_sujo' AND v='1'"):
         return
     q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','0')")
@@ -1364,11 +1399,13 @@ def sb_reel_campos(j, c, capa):
           "cover": (".fs/" + capa) if capa else "", "link": j["orig"] or "", "gancho": a.get("gancho", ""), "resumo": a["resumo"],
           "video": (".fs/" + sb["video"]) if sb.get("video") else ""}
     meta = d.get("meta") or {}
-    fm.update({k: meta[k] for k in ("postado", "autor", "views", "likes", "comentarios", "compart") if k in meta})  # Lua dos assuntos lê
+    fm.update({k: meta[k] for k in ("postado", "autor", "views", "likes", "comentarios", "compart") if k in meta})
+    if pv := previa_frames(sb):
+        fm["previa"] = pv  # Lua dos assuntos lê
     return fm, tags, tema, d.get("kind", "video") == "video"
 
 
-def sb_regrava_todos(c, flag="sb_v182"):
+def sb_regrava_todos(c, flag="sb_v183"):
     """Uma vez por versão do layout: regrava as páginas prontas. Só PUT no SB (v1.8: + métricas do original pelo yt-dlp); sem IA, sem baixar vídeo."""
     for r in q("SELECT id FROM jobs WHERE data LIKE '%\"sb7\"%'"):
         j = job(r["id"])
