@@ -4,14 +4,14 @@ name: Anytype Sync
 tagline: Servidor próprio do Anytype, sem limite de armazenamento
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-anytype/icon.png
 category: Productivity
-version: "1.7.0"
+version: "1.7.1"
 port: 8523
 description: >-
   Servidor de sincronização e backup do Anytype (any-sync-bundle, tudo em um container). Seus cofres ficam criptografados no Umbrel, sem o limite de 100 MB da rede oficial.
 
   Abra o app para baixar o arquivo de rede (client-config.yml). No Anytype, na tela inicial, clique na engrenagem > Networks > Self-hosted e importe o arquivo. Crie uma identidade nova nessa rede.
 
-  Portas: TCP 33010 e UDP 33020. Funciona na rede de casa e fora dela pelo Tailscale.
+  Portas: TCP 33010 e UDP 33020 na rede de casa; fora dela, pelo endereço público nonve.taila412b1.ts.net:10000 (Tailscale Funnel em TCP), sem precisar de Tailscale no aparelho.
 developer: grishy (any-sync-bundle) / Any Association
 website: https://github.com/grishy/any-sync-bundle
 submitter: Thainan Caldeira
@@ -20,7 +20,7 @@ repo: https://github.com/grishy/any-sync-bundle
 support: https://github.com/grishy/any-sync-bundle/issues
 gallery: []
 releaseNotes: >-
-  Primeira versão: any-sync-bundle 1.7.0 (compatível com Anytype de 2026-10-12) e página para baixar o client-config.yml.
+  O client-config.yml baixado pela página inclui o endereço público nonve.taila412b1.ts.net:10000, para sincronizar fora de casa sem Tailscale.
 dependencies: []
 path: ""
 defaultUsername: ""
