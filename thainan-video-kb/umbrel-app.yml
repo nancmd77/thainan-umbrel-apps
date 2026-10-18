@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs do Karakeep viram resumo, tags e fonte pesquisável
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.6.3"
+version: "1.7.0"
 port: 8519
 description: >-
   Salvou algo no Karakeep (Reels, TikTok, post do Reddit, página, PDF, nota)? Vídeo: o worker baixa o áudio (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, resume com Gemini pelo 9Router do Nonve, grava resumo, nota e tags no bookmark do Karakeep (e põe numa lista do tema) e cria uma fonte no caderno do tema no Open Notebook. Página/PDF/nota: usa o texto que o Karakeep extraiu, resume do mesmo jeito; página entra no Open Notebook pela URL, PDF e nota pelo texto.
@@ -22,7 +22,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  SilverBullet: links do mural (vídeo, capa e página) agora usam caminhos relativos, funcionando em spaces com ou sem Path (/cerebro). Regravação automática do mural na inicialização.
+  SilverBullet com visual novo: página do Reel com player vertical ao lado do título, resumo e botões; linha do tempo em grade com miniaturas; transcrição recolhível. Mural e páginas de assunto com cards de capa, selo de vídeo e título em duas linhas. As páginas já existentes são regravadas sozinhas, sem gastar IA.
 dependencies: []
 path: ""
 defaultUsername: ""
