@@ -589,6 +589,32 @@ class T(unittest.TestCase):
         self.assertEqual(main.job(1)["data"]["meta"]["autor"], "fulano")
         self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v18'"))
 
+    def test_humor_ignorado_e_guardar_mesmo_assim(self):
+        main.add_job("https://www.instagram.com/reel/MEME1/")
+        jid = main.q("SELECT max(id) m FROM jobs")[0]["m"]
+        j = main.job(jid)
+        j["data"] = {"kind": "video", "transcript": "kkk", "dur": 10}
+        main.save(j)
+        resp = {"choices": [{"message": {"content": main.json.dumps({"titulo": "Gato caindo", "resumo": "x", "tema": "Humor", "humor": True})}}]}
+        with mock.patch.object(main, "llm", lambda *a, **k: resp), mock.patch.object(main, "sb_tags_existentes", lambda: []):
+            main.cfg_save({"llm_url": "http://x", "llm_key": "k", "pular_humor": "1"})
+            j = main.job(jid)
+            with self.assertRaises(main.Ignorado):
+                main.step_resumo(j, main.cfg())
+        j = main.job(jid); j.update(status="ignorado"); main.save(j)
+        main.reprocessar_item(jid)
+        self.assertEqual((main.job(jid)["status"], main.job(jid)["data"]), ("fila", {"forcar": True}))
+
+    def test_post_so_de_foto_ignorado(self):
+        main.add_job("https://www.instagram.com/p/FOTO1/")
+        jid = main.q("SELECT max(id) m FROM jobs")[0]["m"]
+        j = main.job(jid)
+        main.cfg_save({"elevenlabs_key": "k", "pular_humor": "1"})
+        def falha(*a): raise RuntimeError("Cobalt: picker | yt-dlp: ERROR: [Instagram] FOTO1: No video formats found!")
+        with mock.patch.object(main, "baixar", falha):
+            with self.assertRaises(main.Ignorado):
+                main.step_audio(j, main.cfg())
+
     def test_num_br_e_metricas_sem_inventar(self):
         self.assertEqual([main.num_br(n) for n in (999, 1000, 1250, 1_500_000, 2_000_000_000)], ["999", "1 mil", "1,2 mil", "1,5 mi", "2 bi"])
         self.assertEqual(main.metricas_html({}), "")
