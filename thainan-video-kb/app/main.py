@@ -1240,7 +1240,7 @@ def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video
 
 
 def mural_card(page, a, s, data, meta=None):
-    """Card do mural: capa 9:16 com assunto e métricas por cima; título (3 linhas) e gancho (3 linhas) com contraste cheio;
+    """Card do mural: capa 9:16 com assunto e métricas por cima; título e gancho inteiros (sem corte), letra menor;
     datas de postagem e de quando foi salvo. O card todo abre a página do Reel."""
     meta = meta or {}
     capa = s.get("capa")
@@ -1249,7 +1249,6 @@ def mural_card(page, a, s, data, meta=None):
     play = ('<span style="position:absolute;right:10px;top:10px;width:30px;height:30px;border-radius:50%;background:#000a;color:#fff;'
             'font-size:12px;display:flex;align-items:center;justify-content:center">▶</span>' if s.get("video") else "")
     mt = metricas_html(meta, ".78em")
-    clamp = lambda n: f"display:-webkit-box;-webkit-line-clamp:{n};-webkit-box-orient:vertical;overflow:hidden"
     return (f'<a href="{urllib.request.quote(s["page"])}" style="display:flex;flex-direction:column;text-decoration:none;color:inherit;border-radius:14px;overflow:hidden;'
             'background:#8881;border:1px solid #8884">'
             f'<div style="position:relative;aspect-ratio:4/5;background:#000">{img}'
@@ -1257,8 +1256,8 @@ def mural_card(page, a, s, data, meta=None):
             + f'<span style="position:absolute;left:10px;top:10px;padding:3px 10px;border-radius:999px;background:#000b;color:#fff;font-size:.72em;font-weight:600">{esc(a.get("tema", ""))}</span>'
             f'{play}</div>'
             f'<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:6px">'
-            f'<div style="font-weight:800;font-size:1em;line-height:1.3;{clamp(3)}">{esc(a.get("titulo", ""))}</div>'
-            f'<div style="font-size:.85em;line-height:1.45;opacity:.85;{clamp(3)}">{esc(a.get("gancho", ""))}</div>'
+            f'<div style="font-weight:700;font-size:.9em;line-height:1.3;overflow-wrap:anywhere">{esc(a.get("titulo", ""))}</div>'
+            f'<div style="font-size:.78em;line-height:1.4;opacity:.85;overflow-wrap:anywhere">{esc(a.get("gancho", ""))}</div>'
             f'{datas_html(meta, data, ".74em")}</div></a>')
 
 
@@ -1324,11 +1323,11 @@ def mural():
             sb_topo_todos(c)
         except Exception as e:  # tenta de novo na próxima fila vazia
             log(f"sb_topo: {scrub(e)[:200]}")
-    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_v18'"):
+    if sb_ligado(c) and not q("SELECT 1 FROM kv WHERE k='sb_v182'"):
         try:
             sb_regrava_todos(c)
         except Exception as e:  # tenta de novo na próxima fila vazia
-            log(f"sb_v18: {scrub(e)[:200]}")
+            log(f"sb_v182: {scrub(e)[:200]}")
     if not sb_ligado(c) or not q("SELECT 1 FROM kv WHERE k='mural_sujo' AND v='1'"):
         return
     q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','0')")
@@ -1369,7 +1368,7 @@ def sb_reel_campos(j, c, capa):
     return fm, tags, tema, d.get("kind", "video") == "video"
 
 
-def sb_regrava_todos(c, flag="sb_v18"):
+def sb_regrava_todos(c, flag="sb_v182"):
     """Uma vez por versão do layout: regrava as páginas prontas. Só PUT no SB (v1.8: + métricas do original pelo yt-dlp); sem IA, sem baixar vídeo."""
     for r in q("SELECT id FROM jobs WHERE data LIKE '%\"sb7\"%'"):
         j = job(r["id"])
