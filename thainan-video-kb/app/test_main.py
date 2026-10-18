@@ -534,9 +534,9 @@ class T(unittest.TestCase):
             t = self.sb[pg].decode()
             self.assertNotIn("excalidraw", t)
             self.assertTrue(t.startswith("\n# "))
-            self.assertIn('<video controls preload="none" playsinline src="/.fs/Reels/videos/1.mp4" poster="/.fs/Reels/capas/1.jpg"', t)  # preview + player no card
-            self.assertIn('<img src="/.fs/Reels/capas/2.jpg"', t)  # sem vídeo: capa
-            self.assertIn('<a href="/Reels/Com%20video"><b>Com video</b></a>', t)
+            self.assertIn('<video controls preload="none" playsinline src=".fs/Reels/videos/1.mp4" poster=".fs/Reels/capas/1.jpg"', t)  # preview + player no card (relativo: resolve com/sem Path)
+            self.assertIn('<img src=".fs/Reels/capas/2.jpg"', t)  # sem vídeo: capa
+            self.assertIn('<a href="Reels/Com%20video"><b>Com video</b></a>', t)
             self.assertIn("So capa &#123;x&#125;", t)  # chaves não quebram o ${...}
             self.assertEqual(t.count("]==])}\n\n## Assuntos"), 1)
         self.assertEqual(self.sb["Video KB/Quadro.excalidraw"], b"{}")  # arquivo do nan intacto
@@ -546,6 +546,28 @@ class T(unittest.TestCase):
         self.assertEqual(t.count("<!--vkb-->"), 1)  # troca, não duplica
         self.assertIn("Novo", t)
 
+    def test_mural_links_relativos_resolvem_com_path(self):
+        self.sb_fake()
+        self.sb["index.md"] = b"# Meus salvos\n\n## Assuntos\nfim\n"
+        self.reel("Foco", "Video Um")
+        main.sb_mural(main.cfg())
+        t = self.sb["index.md"].decode()
+        # URLs relativas resolvem com e sem Path (ex.: /cerebro)
+        self.assertIn('src=".fs/Reels/videos/1.mp4"', t)
+        self.assertIn('poster=".fs/Reels/capas/1.jpg"', t)
+        self.assertIn('href="Reels/Video%20Um"', t)
+        self.assertNotIn('src="/.fs/', t)
+        self.assertNotIn('href="/Reels/', t)
+
+    def test_init_marca_mural_sujo_v1_6_3(self):
+        main.q("DELETE FROM kv WHERE k IN ('v1.6.3', 'mural_sujo')")
+        main.init()
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='mural_sujo' AND v='1'"))
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='v1.6.3' AND v='1'"))
+        main.q("UPDATE kv SET v='0' WHERE k='mural_sujo'")
+        main.init()
+        # Idempotente: não remarca se já migrou
+        self.assertEqual(main.q("SELECT v FROM kv WHERE k='mural_sujo'")[0]["v"], "0")
     def test_mural_desligado_so_tira_o_bloco(self):
         self.sb_fake()
         self.reel("Foco", "A")
