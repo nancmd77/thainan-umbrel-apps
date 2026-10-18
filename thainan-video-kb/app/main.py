@@ -207,6 +207,9 @@ def init():
         if col not in cols:
             q(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
     q("UPDATE jobs SET status='fila' WHERE status='rodando'")  # crash no meio -> retoma
+    if not q("SELECT 1 FROM kv WHERE k='v1.6.3'"):  # v1.6.3: URLs relativas no mural; regera nos dois
+        q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
+        q("INSERT OR REPLACE INTO kv VALUES('v1.6.3','1')")
 
 
 def norm(url):
@@ -974,7 +977,7 @@ MURAL = re.compile(r"\$\{widget\.html\(\[==\[<!--vkb-->.*?\]==\]\)\}\n\n?|```exc
 def mural_html(c):
     """Cards de todos os Reels (capa, vídeo tocável, assunto, título, gancho). widget.html: o SB tira <div>/<img> do HTML cru da página."""
     e = lambda s: html.escape(str(s)).replace("{", "&#123;").replace("}", "&#125;")
-    fs = lambda p: "/.fs/" + urllib.request.quote(p)
+    fs = lambda p: ".fs/" + urllib.request.quote(p)
     cards = []
     for r in q("SELECT data FROM jobs ORDER BY created DESC"):
         d = json.loads(r["data"] or "{}")
@@ -985,7 +988,7 @@ def mural_html(c):
         m = (f'<video controls preload="none" playsinline src="{fs(s["video"])}"' + (f' poster="{fs(capa)}"' if capa else "") + ' style="width:100%;display:block"></video>' if s.get("video")
              else f'<img src="{fs(capa)}" loading="lazy" style="width:100%;display:block">' if capa else "")
         cards.append(f'<div style="border:1px solid #8884;border-radius:6px;overflow:hidden">{m}<div style="padding:6px 8px"><small>{e(a.get("tema", ""))}</small><br>'
-                     f'<a href="/{urllib.request.quote(s["page"])}"><b>{e(a.get("titulo", ""))}</b></a><br><small>{e(a.get("gancho", ""))}</small></div></div>')
+                     f'<a href="{urllib.request.quote(s["page"])}"><b>{e(a.get("titulo", ""))}</b></a><br><small>{e(a.get("gancho", ""))}</small></div></div>')
     return ('${widget.html([==[<!--vkb--><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">'
             + "".join(cards) + "</div>]==])}\n\n")
 
