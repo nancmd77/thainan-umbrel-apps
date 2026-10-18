@@ -1,0 +1,45 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-anytype_web_1
+      APP_PORT: 8080
+  sync:
+    image: ghcr.io/grishy/any-sync-bundle:1.7.0-2026-10-12@sha256:8c0a00d7ecf78ccc636743ed83153c593792238f49a37bf6cf7b9b5c1ea557db
+    restart: unless-stopped
+    stop_grace_period: 120s
+    environment:
+      ANY_SYNC_BUNDLE_INIT_EXTERNAL_ADDRS: "192.168.18.171,100.72.135.102,nonve.taila412b1.ts.net"
+    ports:
+      - "33010:33010"
+      - "33020:33020/udp"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+  web:
+    image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
+    restart: on-failure
+    working_dir: /data
+    volumes:
+      - ${APP_DATA_DIR}/data:/data:ro
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import http.server, os, html
+        F = "/data/client-config.yml"
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                ok = os.path.exists(F)
+                if self.path.startswith("/client-config.yml") and ok:
+                    b = open(F, "rb").read()
+                    self.send_response(200); self.send_header("Content-Type", "application/x-yaml")
+                    self.send_header("Content-Disposition", "attachment; filename=client-config.yml")
+                    self.end_headers(); self.wfile.write(b); return
+                txt = html.escape(open(F).read()) if ok else "Ainda gerando... recarregue em alguns segundos."
+                p = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                     "<title>Anytype Sync</title><body style='font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px'>"
+                     "<h1>Anytype Sync</h1><p>Servidor rodando. No Anytype: tela inicial &gt; engrenagem &gt; Networks &gt; Self-hosted &gt; importe o arquivo abaixo e crie uma identidade nova.</p>"
+                     + ("<p><a href='client-config.yml' style='display:inline-block;padding:10px 18px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none'>Baixar client-config.yml</a></p>" if ok else "")
+                     + "<p>Fora de casa: ligue o Tailscale no aparelho.</p><pre style='background:#f4f4f5;padding:12px;border-radius:8px;overflow:auto;font-size:12px'>" + txt + "</pre>")
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.end_headers(); self.wfile.write(p.encode())
+            def log_message(self, *a): pass
+        http.server.ThreadingHTTPServer(("0.0.0.0", 8080), H).serve_forever()
