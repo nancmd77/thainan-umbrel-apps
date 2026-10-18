@@ -538,7 +538,7 @@ class T(unittest.TestCase):
             t = self.sb[pg].decode()
             self.assertNotIn("excalidraw", t)
             self.assertTrue(t.startswith("\n# "))
-            self.assertIn('<a href="Reels/Com%20video"', t)  # v1.7: card todo abre a página
+            self.assertIn('<a class="vkb-card" href="Reels/Com%20video"', t)  # v1.7: card todo abre a página
             self.assertIn('<img src=".fs/Reels/capas/1.jpg"', t)  # capa relativa: resolve com/sem Path
             self.assertIn("▶", t)  # selo de vídeo
             self.assertIn('<img src=".fs/Reels/capas/2.jpg"', t)  # sem vídeo: capa
@@ -587,7 +587,7 @@ class T(unittest.TestCase):
         self.assertIn("Postado 09/10/2025", md)
         self.assertIn('views: 1234567', md)  # frontmatter pra Lua dos assuntos
         self.assertEqual(main.job(1)["data"]["meta"]["autor"], "fulano")
-        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v182'"))
+        self.assertTrue(main.q("SELECT 1 FROM kv WHERE k='sb_v183'"))
 
     def test_humor_ignorado_e_guardar_mesmo_assim(self):
         main.add_job("https://www.instagram.com/reel/MEME1/")
@@ -614,6 +614,18 @@ class T(unittest.TestCase):
         with mock.patch.object(main, "baixar", falha):
             with self.assertRaises(main.Ignorado):
                 main.step_audio(j, main.cfg())
+
+    def test_mural_depois_dos_assuntos_e_previa(self):
+        s = {"page": "Reels/X", "capa": "Reels/x.jpg", "linha": [{"img": f"Reels/x-{n}.jpg", "t": "0:0", "txt": ""} for n in range(9)]}
+        card = main.mural_card("Reels/X", {"titulo": "T", "gancho": "G", "resumo": "Resumo R", "tema": "A"}, s, "2026-10-17", {"postado": "2026-10-15"})
+        self.assertIn('class="vkb-card"', card)
+        self.assertEqual(card.count('animation-delay'), 6)
+        self.assertIn("Resumo R", card)
+        self.assertIn(">Postado</div>", card)
+        self.assertIn("15/10/2026", card)
+        txt = "# Meus salvos\n\n${widget.html([==[<!--vkb-->velho]==])}\n\n" + main.ASSUNTOS + "\n"
+        base = main.MURAL.sub("", txt)
+        self.assertIn(main.ASSUNTOS, base)
 
     def test_num_br_e_metricas_sem_inventar(self):
         self.assertEqual([main.num_br(n) for n in (999, 1000, 1250, 1_500_000, 2_000_000_000)], ["999", "1 mil", "1,2 mil", "1,5 mi", "2 bi"])
