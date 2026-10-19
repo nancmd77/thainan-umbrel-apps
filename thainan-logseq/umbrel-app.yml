@@ -4,7 +4,7 @@ name: Logseq
 tagline: Logseq (versão DB) no seu Umbrel, com servidor de sync próprio
 icon: https://raw.githubusercontent.com/logseq/logseq/master/resources/icon.png
 category: Productivity
-version: "2.0.2-20261018"
+version: "2.0.2-20261018.1"
 port: 8541
 description: >-
   Logseq versão banco de dados (DB) servido pelo Umbrel, mais o servidor de sincronização próprio (db-sync).
@@ -19,7 +19,7 @@ submission: https://github.com/nancmd77/thainan-umbrel-apps
 repo: https://github.com/yshalsager/logseq-selfhost
 support: https://github.com/yshalsager/logseq-selfhost/issues
 gallery: []
-releaseNotes: Primeira versão.
+releaseNotes: Corrige permissão da pasta de dados do sync.
 dependencies: []
 path: ""
 defaultUsername: ""
