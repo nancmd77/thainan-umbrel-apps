@@ -1,0 +1,32 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-logseq_web_1
+      APP_PORT: 8080
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: ghcr.io/yshalsager/logseq-selfhost-web:20261018-32570a6@sha256:ccd4d37631d5c2a80c974fb7bbcbb55293f34ceb0067583aa8070294c211f880
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+  sync:
+    image: ghcr.io/yshalsager/logseq-selfhost-sync:20261018-32570a6@sha256:b6bd669810cc194eedb5d6e2b31571036ddec9842cc745bbd2b6802229154303
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      DB_SYNC_PORT: "8787"
+      DB_SYNC_BASE_URL: "https://nonve.taila412b1.ts.net:8787"
+      DB_SYNC_DATA_DIR: /app/data
+      DB_SYNC_STORAGE_DRIVER: sqlite
+      DB_SYNC_ASSETS_DRIVER: filesystem
+      DB_SYNC_LOG_LEVEL: info
+      COGNITO_ISSUER: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_dtagLnju8
+      COGNITO_CLIENT_ID: 69cs1lgme7p8kbgld8n5kseii6
+      COGNITO_JWKS_URL: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_dtagLnju8/.well-known/jwks.json
+    ports:
+      - "127.0.0.1:18787:8787"
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/data
