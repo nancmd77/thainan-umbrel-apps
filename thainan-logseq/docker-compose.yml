@@ -18,7 +18,7 @@ services:
     user: "0:0"
     environment:
       DB_SYNC_PORT: "8787"
-      DB_SYNC_BASE_URL: "https://nonve.taila412b1.ts.net:8787"
+      DB_SYNC_BASE_URL: "https://logseq-sync.nonve.dpdns.org"
       DB_SYNC_DATA_DIR: /app/data
       DB_SYNC_STORAGE_DRIVER: sqlite
       DB_SYNC_ASSETS_DRIVER: filesystem
@@ -27,6 +27,6 @@ services:
       COGNITO_CLIENT_ID: 69cs1lgme7p8kbgld8n5kseii6
       COGNITO_JWKS_URL: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_dtagLnju8/.well-known/jwks.json
     ports:
-      - "127.0.0.1:18787:8787"
+      - "18787:8787"
     volumes:
       - ${APP_DATA_DIR}/data:/app/data
