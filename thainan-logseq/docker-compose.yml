@@ -15,7 +15,7 @@ services:
   sync:
     image: ghcr.io/yshalsager/logseq-selfhost-sync:20261018-32570a6@sha256:b6bd669810cc194eedb5d6e2b31571036ddec9842cc745bbd2b6802229154303
     restart: unless-stopped
-    user: "1000:1000"
+    user: "0:0"
     environment:
       DB_SYNC_PORT: "8787"
       DB_SYNC_BASE_URL: "https://nonve.taila412b1.ts.net:8787"
