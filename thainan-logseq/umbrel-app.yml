@@ -1,0 +1,26 @@
+manifestVersion: 1
+id: thainan-logseq
+name: Logseq
+tagline: Logseq (versão DB) no seu Umbrel, com servidor de sync próprio
+icon: https://raw.githubusercontent.com/logseq/logseq/master/resources/icon.png
+category: Productivity
+version: "2.0.2-20261018"
+port: 8541
+description: >-
+  Logseq versão banco de dados (DB) servido pelo Umbrel, mais o servidor de sincronização próprio (db-sync).
+
+  O Logseq web precisa de HTTPS: abra pelo endereço https://nonve.taila412b1.ts.net:8443 (Tailscale ligado). As notas ficam no navegador e sincronizam com o servidor do Umbrel.
+
+  Sync: em Configurações > Sync, use o servidor https://nonve.taila412b1.ts.net:8787 (entra com a conta Logseq, só para autenticar; os dados ficam no Umbrel).
+developer: Logseq / yshalsager (imagens self-host)
+website: https://logseq.com
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/yshalsager/logseq-selfhost
+support: https://github.com/yshalsager/logseq-selfhost/issues
+gallery: []
+releaseNotes: Primeira versão.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
