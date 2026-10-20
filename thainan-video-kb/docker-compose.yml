@@ -12,7 +12,7 @@ services:
     environment:
       PORT: "8080"
       DATA_DIR: /data
-      REF: video-kb-v1.9.1
+      REF: video-kb-v1.10.0
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
       CRV_NO_MEMORY: "1"
@@ -33,7 +33,9 @@ services:
         [ -f /data/pylib/.v1.3 ] || { pip install -q --upgrade --target /data/pylib yt-dlp==2026.8.19 gallery-dl==1.32.16 Pillow==11.3.0 && echo "claude-real-video==0.10.7 --hash=sha256:44654741dd041c93e357331114e7f83e09af994c69016c0f1d632ed2bb0418c4" > /tmp/crv-req.txt && pip install -q --no-deps --require-hashes --target /data/pylib -r /tmp/crv-req.txt && touch /data/pylib/.v1.3; } || echo "pip falhou: só Cobalt, sem coletores nem visão"
         # pypdf: PDF lido direto, sem Karakeep (v1.8)
         [ -f /data/pylib/.pypdf ] || { pip install -q --target /data/pylib pypdf==6.21.1 && touch /data/pylib/.pypdf; } || echo "pip falhou: sem leitor de PDF"
-        PYTHONPATH=/data/pylib exec python -u $$D/main.py
+        # instagrapi (v1.10): login próprio só pros salvos; pasta separada pra não trocar o Pillow do crv
+        [ -f /data/iglib/.v3.1.0 ] || { pip install -q --target /data/iglib instagrapi==3.1.0 && touch /data/iglib/.v3.1.0; } || echo "pip falhou: sem login do Instagram (cookies seguem valendo)"
+        PYTHONPATH=/data/pylib:/data/iglib exec python -u $$D/main.py
   searx:
     # busca própria pros links dos cards (v1.9): JSON ligado, sem limitador; só a rede interna do app usa
     image: searxng/searxng:2026.10.19-81371861f@sha256:5ed0323b5f5f8701264ef65e239a2bd83cb57098f2b971fa30bf79c06eeae271
