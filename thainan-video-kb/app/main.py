@@ -97,8 +97,12 @@ FIELDS = [
     ("yt_playlists", "Playlists do YouTube", "lines", "Uma por linha: URL da playlist, :ytwatchlater (Assistir mais tarde) ou LL (Curtidos).", ":ytwatchlater\nLL"),
     ("yt_cookies", "Cookies do YouTube", "area", "cookies.txt (Netscape). Obrigatório pra Assistir mais tarde e Curtidos.", ""),
     ("col_instagram", "Instagram: salvos", "bool", "", ""),
-    ("ig_user", "Usuário do Instagram", "text", "Sem @.", ""),
-    ("ig_cookies", "Cookies do Instagram", "area", "cookies.txt (Netscape). Usado pelo coletor e pelo download dos Reels.", ""),
+    ("ig_user", "Usuário do Instagram", "text", "Sem @. Usado no login e nos salvos.", ""),
+    ("ig_pass", "Senha do Instagram", "secret", "Com usuário e senha, o Video KB entra sozinho na sua conta, guarda a sessão e refaz o login quando ela cai. Só a lista de salvos usa a conta. Cookies viram reserva.", ""),
+    ("ig_totp", "Chave do autenticador (2FA)", "secret", "Opcional. O código-semente (letras e números) que o Instagram mostra ao ligar o app autenticador. Com ela, o código de 6 dígitos sai sozinho.", ""),
+    ("ig_codigo", "Código de verificação", "text", "Só quando o Instagram pedir código por e-mail ou SMS (o aviso aparece em Coletores). Usado uma vez e apagado.", ""),
+    ("hiker_key", "Chave da HikerAPI", "secret", "Opcional. Legenda, números, capa e vídeo de cada Reel vêm por ela, sem usar sua conta. hikerapi.com > Tokens.", ""),
+    ("ig_cookies", "Cookies do Instagram", "area", "Reserva. cookies.txt (Netscape), só se não houver senha.", ""),
     ("col_reddit", "Reddit: salvos", "bool", "", ""),
     ("reddit_feed", "Feed RSS dos salvos do Reddit", "secret", "reddit.com/prefs/feeds > linha \"saved\" > RSS. Não precisa de cookie.", ""),
     ("col_tiktok", "TikTok: favoritos (experimental)", "bool", "", ""),
@@ -346,6 +350,167 @@ def ytdlp_video(c, url, out, qual):
     return files[0]
 
 
+# ---------- Instagram sem cookie (v1.10) ----------
+# Conta do usuário (instagrapi) SÓ pra lista de salvos; cada Reel (legenda, números, capa, vídeo) pela HikerAPI,
+# que usa as contas dela. Sem chave da HikerAPI: o próprio login faz o resto. Nada disso: cookies + Cobalt/yt-dlp, como antes.
+IG_LOCK = threading.Lock()
+IG = {"cl": None, "chave": None}
+IG_INFO = {}  # url normalizada -> (quando, info): legenda, métricas e capa do mesmo Reel saem de uma chamada só
+IG_ERR = "Instagram (login): "
+
+
+def ig_sessao():
+    return os.path.join(DATA, "ig-session.json")
+
+
+def is_ig(url):
+    h = (urlsplit(url).hostname or "").lower()
+    return h == "instagram.com" or h.endswith(".instagram.com")
+
+
+def ig_login_on(c):
+    return bool((c.get("ig_user") or "").strip() and c.get("ig_pass"))
+
+
+def ig_dump(cl):
+    tmp = ig_sessao() + ".tmp"
+    cl.dump_settings(tmp)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, ig_sessao())
+
+
+def ig_client(c, novo=False):
+    """Cliente logado, reaproveitando a sessão salva. Instagram pediu código: usa o de Configurações (uma vez) ou avisa."""
+    user = c["ig_user"].strip().lstrip("@")
+    chave = (user, c["ig_pass"], c.get("ig_totp") or "")
+    with IG_LOCK:
+        if IG["cl"] is not None and IG["chave"] == chave and not novo:
+            return IG["cl"]
+        try:
+            from instagrapi import Client
+        except ImportError:
+            raise RuntimeError(IG_ERR + "biblioteca instagrapi não instalada (o app instala ao reiniciar)")
+        codigo = re.sub(r"\D", "", c.get("ig_codigo") or "")
+
+        def pede_codigo(_user, escolha):
+            if codigo:
+                return codigo
+            raise RuntimeError(IG_ERR + f"o Instagram mandou um código ({str(escolha).split('.')[-1].lower()}). "
+                               "Cole em Configurações > Código de verificação; a próxima coleta usa.")
+
+        cl = Client()
+        cl.delay_range = [2, 5]
+        cl.challenge_code_handler = pede_codigo
+        if os.path.exists(ig_sessao()) and not novo:
+            try:
+                cl.load_settings(ig_sessao())
+            except Exception as e:
+                log("sessão do Instagram ilegível, novo login:", scrub(e)[:120])
+        seed = re.sub(r"\s", "", c.get("ig_totp") or "").upper()
+        try:
+            cl.login(user, c["ig_pass"], verification_code=cl.totp_generate_code(seed) if seed else codigo)
+        except RuntimeError:
+            raise
+        except Exception as e:
+            nome = type(e).__name__
+            dica = {"BadPassword": "senha recusada", "TwoFactorRequired": "precisa do 2FA: preencha a chave do autenticador ou o código",
+                    "ChallengeRequired": "o Instagram quer confirmar que é você: abra o app, aprove 'Fui eu' e tente de novo",
+                    "PleaseWaitFewMinutes": "o Instagram pediu pra esperar uns minutos", "FeedbackRequired": "o Instagram limitou a conta por agora"}
+            raise RuntimeError(IG_ERR + dica.get(nome, nome) + ". " + scrub(e)[:160])
+        if codigo:
+            cfg_save({"ig_codigo": ""})  # código de uso único
+        ig_dump(cl)
+        IG.update(cl=cl, chave=chave)
+        return cl
+
+
+def ig_call(c, fn):
+    """Chama com o cliente logado; sessão derrubada no meio: um novo login e tenta de novo uma vez."""
+    try:
+        r = fn(ig_client(c))
+    except RuntimeError:
+        raise
+    except Exception as e:
+        if type(e).__name__ not in ("LoginRequired", "ReloginAttemptExceeded", "ClientUnauthorizedError"):
+            raise RuntimeError(IG_ERR + scrub(f"{type(e).__name__}: {e}")[:200])
+        log("Instagram derrubou a sessão; novo login")
+        r = fn(ig_client(c, novo=True))
+    with IG_LOCK:
+        if IG["cl"] is not None:
+            try:
+                ig_dump(IG["cl"])
+            except OSError:
+                pass
+    return r
+
+
+def ig_norm(m):
+    """Media (instagrapi ou HikerAPI, mesmo formato) -> o dict que o resto do worker já lê do yt-dlp -j."""
+    m = json.loads(json.dumps(m, default=str))
+    u = m.get("user") or {}
+    video = m.get("video_url") or next((r.get("video_url") for r in m.get("resources") or [] if r.get("video_url")), None)
+    ts = m.get("taken_at_ts")
+    if not ts and m.get("taken_at"):
+        try:
+            from datetime import datetime
+            ts = int(datetime.fromisoformat(str(m["taken_at"]).replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            ts = None
+    escondido = m.get("like_and_view_counts_disabled")
+    num_ok = lambda v: v if isinstance(v, int) and v >= 0 and not escondido else None
+    thumb = m.get("thumbnail_url") or next((r.get("thumbnail_url") for r in m.get("resources") or [] if r.get("thumbnail_url")), None)
+    return {"description": m.get("caption_text") or "", "timestamp": ts, "uploader": u.get("full_name") or u.get("username") or "",
+            "channel": u.get("username") or "", "view_count": num_ok(m.get("play_count") or m.get("view_count") or None),
+            "like_count": num_ok(m.get("like_count")), "comment_count": num_ok(m.get("comment_count")),
+            "thumbnail": thumb, "thumbnails": [{"url": thumb}] if thumb else [], "video_url": video,
+            "duration": m.get("video_duration") or 0}
+
+
+def ig_info(c, url):
+    """Um Reel por URL: HikerAPI (sem usar a conta) → login próprio. Guardado 1 h em memória."""
+    n = norm(url)
+    if n in IG_INFO and time.time() - IG_INFO[n][0] < 3600:
+        return IG_INFO[n][1]
+    erros = []
+    if c.get("hiker_key"):
+        try:
+            info = ig_norm(req("GET", "https://api.hikerapi.com/v1/media/by/url?" + urlencode({"url": url}),
+                               {"x-access-key": c["hiker_key"], "Accept": "application/json"}, timeout=60))
+            IG_INFO[n] = (time.time(), info)
+            return info
+        except Exception as e:
+            erros.append("HikerAPI: " + scrub(e)[:160])
+    if ig_login_on(c):
+        try:
+            info = ig_norm(ig_call(c, lambda cl: cl.media_info(cl.media_pk_from_url(url)).model_dump(mode="json")))
+            IG_INFO[n] = (time.time(), info)
+            return info
+        except Exception as e:
+            erros.append(scrub(e)[:200])
+    raise RuntimeError(" | ".join(erros) or "sem HikerAPI nem login do Instagram")
+
+
+def ig_on(c, url):
+    return is_ig(url) and bool(c.get("hiker_key") or ig_login_on(c))
+
+
+def ig_video(c, url, out, qual):
+    """Vídeo original direto do CDN do Instagram (link vem da HikerAPI ou do login)."""
+    info = ig_info(c, url)
+    if not info.get("video_url"):
+        raise RuntimeError("There is no video in this post")
+    path = out + ".mp4"
+    with open(path, "wb") as f:
+        f.write(req("GET", info["video_url"], {"User-Agent": UA}, timeout=300, raw=True))
+    return path
+
+
+def ig_saved(c, n=30):
+    """Lista dos salvos (todas as coleções) pela conta do usuário: 1 a 2 chamadas por coleta."""
+    medias = ig_call(c, lambda cl: [m.model_dump(mode="json") for m in cl.collection_medias("ALL_MEDIA_AUTO_COLLECTION", amount=n)])
+    return [f"https://www.instagram.com/p/{m['code']}/" for m in medias if m.get("code")]
+
+
 class Later(Exception):
     """Ainda não dá (Karakeep lendo a página): reagenda em vez de falhar."""
 
@@ -533,6 +698,8 @@ def texto_direto(j, c):
 def baixar(c, url, out, qual):
     """Vídeo na qualidade pedida ("max" = original), na ordem da config; falhou um, tenta o outro."""
     fns = [cobalt_video, ytdlp_video] if c.get("dl_ordem") != "ytdlp" else [ytdlp_video, cobalt_video]
+    if ig_on(c, url):  # v1.10: Instagram pelo link original da HikerAPI/login primeiro
+        fns = [ig_video] + fns
     erros = []
     for fn in fns:
         try:
@@ -1084,10 +1251,17 @@ def sb_nome(t):
 
 
 def yt_info(c, url):
-    """Metadados do yt-dlp (-j) com os cookies do site."""
+    """Metadados do original. Instagram: HikerAPI/login (v1.10) e, se falhar, yt-dlp (-j) com os cookies do site."""
+    if ig_on(c, url):
+        try:
+            return ig_info(c, url)
+        except Exception as e:
+            log("Instagram sem metadados, tentando yt-dlp:", scrub(e)[:160])
     with cookie_file(site_cookies(c, url)) as ck:
         p = subprocess.run([sys.executable, "-m", "yt_dlp", "-j", "--no-playlist", "--no-warnings", url] + (["--cookies", ck] if ck else []),
                            capture_output=True, text=True, timeout=60)
+    if not p.stdout.strip():  # antes: "list index out of range" quando o login caía
+        raise RuntimeError("yt-dlp: " + scrub((p.stderr.strip().splitlines() or ["sem resposta"])[-1])[:200])
     return json.loads(p.stdout.splitlines()[0])
 
 
@@ -1835,6 +2009,8 @@ def col_youtube(c):
 
 
 def col_instagram(c):
+    if ig_login_on(c):  # v1.10: login próprio, sem cookie
+        return [("saved", ig_saved(c))]
     need(c, "ig_user", "ig_cookies")
     kws = gdl_items(c, f"https://www.instagram.com/{c['ig_user'].strip().lstrip('@')}/saved/", c["ig_cookies"])
     return [("saved", [f"https://www.instagram.com/p/{k['post_shortcode']}/" for k in kws if k.get("post_shortcode")])]
@@ -1888,7 +2064,8 @@ def collect_once():
                 st["novos"] += ingest(c, f"{name}:{fonte}", urls)
         except Exception as e:
             msg = scrub(e)[:300]
-            st["erro"] = ("Cookies expiraram ou não valem mais: exporte de novo e cole em Configurações. " if COOKIE_ERR.search(msg) and not msg.startswith("Configure em") else "") + msg
+            st["erro"] = ("Cookies expiraram ou não valem mais: exporte de novo e cole em Configurações. "
+                          if COOKIE_ERR.search(msg) and not msg.startswith(("Configure em", IG_ERR)) else "") + msg
             log(f"coletor {name}: {st['erro']}")
         q("INSERT OR REPLACE INTO kv VALUES(?,?)", ("col:" + name, json.dumps(st)))
 
@@ -2101,8 +2278,11 @@ def queue_page(flash="", p=None):
         st = json.loads((q("SELECT v FROM kv WHERE k=?", ("col:" + name,)) or [{"v": "{}"}])[0]["v"])
         qd = f"última coleta {fmt_time(st['quando'])}, {st['novos']} novo(s)" if st.get("quando") else "ainda não coletou"
         cols.append(f'<li><strong>{e(label)}</strong>: {qd}' + (f'<p class="err">{e(st["erro"])}</p>' if st.get("erro") else "") + "</li>")
-    aviso = any("Cookies expiraram" in json.loads(r["v"]).get("erro", "") for r in q("SELECT v FROM kv WHERE k LIKE 'col:%'"))
+    erros_col = [json.loads(r["v"]).get("erro", "") for r in q("SELECT v FROM kv WHERE k LIKE 'col:%'")]
+    aviso = any("Cookies expiraram" in x for x in erros_col)
+    aviso_ig = any(x.startswith(IG_ERR) for x in erros_col)
     body = (('<p class="flash err" role="alert">Cookies vencidos em algum coletor. Veja na lateral e renove em Configurações.</p>' if aviso else "")
+            + ('<p class="flash err" role="alert">O login do Instagram precisa de você. Veja o motivo em Coletores, na lateral.</p>' if aviso_ig else "")
             + f'<div class="grid"><section aria-labelledby="t-itens"><div class="head"><h1 id="t-itens">Itens<small>{len(lista)}</small></h1>{busca}</div>{chips}{corpo}</section>'
             + '<aside aria-label="Assuntos e tags">'
             + (f'<h2 class="side">Assuntos</h2><ul class="temas">{lt}</ul>' if lt else "")
@@ -2215,7 +2395,7 @@ def importar(texto):
 
 
 def exportar():
-    return {k: v for k, v in cfg().items() if TYPE.get(k) not in (None, "h", "secret", "area")}
+    return {k: v for k, v in cfg().items() if TYPE.get(k) not in (None, "h", "secret", "area") and k != "ig_codigo"}
 
 
 TESTES = {
@@ -2225,6 +2405,8 @@ TESTES = {
     "karakeep": ("Karakeep", kk_tags),
     "notebook": ("Open Notebook", notebooks),
     "sb": ("SilverBullet", lambda c: sb_get(c, pasta(c, "sb_pagina") + ".md")),
+    "instagram": ("login do Instagram", lambda c: (need(c, "ig_user", "ig_pass"), ig_call(c, lambda cl: cl.account_info()))),
+    "hiker": ("HikerAPI", lambda c: (need(c, "hiker_key"), req("GET", "https://api.hikerapi.com/sys/balance", {"x-access-key": c["hiker_key"]}, timeout=20))),
 }
 
 
