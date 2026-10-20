@@ -1062,7 +1062,7 @@ PROMPT_ESCOLHA = (
     "Você escolhe o link certo para um item citado num vídeo. Recebe o item, o contexto do vídeo e candidatos numerados (título, URL, trecho). "
     "Escolha o candidato que leva AO PRÓPRIO ITEM, no lugar mais útil para quem quer usar, ler, ouvir ou comprar: "
     "repositório oficial; site oficial da ferramenta/serviço; página do episódio ou do podcast (Spotify, Apple Podcasts ou site do programa); "
-    "página do livro (editora, Amazon, Google Books); produto: a loja que o vídeo cita, senão a página oficial do fabricante, senão um anúncio do item exato numa loja grande. "
+    "página do livro (editora, Amazon, Google Books); jogo que sai para PC: a página dele na Steam (store.steampowered.com), senão o site oficial; produto: a loja que o vídeo cita, senão a página oficial do fabricante, senão um anúncio do item exato numa loja grande. "
     "Nunca escolha notícia, review, blog, vídeo, rede social, fórum, wiki ou loja de outro item quando existir a página do item. "
     "Se nenhum candidato é claramente o item certo (nome diferente, outro produto, outro autor), responda i = -1. Errar o link é pior que não ter link. "
     'Responda só JSON: {"i": número, "rotulo": "nome curto do item para o botão", "porque": "até 8 palavras: por que este item está no vídeo"}.'
@@ -1100,6 +1100,14 @@ def busca_livro(consulta, n=4):
             for v in (x.get("volumeInfo") or {} for x in r.get("items", [])) if v.get("canonicalVolumeLink") or v.get("infoLink")]
 
 
+def busca_steam(consulta, n=4):
+    """Loja da Steam (regra do nan, 20 out: jogo de PC = link da Steam). Página em pt-BR, preço em reais."""
+    r = req("GET", "https://store.steampowered.com/api/storesearch/?" + urllib.parse.urlencode({"term": consulta, "cc": "BR", "l": "portuguese"}), timeout=20)
+    return [{"titulo": f"{x.get('name', '')} · Steam" + (" (PC)" if (x.get("platforms") or {}).get("windows") else ""),
+             "url": f"https://store.steampowered.com/app/{x['id']}/", "trecho": "Página do jogo na loja Steam"}
+            for x in (r.get("items") or [])[:n] if x.get("type") == "app" and x.get("id")]
+
+
 RUIM = re.compile(r"(instagram|tiktok|facebook|youtube|youtu\.be|twitter|x\.com|threads|linkedin|pinterest|reddit)\.", re.I)
 
 
@@ -1119,6 +1127,8 @@ def candidatos(c, it, urls_leg):
         fontes.append(lambda: busca_podcast(alvo))
     if tipo == "livro":
         fontes.append(lambda: busca_livro(alvo))
+    if tipo == "jogo":
+        fontes.append(lambda: busca_steam(nome))
     q_web = it.get("busca") or alvo
     if tipo == "produto" and it.get("loja_citada"):
         fontes.append(lambda: busca_searx(c, f"{nome} {it['loja_citada']}"))
@@ -1249,6 +1259,7 @@ def step_links(j, c):
         ok = decider_sim(c, f"página certa? {it['nome']}", {"item": {k: it.get(k) for k in ("tipo", "nome", "marca_autor", "busca", "loja_citada", "url_citada")},
                                                              "video": a["titulo"] + ". " + a["resumo"], "pagina": cands[i]},
                          "Esta página leva ao PRÓPRIO item (mesmo nome, mesmo autor/fabricante/dono), no lugar oficial ou mais útil para usar, ler, ouvir ou comprar? "
+                         "Jogo de PC na Steam conta como página do próprio item (edição completa do mesmo jogo também). "
                          "Projeto parecido, fork, plugin de outro autor, notícia, review, blog, vídeo ou rede social = não.",
                          "Sim, é a página do próprio item.", "Não: outro item, outro autor ou página sobre o item.")
         if ok is False:
