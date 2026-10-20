@@ -2531,7 +2531,8 @@ def reprocessar_item(jid):
         save(j)
         WAKE.set()
         return
-    j["data"] = {}
+    pag = (j["data"].get("sb") or {}).get("page")  # v1.11.3: refaz do zero, mas na mesma página do SilverBullet
+    j["data"] = {"sb": {"page": pag}} if pag else {}
     j.update(status="fila", error="", after=0)
     save(j)
     WAKE.set()
