@@ -18,6 +18,7 @@ import threading
 import time
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
@@ -77,6 +78,8 @@ FIELDS = [
     ("h_dest", "Destinos", "h", "Desligar para de gravar ali. Entrada dos links: caixa no topo da fila e coletores (Karakeep é opcional).", ""),
     ("kk_on", "Usar o Karakeep (entrada por bookmark e gravar resumo, nota, tags, lista)", "bool", "Desligado: o Video KB lê páginas e PDFs sozinho.", "0"),
     ("nb_on", "Enviar ao Open Notebook", "bool", "", "1"),
+    ("links_on", "Links do que o vídeo apresenta", "bool", "Ferramenta, produto, livro, episódio de podcast ou repositório que é o assunto do vídeo ou que o criador recomenda: o Video KB acha a página certa e põe no card. Menção de passagem não entra.", "0"),
+    ("searx_url", "Busca (SearXNG)", "text", "Busca própria usada pra achar os links. Vem junto com o app.", "http://thainan-video-kb_searx_1:8080"),
     ("pular_humor", "Pular memes e humor", "bool", "Meme, piada, esquete ou trend engraçada sem informação útil não entra (fica como Ignorado na lista). Post só de foto também não entra.", "1"),
     ("sb_on", "Escrever no SilverBullet", "bool", "", "1"),
     ("sb_reels", "SilverBullet: pasta dos Reels", "text", "Mudar o nome não apaga a pasta antiga.", "Reels"),
@@ -118,8 +121,8 @@ DEFAULTS = {k: d for k, _, _, _, d in FIELDS}
 TYPE = {k: t for k, _, t, _, _ in FIELDS}
 LABEL = {k: l for k, l, _, _, _ in FIELDS}
 
-KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb7"}
-STAGE_PT = {"tipo": "Identificando", "texto": "Lendo o texto", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo",
+KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "links": "links", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb7"}
+STAGE_PT = {"tipo": "Identificando", "texto": "Lendo o texto", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo", "links": "Buscando links",
             "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
 STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto", "ignorado": "Ignorado"}
@@ -841,6 +844,211 @@ def step_resumo(j, c):
         raise Ignorado("meme/humor: " + a["titulo"][:80])
 
 
+# ---------- links (v1.9): o que o vídeo apresenta ou recomenda vira link conferido no card ----------
+# Regra do nan (20 out): só quando o item é o assunto do vídeo ou recomendação clara; menção de passagem não entra.
+# Na dúvida, sem link. Busca: SearXNG próprio + APIs oficiais (GitHub, Apple Podcasts, Google Books). A IA escolhe; o link é conferido.
+LINK_TIPOS = ("ferramenta", "produto", "livro", "podcast", "repositorio", "curso", "jogo", "site")
+PROMPT_LINKS = (
+    "Você analisa um vídeo curto que o usuário salvou para consultar depois. Recebe título, resumo, pontos-chave, o que aparece na tela, "
+    "a transcrição e a legenda do post. Tarefa: listar SÓ os itens que o usuário vai querer abrir depois de ver este vídeo. "
+    "Tipos: ferramenta (app, programa, site, serviço, extensão, IA), produto (objeto físico à venda), livro, podcast (episódio ou programa), "
+    "repositorio (projeto no GitHub/GitLab), curso, jogo, site.\n"
+    "ENTRA só se pelo menos um vale: (a) assunto: o vídeo existe para apresentar, ensinar a usar, analisar, comparar como tema central ou vender ESTE item; "
+    "(b) recomendado: o criador recomenda o item a quem assiste, de forma explícita ('baixa', 'usa', 'testa', 'leia', 'link na bio', 'eu recomendo'); "
+    "(c) necessario: sem o item não dá para fazer o que o vídeo ensina.\n"
+    "NÃO ENTRA: menção de passagem; exemplo ou comparação dentro de outro assunto; ferramenta usada só para gravar/editar/postar; marca que só aparece na tela; "
+    "a própria rede social; empresa ou pessoa citada como caso; categoria genérica ('IA', 'Linux', 'Python', 'celular'); ferramenta famosa citada só de leve "
+    "(ex.: ChatGPT, Google, Excel quando não são o foco); patrocínio sem relação com o assunto; obra citada só como referência cultural sem convite a consumir. "
+    "Se o vídeo é sobre uma ideia, hábito ou opinião e só cita coisas de leve, a lista fica vazia. Lista vazia é resposta normal e frequente. Na dúvida, deixe fora. Máximo 3, do mais central ao menos.\n"
+    'Responda só JSON: {"itens":[{"tipo":"...","nome":"nome exato do item","marca_autor":"fabricante, autor, dono do repositório ou canal, se souber",'
+    '"papel":"assunto|recomendado|necessario","evidencia":"trecho curto da transcrição ou legenda que prova o papel",'
+    '"busca":"consulta curta para achar a página oficial do item","loja_citada":"loja ou site citado no vídeo para comprar ou baixar, se houver",'
+    '"url_citada":"URL dita, mostrada na tela ou na legenda, se houver","confianca":0.0}]}. '
+    "confianca: 0 a 1, quanto você tem certeza de que o item cumpre a regra ENTRA."
+)
+PROMPT_ESCOLHA = (
+    "Você escolhe o link certo para um item citado num vídeo. Recebe o item, o contexto do vídeo e candidatos numerados (título, URL, trecho). "
+    "Escolha o candidato que leva AO PRÓPRIO ITEM, no lugar mais útil para quem quer usar, ler, ouvir ou comprar: "
+    "repositório oficial; site oficial da ferramenta/serviço; página do episódio ou do podcast (Spotify, Apple Podcasts ou site do programa); "
+    "página do livro (editora, Amazon, Google Books); produto: a loja que o vídeo cita, senão a página oficial do fabricante, senão um anúncio do item exato numa loja grande. "
+    "Nunca escolha notícia, review, blog, vídeo, rede social, fórum, wiki ou loja de outro item quando existir a página do item. "
+    "Se nenhum candidato é claramente o item certo (nome diferente, outro produto, outro autor), responda i = -1. Errar o link é pior que não ter link. "
+    'Responda só JSON: {"i": número, "rotulo": "nome curto do item para o botão", "porque": "até 8 palavras: por que este item está no vídeo"}.'
+)
+
+
+def busca_searx(c, consulta, n=8):
+    base = (c.get("searx_url") or "").rstrip("/")
+    if not base:
+        return []
+    r = req("GET", base + "/search?" + urllib.parse.urlencode({"q": consulta, "format": "json", "language": "pt-BR", "safesearch": 0}), {"User-Agent": UA}, timeout=30)
+    return [{"titulo": x.get("title", ""), "url": x.get("url", ""), "trecho": (x.get("content") or "")[:220]} for x in (r.get("results") or [])[:n] if x.get("url")]
+
+
+def busca_github(consulta, n=5):
+    r = req("GET", "https://api.github.com/search/repositories?" + urllib.parse.urlencode({"q": consulta, "sort": "stars", "per_page": n}),
+            {"Accept": "application/vnd.github+json", "User-Agent": "video-kb"}, timeout=20)
+    return [{"titulo": x["full_name"] + f" ({x.get('stargazers_count', 0)} estrelas)", "url": x["html_url"], "trecho": (x.get("description") or "")[:220]}
+            for x in r.get("items", [])[:n]]
+
+
+def busca_podcast(consulta, n=5):
+    out = []
+    for ent in ("podcastEpisode", "podcast"):
+        r = req("GET", "https://itunes.apple.com/search?" + urllib.parse.urlencode({"term": consulta, "media": "podcast", "entity": ent, "limit": n, "country": "BR"}), timeout=20)
+        out += [{"titulo": (x.get("trackName") or "") + " · " + (x.get("collectionName") or ""), "url": x.get("trackViewUrl") or x.get("collectionViewUrl"),
+                 "trecho": (x.get("description") or x.get("artistName") or "")[:220]} for x in r.get("results", []) if x.get("trackViewUrl") or x.get("collectionViewUrl")]
+    return out
+
+
+def busca_livro(consulta, n=4):
+    r = req("GET", "https://www.googleapis.com/books/v1/volumes?" + urllib.parse.urlencode({"q": consulta, "maxResults": n, "printType": "books"}), timeout=20)
+    return [{"titulo": v.get("title", "") + " · " + ", ".join(v.get("authors") or []) + (f" ({v['publishedDate'][:4]})" if v.get("publishedDate") else ""),
+             "url": v.get("canonicalVolumeLink") or v.get("infoLink"), "trecho": (v.get("description") or "")[:220]}
+            for v in (x.get("volumeInfo") or {} for x in r.get("items", [])) if v.get("canonicalVolumeLink") or v.get("infoLink")]
+
+
+RUIM = re.compile(r"(instagram|tiktok|facebook|youtube|youtu\.be|twitter|x\.com|threads|linkedin|pinterest|reddit)\.", re.I)
+
+
+def candidatos(c, it, urls_leg):
+    """Candidatos de várias fontes, sem repetir; falha de uma fonte não para as outras."""
+    nome, tipo = it["nome"], it["tipo"]
+    alvo = " ".join(x for x in (nome, it.get("marca_autor", "")) if x)
+    fontes = []
+    if it.get("url_citada"):
+        fontes.append(lambda: [{"titulo": "URL citada no vídeo", "url": it["url_citada"], "trecho": ""}])
+    leg = [u for u in urls_leg if fold(nome).split(" ")[0][:5] in fold(u) or len(urls_leg) <= 2]
+    if leg:
+        fontes.append(lambda: [{"titulo": "Link da legenda do post", "url": u, "trecho": ""} for u in leg[:3]])
+    if tipo == "repositorio":
+        fontes.append(lambda: busca_github(nome))
+    if tipo == "podcast":
+        fontes.append(lambda: busca_podcast(alvo))
+    if tipo == "livro":
+        fontes.append(lambda: busca_livro(alvo))
+    q_web = it.get("busca") or alvo
+    if tipo == "produto" and it.get("loja_citada"):
+        fontes.append(lambda: busca_searx(c, f"{nome} {it['loja_citada']}"))
+    fontes.append(lambda: busca_searx(c, q_web))
+    if tipo in ("ferramenta", "site", "jogo", "curso"):
+        fontes.append(lambda: busca_searx(c, q_web + " site oficial"))
+    vistos, out = set(), []
+    for f in fontes:
+        try:
+            for x in f():
+                u = (x.get("url") or "").strip().rstrip(".,)")
+                k = re.sub(r"^https?://(www\.)?|/$", "", u.lower())
+                if u.startswith("http") and k not in vistos and not RUIM.search(u):
+                    vistos.add(k)
+                    out.append({**x, "url": u})
+        except Exception as e:
+            log("busca de link falhou:", scrub(e)[:120])
+    return out[:14]
+
+
+def url_viva(u):
+    """Abre a página: 404/410/sem resposta = morto. 401/403/429 (loja que barra robô) contam como vivos."""
+    import urllib.request as ur
+    try:
+        with ur.urlopen(ur.Request(u, headers={"User-Agent": UA, "Accept-Language": "pt-BR"}), timeout=20) as r:
+            return r.status < 400
+    except urllib.error.HTTPError as e:
+        return e.code in (401, 403, 405, 429, 503)
+    except Exception:
+        return False
+
+
+def site_de(u):
+    return re.sub(r"^www\.", "", urllib.parse.urlparse(u).netloc.lower())
+
+
+def json_llm(r):
+    return json.loads(re.sub(r"^```(?:json)?|```$", "", r["choices"][0]["message"]["content"].strip(), flags=re.M).strip())
+
+
+def step_links(j, c):
+    d, a = j["data"], j["data"]["analysis"]
+    if "legenda" not in d and j["orig"] and d.get("kind", "video") == "video":
+        try:
+            d["legenda"] = (yt_info(c, j["orig"]).get("description") or "")[:3000]
+        except Exception as e:
+            d["legenda"] = ""
+            log(f"job {j['id']} sem legenda: {scrub(e)[:120]}")
+    leg = d.get("legenda") or ""
+    urls_leg = list(dict.fromkeys(u.rstrip(".,)") for u in re.findall(r"https?://[^\s<>\"')\]]+", leg)))
+    ctx = (f"Título: {a['titulo']}\nTema: {a.get('tema', '')}\nResumo: {a['resumo']}\nPontos-chave:\n" + "\n".join("- " + p for p in a.get("pontos_chave", []))
+           + ("\nO que aparece na tela:\n" + "\n".join("- " + x for x in a.get("o_que_aparece", [])) if a.get("o_que_aparece") else "")
+           + f"\n\nLegenda do post:\n{leg or '(sem legenda)'}\n\nTranscrição:\n" + (a.get("transcricao_limpa") or d.get("transcript", ""))[:20000])
+    modelo = c.get("model_links") or c["model"]
+    itens = json_llm(llm(c, {"stream": False, "response_format": {"type": "json_object"},
+                              "messages": [{"role": "system", "content": PROMPT_LINKS}, {"role": "user", "content": ctx}]}, modelo)).get("itens") or []
+    links, log_links = [], []
+    for it in itens[:3]:
+        if not isinstance(it, dict) or not str(it.get("nome") or "").strip():
+            continue
+        it = {k: str(v).strip() if not isinstance(v, (int, float)) else v for k, v in it.items()}
+        tipo = fold(it.get("tipo", "")).replace("ó", "o")
+        it["tipo"] = tipo if tipo in LINK_TIPOS else "site"
+        conf = float(it.get("confianca") or 0)
+        if conf < 0.75 or it.get("papel") not in ("assunto", "recomendado", "necessario"):
+            log_links.append(f"fora: {it['nome']} ({it.get('papel')}, {conf})")
+            continue
+        cands = candidatos(c, it, urls_leg)
+        if not cands:
+            log_links.append(f"sem candidatos: {it['nome']}")
+            continue
+        lista = "\n".join(f"{i}. {x['titulo']} | {x['url']} | {x['trecho']}" for i, x in enumerate(cands))
+        esc_ = json_llm(llm(c, {"stream": False, "response_format": {"type": "json_object"}, "messages": [
+            {"role": "system", "content": PROMPT_ESCOLHA},
+            {"role": "user", "content": f"Item: {json.dumps(it, ensure_ascii=False)}\n\nVídeo: {a['titulo']}. {a['resumo']}\n\nCandidatos:\n{lista}"}]}, modelo))
+        i = int(esc_.get("i", -1)) if str(esc_.get("i", "-1")).lstrip("-").isdigit() else -1
+        if not 0 <= i < len(cands):
+            log_links.append(f"nenhum candidato certo: {it['nome']}")
+            continue
+        u = cands[i]["url"]
+        if not url_viva(u):
+            log_links.append(f"link morto: {it['nome']} {u}")
+            continue
+        links.append({"tipo": it["tipo"], "nome": (str(esc_.get("rotulo") or it["nome"]).strip())[:60], "url": u, "site": site_de(u),
+                      "porque": str(esc_.get("porque") or "").strip()[:80], "papel": it["papel"]})
+    d["links"] = links
+    log(f"job {j['id']} links: {[x['nome'] + ' ' + x['url'] for x in links]} | {log_links}")
+
+
+LINKS_TESTE = ("AirDrop no Linux com placas Wi-Fi comuns usando omdrop-owl", "A relação profunda entre GTA IV e Crime e Castigo de Dostoiévski",
+               "Como economizar R$ 50 mil por mês clonando seu cérebro com IA")
+
+
+def sb_regrava(j, c):
+    sb = j["data"].get("sb") or {}
+    if sb.get("page") and j["data"].get("analysis"):
+        fm, tags, tema, video = sb_reel_campos(j, c, sb.get("capa", ""))
+        sb_put(c, sb["page"] + ".md", sb_reel_md(j, sb["page"], j["data"]["analysis"], sb, sb.get("capa", ""), tema, fm, tags, video))
+
+
+def links_teste():
+    """v1.9 teste do nan (20 out): links só nos 3 reels de teste, uma vez por rodada (flag no kv). Não liga links_on."""
+    c = cfg()
+    flag = "links_teste_" + os.environ.get("REF", "x")
+    if q("SELECT 1 FROM kv WHERE k=?", (flag,)) or not sb_ligado(c):
+        return
+    alvo = {fold(t) for t in LINKS_TESTE}
+    for r in q("SELECT id FROM jobs WHERE status='pronto' AND data LIKE '%\"sb7\"%'"):
+        j = job(r["id"])
+        if fold((j["data"].get("analysis") or {}).get("titulo", "")) not in alvo:
+            continue
+        try:
+            j["data"].pop("links", None)
+            step_links(j, c)
+            save(j)
+            sb_regrava(j, c)
+        except Exception as e:
+            log(f"job {j['id']} teste de links falhou: {scrub(e)[:300]}")
+    q("INSERT OR REPLACE INTO kv VALUES(?,'1')", (flag,))
+    q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
+
+
 NOTE_MARK = "Pontos-chave (Video KB):"  # nota do nan fica; só o bloco depois do marcador é nosso
 
 
@@ -1186,7 +1394,10 @@ def datas_html(meta, salvo, tam=".8em"):
     return f'<div style="font-size:{tam};opacity:.75">{esc(" · ".join(partes))}</div>' if partes else ""
 
 
-def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video, texto, meta=None):
+LINK_ROTULO = {"ferramenta": "Ferramenta", "produto": "Produto", "livro": "Livro", "podcast": "Podcast", "repositorio": "Repositório", "curso": "Curso", "jogo": "Jogo", "site": "Site"}
+
+
+def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video, texto, meta=None, links=None):
     """Markdown da página do Reel: frontmatter + topo (player 9:16 ao lado de assunto, datas, métricas, título, gancho, resumo, botões),
     pontos-chave, linha do tempo em grade e transcrição recolhível. Sem `# título` em markdown: o título está no topo."""
     meta = meta or {}
@@ -1219,6 +1430,13 @@ def reel_md(fm_txt, page, a, orig, sb, capa, tema_page, data, tags, linha, video
             + f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">{botoes}</div>'
             + "</div></div>")
     md = fm_txt + widget("vkb-reel", topo)
+    if links:
+        md += "## Links\n" + widget("vkb-links", '<div style="display:flex;flex-wrap:wrap;gap:10px">' + "".join(
+            f'<a href="{esc(x["url"])}" target="_blank" rel="noopener" style="display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-radius:12px;'
+            f'border:1px solid #8885;text-decoration:none;color:inherit;min-width:180px;max-width:320px">'
+            f'<span style="font:600 .7em ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;opacity:.7">{esc(LINK_ROTULO.get(x["tipo"], x["tipo"]))} · {esc(x.get("site", ""))}</span>'
+            f'<span style="font-weight:700">{esc(x["nome"])} ↗</span>'
+            + (f'<span style="font-size:.85em;opacity:.8">{esc(x["porque"])}</span>' if x.get("porque") else "") + "</a>" for x in links) + "</div>")
     if a.get("pontos_chave"):
         md += "## Pontos-chave\n" + "\n".join("- " + p for p in a["pontos_chave"]) + "\n\n"
     if linha:
@@ -1386,7 +1604,7 @@ def sb_reel_md(j, page, a, sb, capa, tema, fm, tags, video):
               + "tags:\n" + "".join(f"  - {json.dumps(t, ensure_ascii=False)}\n" for t in tags) + "---\n\n")  # linha vazia: ver sb_topo
     d = j["data"]
     return reel_md(fm_txt, page, a, j["orig"] or "", sb, capa, tema, fm["data"], tags, sb.get("linha") or [], video,
-                   a.get("transcricao_limpa", "") if video else d.get("transcript", "")[:20000], d.get("meta"))
+                   a.get("transcricao_limpa", "") if video else d.get("transcript", "")[:20000], d.get("meta"), d.get("links"))
 
 
 def sb_reel_campos(j, c, capa):
@@ -1400,6 +1618,8 @@ def sb_reel_campos(j, c, capa):
           "video": (".fs/" + sb["video"]) if sb.get("video") else ""}
     meta = d.get("meta") or {}
     fm.update({k: meta[k] for k in ("postado", "autor", "views", "likes", "comentarios", "compart") if k in meta})
+    if d.get("links"):
+        fm["links"] = [{k: x[k] for k in ("tipo", "nome", "url", "site", "porque") if x.get(k)} for x in d["links"]]
     if pv := previa_frames(sb):
         fm["previa"] = pv  # Lua dos assuntos lê
     return fm, tags, tema, d.get("kind", "video") == "video"
@@ -1462,7 +1682,7 @@ def step_notebook(j, c):
 
 
 STEP_FN = {"tipo": step_tipo, "texto": step_texto, "audio": step_audio, "transcricao": step_transcricao, "visao": step_visao, "resumo": step_resumo,
-           "karakeep": step_karakeep, "notebook": step_notebook, "silverbullet": step_silverbullet}
+           "links": step_links, "karakeep": step_karakeep, "notebook": step_notebook, "silverbullet": step_silverbullet}
 
 
 def done(s, d):
@@ -1475,7 +1695,7 @@ def steps(d):
     if "kind" not in d:
         return ["tipo"]
     c = cfg()
-    return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo"] + [
+    return ["tipo", *(["audio", "transcricao", "visao"] if d["kind"] == "video" else ["texto"]), "resumo", *(["links"] if c.get("links_on") == "1" else [])] + [
         s for s, on in (("karakeep", kk_ativo(c)), ("notebook", c.get("nb_on") == "1"), ("silverbullet", sb_ligado(c))) if on]
 
 
@@ -2139,6 +2359,7 @@ class H(BaseHTTPRequestHandler):
 
 def main():
     init()
+    threading.Thread(target=links_teste, daemon=True).start()  # v1.9: teste dos links nos 3 reels
     sb_refila()  # v1.3.3+: não depende do nan clicar Salvar
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=poller, daemon=True).start()
