@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs viram resumo, tags e página no SilverBullet
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.8.3"
+version: "1.9.0"
 port: 8519
 description: >-
   Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página no SilverBullet (mural, assuntos, player) e, se ligado, fonte no Open Notebook.
@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Assuntos no topo da página inicial, antes do mural. Card com rodapé de datas (Postado e Salvo) separado do texto. Passar o mouse no card mostra os quadros do vídeo em sequência com o resumo por cima. Título e resumo inteiros, com letra menor. Memes e humor não entram: a IA marca o que é piada, esquete ou trend engraçada sem informação útil e o item fica como Ignorado na lista, com o botão "Guardar mesmo assim". Post só de foto também não entra. Dá pra desligar em Configurações > Pular memes e humor.
+  Links nos cards: quando o vídeo apresenta ou recomenda uma ferramenta, produto, livro, episódio de podcast ou repositório, o Video KB acha a página certa (busca própria + GitHub, Apple Podcasts e Google Books), confere se abre e põe no card. Menção de passagem não entra. Liga em Configurações > Links do que o vídeo apresenta.
 dependencies: []
 path: ""
 defaultUsername: ""
