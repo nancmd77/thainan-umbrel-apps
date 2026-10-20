@@ -54,7 +54,8 @@ FIELDS = [
     ("model", "Modelo de resumo", "text", "Nome do modelo no 9Router. Sempre na variante high.", "ag/gemini-3.8-flash-high"),
     ("model_visao", "Modelo de visão", "text", "Usado quando vão as imagens do vídeo. Vazio = o de resumo.", ""),
     ("model_sintese", "Modelo de síntese", "text", "Síntese do assunto e reestilo. Vazio = o de resumo.", ""),
-    ("model_links", "Modelo dos links", "text", "Acha o que o vídeo cita e escolhe o link certo. Vazio = o de resumo.", "ag/gemini-3.1-pro-high"),
+    ("model_links", "Modelo dos links", "text", "Acha o que o vídeo cita e escolhe o link certo. Vazio = o de resumo.", "ag/gemini-3.8-flash-high"),
+    ("decider_on", "Segunda opinião do Decider", "bool", "Modelo de decisão confere as escolhas fechadas: se o link entra, se a página é a certa, se é meme e qual assunto fixo. Abaixo de 85% de certeza, fica de fora (meme só é pulado quando o Gemini e o Decider concordam). Fora do ar = vale o Gemini.", "1"),
     ("model_reserva", "Modelo reserva", "text", "Tentado uma vez se o principal falhar. Vazio = sem reserva.", ""),
     ("resumo_frases", "Resumo: máximo de frases", "num", "O resumo tem de 2 até este número de frases.", "4"),
     ("pontos_max", "Pontos-chave: máximo", "num", "De 3 até este número.", "7"),
@@ -1010,6 +1011,12 @@ def step_resumo(j, c):
         a = parse_analysis(r["choices"][0]["message"]["content"], j["data"]["transcript"], num(c, "tags_max"))
     except (KeyError, IndexError, ValueError, TypeError) as e:
         raise RuntimeError(f"Resposta do modelo inválida ({type(e).__name__})")
+    if fixos and not any(fold(f) == fold(a["tema"]) for f in fixos):  # Gemini saiu da lista: Decider escolhe; incerto = primeiro (regra antiga)
+        crit = {str(n): f for n, f in enumerate(fixos[:40])}
+        dd = decidir(c, "tema fixo", {"titulo": a["titulo"], "resumo": a["resumo"], "tema_sugerido": a["tema"], "tags": a["tags"]},
+                     {"type": "choice", "instructions": "Em qual destes assuntos este vídeo se encaixa melhor?", "criteria": crit})
+        if dd and dd["prob"] >= DECIDER_LIMIAR:
+            a["tema"] = crit[dd["valor"]]
     a["tema"] = tema_fixo(a["tema"], fixos) if fixos else pick_tema(a["tema"], temas)
     by = {fold(t): t for t in tags}
     a["tags"] = list(dict.fromkeys(by.get(fold(t), t) for t in a["tags"]))  # grafia da tag existente
@@ -1018,7 +1025,15 @@ def step_resumo(j, c):
     if vis.get("dir"):
         shutil.rmtree(vis["dir"], ignore_errors=True)  # folhas já usadas
     if a["humor"] and c.get("pular_humor") == "1" and not d.get("forcar"):
-        raise Ignorado("meme/humor: " + a["titulo"][:80])
+        ok = decider_sim(c, "meme?", {"titulo": a["titulo"], "resumo": a["resumo"], "pontos_chave": a["pontos_chave"][:7]},
+                         "Este post é só meme, piada, esquete, trend ou entretenimento engraçado, SEM informação útil para guardar? "
+                         "Se ensina, informa ou mostra algo útil, mesmo com tom leve, a resposta é não.",
+                         "Sim: só humor, nada útil para guardar.", "Não: tem informação útil.")
+        if ok is False:  # Decider discorda ou está incerto: guarda (perder vídeo útil é pior)
+            a["humor"] = False
+            log(f"job {j['id']}: Gemini achou humor, Decider não confirmou; guardado")
+        else:
+            raise Ignorado("meme/humor: " + a["titulo"][:80])
 
 
 # ---------- links (v1.9): o que o vídeo apresenta ou recomenda vira link conferido no card ----------
@@ -1144,6 +1159,45 @@ def json_llm(r):
     return json.loads(re.sub(r"^```(?:json)?|```$", "", r["choices"][0]["message"]["content"].strip(), flags=re.M).strip())
 
 
+# ---------- Decider (v1.11, nan 20 out): escolha fechada, sem texto, via 9Router /v1/systemone ----------
+# Ordem: pplx-decider → jev → microsoft (til obrigatório). Jev Router NÃO. Abaixo de 85% = incerto. Falhou tudo = None (vale o Gemini).
+DECIDER_MODELOS = ("openrouter/~perplexity/pplx-decider-latest", "openrouter/~typesafe/jev-latest", "openrouter/microsoft/microsoft-decision-1")
+DECIDER_LIMIAR = 0.85
+
+
+def decidir(c, nome, state, pergunta):
+    """pergunta: {"type": "noul"|"choice", "instructions", "criteria"}. Volta {"valor", "prob"} (prob = chance do valor) ou None."""
+    if c.get("decider_on", "1") != "1" or not c.get("llm_url") or not c.get("llm_key"):
+        return None
+    url, h = c["llm_url"].rstrip("/") + "/systemone", {"Authorization": "Bearer " + c["llm_key"]}
+    for m in DECIDER_MODELOS:
+        try:
+            r = req("POST", url, h, {"model": m, "state": state, "questions": {"q": pergunta}}, timeout=40)
+            a = (r.get("answers") or {}).get("q") or {}
+            if pergunta["type"] == "noul":
+                if not isinstance(a.get("noul"), (int, float)):
+                    raise RuntimeError("resposta sem noul")
+                p = float(a["noul"])
+                out = {"valor": p >= 0.5, "prob": max(p, 1 - p), "sim": p}
+            else:
+                ch = a.get("choice")
+                if ch not in pergunta["criteria"]:
+                    raise RuntimeError("escolha fora da lista")
+                pr = a.get("probabilities") or {}
+                out = {"valor": ch, "prob": float(pr.get(ch, a.get("confidence") or 0))}
+            log(f"decider {nome}: {out['valor']} p={out['prob']:.2f} modelo={str(r.get('model') or m).split('/')[-1]}")
+            return out
+        except Exception as e:
+            log(f"decider {nome} falhou com {m.split('/')[-1]}: {scrub(e)[:150]}")
+    return None
+
+
+def decider_sim(c, nome, state, instrucao, sim, nao):
+    """True = Decider confirma (>=85%); False = nega ou está incerto; None = fora do ar (vale o Gemini)."""
+    d = decidir(c, nome, state, {"type": "noul", "instructions": instrucao, "criteria": {"true": sim, "false": nao}})
+    return None if d is None else d["sim"] >= DECIDER_LIMIAR
+
+
 def step_links(j, c):
     d, a = j["data"], j["data"]["analysis"]
     if "legenda" not in d and j["orig"] and d.get("kind", "video") == "video":
@@ -1171,6 +1225,14 @@ def step_links(j, c):
         if conf < 0.75 or it.get("papel") not in ("assunto", "recomendado", "necessario"):
             log_links.append(f"fora: {it['nome']} ({it.get('papel')}, {conf})")
             continue
+        ok = decider_sim(c, f"link entra? {it['nome']}", {"video": ctx[:6000], "item": {k: it.get(k) for k in ("tipo", "nome", "marca_autor", "papel", "evidencia")}},
+                         "Um vídeo citou este item. Ele deve virar link no card? Só entra se o item é o ASSUNTO do vídeo, se o criador o RECOMENDA "
+                         "explicitamente a quem assiste, ou se é NECESSÁRIO para fazer o que o vídeo ensina. Menção de passagem, exemplo, ferramenta de gravação, "
+                         "marca que só aparece, categoria genérica ou referência cultural sem convite não entram.",
+                         "Entra: assunto, recomendação clara ou necessário.", "Fica fora: menção de passagem ou não cumpre a regra.")
+        if ok is False:
+            log_links.append(f"decider barrou: {it['nome']}")
+            continue
         cands = candidatos(c, it, urls_leg)
         if not cands:
             log_links.append(f"sem candidatos: {it['nome']}")
@@ -1184,6 +1246,14 @@ def step_links(j, c):
             log_links.append(f"nenhum candidato certo: {it['nome']}")
             continue
         u = cands[i]["url"]
+        ok = decider_sim(c, f"página certa? {it['nome']}", {"item": {k: it.get(k) for k in ("tipo", "nome", "marca_autor", "busca", "loja_citada", "url_citada")},
+                                                             "video": a["titulo"] + ". " + a["resumo"], "pagina": cands[i]},
+                         "Esta página leva ao PRÓPRIO item (mesmo nome, mesmo autor/fabricante/dono), no lugar oficial ou mais útil para usar, ler, ouvir ou comprar? "
+                         "Projeto parecido, fork, plugin de outro autor, notícia, review, blog, vídeo ou rede social = não.",
+                         "Sim, é a página do próprio item.", "Não: outro item, outro autor ou página sobre o item.")
+        if ok is False:
+            log_links.append(f"decider recusou a página: {it['nome']} {u}")
+            continue
         if not url_viva(u):
             log_links.append(f"link morto: {it['nome']} {u}")
             continue
