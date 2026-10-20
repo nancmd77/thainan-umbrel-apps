@@ -1911,8 +1911,9 @@ def step_silverbullet(j, c):
     sb_midia(j, c)
     sb_meta(j, c)
     d, a = j["data"], j["data"]["analysis"]
-    page = pasta(c, "sb_reels") + "/" + sb_nome(a["titulo"])
     sb = d.get("sb") or {}
+    # v1.11.2: reprocessar mantém a página que já existe (título novo da IA não cria cópia nem quebra link dos Temas)
+    page = sb.get("page") if str(sb.get("page") or "").startswith(pasta(c, "sb_reels") + "/") else pasta(c, "sb_reels") + "/" + sb_nome(a["titulo"])
     capa = sb.get("capa", "") if sb.get("capa_orig") else sb_capa(j, c) or sb.get("capa", "")  # v1.4: troca a capa uma vez
     fm, tags, tema, video = sb_reel_campos(j, c, capa)
     md = sb_reel_md(j, page, a, sb, capa, tema, fm, tags, video)
