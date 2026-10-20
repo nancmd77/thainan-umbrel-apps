@@ -51,9 +51,10 @@ FIELDS = [
     ("sb_token", "Token do SilverBullet", "secret", "Token de API do SilverBullet.", ""),
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
     ("h_ia", "IA e textos", "h", "", ""),
-    ("model", "Modelo de resumo", "text", "Nome do modelo no 9Router.", "ag/gemini-3.8-flash-medium"),
+    ("model", "Modelo de resumo", "text", "Nome do modelo no 9Router. Sempre na variante high.", "ag/gemini-3.8-flash-high"),
     ("model_visao", "Modelo de visão", "text", "Usado quando vão as imagens do vídeo. Vazio = o de resumo.", ""),
     ("model_sintese", "Modelo de síntese", "text", "Síntese do assunto e reestilo. Vazio = o de resumo.", ""),
+    ("model_links", "Modelo dos links", "text", "Acha o que o vídeo cita e escolhe o link certo. Vazio = o de resumo.", "ag/gemini-3.1-pro-high"),
     ("model_reserva", "Modelo reserva", "text", "Tentado uma vez se o principal falhar. Vazio = sem reserva.", ""),
     ("resumo_frases", "Resumo: máximo de frases", "num", "O resumo tem de 2 até este número de frases.", "4"),
     ("pontos_max", "Pontos-chave: máximo", "num", "De 3 até este número.", "7"),
@@ -150,7 +151,15 @@ def cfg():
             saved = json.load(f)
     except (OSError, ValueError):
         saved = {}
-    return {**DEFAULTS, **saved}
+    return {**DEFAULTS, **{k: alto(v) if k in MODELOS else v for k, v in saved.items()}}
+
+
+MODELOS = ("model", "model_visao", "model_sintese", "model_links", "model_reserva")
+
+
+def alto(v):
+    """Regra do nan (20 out 2026): modelos sempre em high. Gemini salvo em minimal/low/medium vira -high."""
+    return re.sub(r"^(ag/gemini-[\w.-]+?)-(minimal|low|medium)$", r"\1-high", v) if isinstance(v, str) else v
 
 
 def num(c, k):
@@ -269,6 +278,7 @@ def save(j):
 def req(method, url, headers=None, body=None, timeout=60, raw=False):
     """Única porta de rede (os testes trocam esta função)."""
     h = dict(headers or {})
+    h.setdefault("User-Agent", UA)  # urllib puro leva 403/1010 do Cloudflare (HikerAPI)
     data = body
     if body is not None and not isinstance(body, bytes):
         data = json.dumps(body).encode()
@@ -2398,8 +2408,17 @@ def exportar():
     return {k: v for k, v in cfg().items() if TYPE.get(k) not in (None, "h", "secret", "area") and k != "ig_codigo"}
 
 
+def modelos_ok(c):
+    """Lista do 9Router + confere se cada modelo configurado existe."""
+    r = req("GET", c["llm_url"].rstrip("/") + "/models", {"Authorization": "Bearer " + c["llm_key"]}, timeout=20)
+    ids = {m.get("id") for m in (r.get("data") or []) if isinstance(m, dict)}
+    faltam = sorted({c[k] for k in MODELOS if c.get(k)} - ids) if ids else []
+    if faltam:
+        raise RuntimeError("modelo não existe no 9Router: " + ", ".join(faltam))
+
+
 TESTES = {
-    "llm": ("9Router", lambda c: req("GET", c["llm_url"].rstrip("/") + "/models", {"Authorization": "Bearer " + c["llm_key"]}, timeout=20)),
+    "llm": ("9Router", lambda c: modelos_ok(c)),
     "elevenlabs": ("ElevenLabs", lambda c: req("GET", "https://api.elevenlabs.io/v1/models", {"xi-api-key": c["elevenlabs_key"]}, timeout=20)),
     "cobalt": ("Cobalt", lambda c: req("GET", c["cobalt_url"].rstrip("/") + "/", {"Accept": "application/json"}, timeout=20)),
     "karakeep": ("Karakeep", kk_tags),
