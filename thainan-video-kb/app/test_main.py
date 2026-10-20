@@ -858,5 +858,157 @@ class T(unittest.TestCase):
         self.assertIn('<html lang="pt-BR" data-tema="escuro">', main.queue_page())
 
 
+
+class ModelosHigh(unittest.TestCase):
+    def test_alto(self):
+        self.assertEqual(main.alto("ag/gemini-3.8-flash-medium"), "ag/gemini-3.8-flash-high")
+        self.assertEqual(main.alto("ag/gemini-3.1-pro-low"), "ag/gemini-3.1-pro-high")
+        self.assertEqual(main.alto("openrouter/outro"), "openrouter/outro")
+
+    def test_padrao_links_pro_high(self):
+        self.assertEqual(main.DEFAULTS["model_links"], "ag/gemini-3.8-flash-high")
+        self.assertTrue(main.DEFAULTS["model"].endswith("-high"))
+
+    def test_modelo_faltando(self):
+        c = {"llm_url": "http://x/v1", "llm_key": "k", "model": "ag/a-high", "model_links": "ag/b-high"}
+        with mock.patch.object(main, "req", return_value={"data": [{"id": "ag/a-high"}]}):
+            with self.assertRaisesRegex(RuntimeError, "ag/b-high"):
+                main.modelos_ok(c)
+
+    def test_user_agent_padrao(self):
+        vistos = {}
+        class R:
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def read(s): return b"{}"
+        def fake(rq, timeout=0):
+            vistos.update(rq.headers)
+            return R()
+        with mock.patch("urllib.request.urlopen", fake):
+            main.req("GET", "https://api.hikerapi.com/sys/balance", {"x-access-key": "k"})
+        self.assertIn("Mozilla", vistos.get("User-agent", ""))
+
+class TDecider(unittest.TestCase):
+    """v1.11: Decider confere escolhas fechadas; fora do ar = vale o Gemini."""
+    C = {"llm_url": "http://router/v1", "llm_key": "k"}
+
+    def test_ordem_e_reserva(self):
+        vistos = []
+        def fake(m, u, h=None, b=None, timeout=60, raw=False):
+            vistos.append(b["model"])
+            if "pplx" in b["model"]:
+                raise RuntimeError("HTTP 503")
+            assert u == "http://router/v1/systemone"
+            return {"model": "typesafe/jev", "answers": {"q": {"type": "noul", "noul": 0.9}}}
+        with mock.patch.object(main, "req", fake):
+            self.assertTrue(main.decider_sim(self.C, "t", {}, "?", "s", "n"))
+        self.assertEqual(vistos, list(main.DECIDER_MODELOS[:2]))
+
+    def test_incerto_e_fora_do_ar(self):
+        with mock.patch.object(main, "req", return_value={"answers": {"q": {"noul": 0.7}}}):
+            self.assertFalse(main.decider_sim(self.C, "t", {}, "?", "s", "n"))  # 70% < 85%
+        with mock.patch.object(main, "req", side_effect=RuntimeError("HTTP 500")):
+            self.assertIsNone(main.decider_sim(self.C, "t", {}, "?", "s", "n"))
+        self.assertIsNone(main.decider_sim({**self.C, "decider_on": "0"}, "t", {}, "?", "s", "n"))
+
+    def test_choice_usa_probabilidade(self):
+        r = {"answers": {"q": {"choice": "1", "probabilities": {"0": 0.05, "1": 0.9}, "confidence": 0.2}}}
+        with mock.patch.object(main, "req", return_value=r):
+            d = main.decidir(self.C, "t", {}, {"type": "choice", "instructions": "?", "criteria": {"0": "a", "1": "b"}})
+        self.assertEqual((d["valor"], d["prob"]), ("1", 0.9))
+        with mock.patch.object(main, "req", return_value={"answers": {"q": {"choice": "9"}}}):
+            self.assertIsNone(main.decidir(self.C, "t", {}, {"type": "choice", "instructions": "?", "criteria": {"0": "a"}}))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+HIKER_MEDIA = {"pk": "1", "code": "AbC", "taken_at": "2026-10-01T12:00:00Z", "media_type": 2, "user": {"username": "criador", "full_name": "Criador X"},
+               "caption_text": "Legenda com https://github.com/t4t5/omdrop-owl", "play_count": 12345, "like_count": 678, "comment_count": 9,
+               "thumbnail_url": "https://cdn.ig/thumb.jpg", "video_url": "https://cdn.ig/v.mp4", "video_duration": 42.0}
+
+
+class TInstagram(unittest.TestCase):
+    """v1.10: HikerAPI pra cada Reel, login próprio só nos salvos, cookies de reserva."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        main.DATA = self.tmp.name
+        main.init()
+        main.IG_INFO.clear()
+        main.IG.update(cl=None, chave=None)
+        self.calls = []
+
+        def fake(method, url, headers=None, body=None, timeout=60, raw=False):
+            self.calls.append(url)
+            if url.startswith("https://api.hikerapi.com/v1/media/by/url"):
+                assert headers["x-access-key"] == "HK-KEY-1234"
+                return dict(HIKER_MEDIA)
+            if url == "https://cdn.ig/v.mp4":
+                return b"video"
+            raise AssertionError(url)
+        main.req = fake
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_norm_hiker(self):
+        i = main.ig_norm(HIKER_MEDIA)
+        self.assertEqual((i["channel"], i["view_count"], i["like_count"], i["video_url"]), ("criador", 12345, 678, "https://cdn.ig/v.mp4"))
+        m = main.meta_de_info(i)
+        self.assertEqual((m["autor"], m["views"], m["postado"][:7]), ("Criador X (@criador)", 12345, "2026-10"))
+        self.assertIsNone(main.ig_norm({**HIKER_MEDIA, "like_and_view_counts_disabled": True})["like_count"])  # escondido = sem número
+
+    def test_info_e_video_pela_hiker_sem_login(self):
+        main.cfg_save({"hiker_key": "HK-KEY-1234"})
+        c = main.cfg()
+        self.assertTrue(main.ig_on(c, "https://www.instagram.com/reel/AbC/"))
+        self.assertFalse(main.ig_on(c, "https://www.tiktok.com/@x/video/1"))
+        self.assertIn("omdrop-owl", main.yt_info(c, "https://www.instagram.com/reel/AbC/")["description"])
+        os.makedirs(os.path.join(self.tmp.name, "tmp"), exist_ok=True)
+        path = main.baixar(c, "https://www.instagram.com/reel/AbC/", os.path.join(self.tmp.name, "tmp", "1"), "max")
+        self.assertEqual(open(path, "rb").read(), b"video")
+        self.assertEqual(sum(u.startswith("https://api.hikerapi.com") for u in self.calls), 1)  # cache: uma chamada por Reel
+
+    def test_foto_vira_so_foto(self):
+        main.cfg_save({"hiker_key": "HK-KEY-1234"})
+        HIKER_MEDIA_FOTO = {**HIKER_MEDIA, "video_url": None, "code": "Foto"}
+        main.req = lambda *a, **k: HIKER_MEDIA_FOTO
+        with self.assertRaises(RuntimeError) as cm:
+            main.ig_video(main.cfg(), "https://www.instagram.com/p/Foto/", os.path.join(self.tmp.name, "x"), "max")
+        self.assertTrue(any(s in str(cm.exception) for s in main.SO_FOTO))
+
+    def test_salvos_pelo_login_e_erro_sem_prefixo_de_cookie(self):
+        main.cfg_save({"ig_user": "@nan", "ig_pass": "SENHA-SECRETA", "col_instagram": "1"})
+        with mock.patch.object(main, "ig_saved", lambda c: ["https://www.instagram.com/p/AbC/"]):
+            self.assertEqual(main.col_instagram(main.cfg()), [("saved", ["https://www.instagram.com/p/AbC/"])])
+        with mock.patch.object(main, "ig_saved", side_effect=RuntimeError(main.IG_ERR + "senha recusada. login SENHA-SECRETA")):
+            main.collect_once()
+        st = json.loads(main.q("SELECT v FROM kv WHERE k='col:instagram'")[0]["v"])
+        self.assertTrue(st["erro"].startswith(main.IG_ERR))
+        self.assertNotIn("Cookies expiraram", st["erro"])
+
+    def test_login_refaz_quando_sessao_cai(self):
+        main.cfg_save({"ig_user": "nan", "ig_pass": "SENHA-SECRETA"})
+        LoginRequired = type("LoginRequired", (Exception,), {})
+        clientes = []
+
+        def cliente(c, novo=False):
+            clientes.append(novo)
+            return "cl-novo" if novo else "cl-velho"
+
+        def fn(cl):
+            if cl == "cl-velho":
+                raise LoginRequired("sessão caiu")
+            return "ok"
+        with mock.patch.object(main, "ig_client", cliente):
+            self.assertEqual(main.ig_call(main.cfg(), fn), "ok")
+        self.assertEqual(clientes, [False, True])
+
+    def test_codigo_fora_da_exportacao(self):
+        main.cfg_save({"ig_codigo": "123456", "ig_pass": "x", "hiker_key": "y"})
+        ex = main.exportar()
+        self.assertNotIn("ig_codigo", ex)
+        self.assertNotIn("ig_pass", ex)
+        self.assertNotIn("hiker_key", ex)
