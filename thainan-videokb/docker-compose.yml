@@ -1,0 +1,19 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-videokb_web_1
+      APP_PORT: 8765
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: node:22-alpine
+    restart: on-failure
+    # O código vem no pacote do app (app.tgz.part*, copiado pela loja para ${APP_DATA_DIR}); é extraído a cada partida.
+    command: ["sh", "-c", "rm -rf /tmp/app && mkdir -p /tmp/app && cat /bundle/app.tgz.part* | tar xz -C /tmp/app && cd /tmp/app && exec node server.js"]
+    environment:
+      PORT: "8765"
+      DATA_DIR: /tmp/app/dados
+      STATE_DIR: /estado
+    volumes:
+      - ${APP_DATA_DIR}:/bundle:ro
+      - ${APP_DATA_DIR}/estado:/estado
