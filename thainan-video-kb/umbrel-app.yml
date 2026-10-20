@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs viram resumo, tags e página no SilverBullet
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.11.2"
+version: "1.11.3"
 port: 8519
 description: >-
   Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página no SilverBullet (mural, assuntos, player) e, se ligado, fonte no Open Notebook.
