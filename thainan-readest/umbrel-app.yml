@@ -4,7 +4,7 @@ name: Readest
 tagline: Modern ebook reader with sync and library
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-readest/icon.png
 category: Files & Productivity
-version: "1.0.3"
+version: "1.0.4"
 port: 3050
 description: >-
   Readest is a modern ebook reader. This package runs the official self-host stack
@@ -27,7 +27,7 @@ repo: https://github.com/readest/readest
 support: https://github.com/readest/readest/issues
 gallery: []
 releaseNotes: >-
-  Nova imagem latest publicada pelo projeto (sha256:9655943b3a36). (2026-10-19)
+  Nova imagem latest publicada pelo projeto (sha256:2375efb964a2). (2026-10-20)
 dependencies: []
 path: ""
 defaultUsername: ""
