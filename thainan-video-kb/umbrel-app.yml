@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs viram resumo, tags e página no SilverBullet
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.10.1"
+version: "1.11.0"
 port: 8519
 description: >-
   Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página no SilverBullet (mural, assuntos, player) e, se ligado, fonte no Open Notebook.
@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Modelos sempre em High: o Gemini salvo em Low ou Medium passa sozinho pra High. Campo novo "Modelo dos links" (Gemini 3.1 Pro High) só pra achar e escolher os links. "Testar 9Router" avisa se algum modelo configurado não existe. Corrigido o teste e as chamadas da HikerAPI, que eram barradas pelo Cloudflare.
+  Segunda opinião do Decider (modelo de decisão) nas escolhas fechadas: se o link entra, se a página é a do próprio item, se o post é meme e em qual assunto fixo ele cai. Abaixo de 85% de certeza fica de fora; meme só é pulado quando Gemini e Decider concordam; Decider fora do ar = vale o Gemini. Modelo dos links passa a ser o Gemini 3.8 Flash High.
 dependencies: []
 path: ""
 defaultUsername: ""
