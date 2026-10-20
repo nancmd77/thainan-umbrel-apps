@@ -853,7 +853,7 @@ PROMPT_LINKS = (
     "a transcrição e a legenda do post. Tarefa: listar SÓ os itens que o usuário vai querer abrir depois de ver este vídeo. "
     "Tipos: ferramenta (app, programa, site, serviço, extensão, IA), produto (objeto físico à venda), livro, podcast (episódio ou programa), "
     "repositorio (projeto no GitHub/GitLab), curso, jogo, site.\n"
-    "ENTRA só se pelo menos um vale: (a) assunto: o vídeo existe para apresentar, ensinar a usar, analisar, comparar como tema central ou vender ESTE item; "
+    "ENTRA só se pelo menos um vale: (a) assunto: o vídeo existe para apresentar, ensinar a usar, analisar, comparar como tema central ou vender ESTE item; se o vídeo relaciona, compara ou analisa duas ou três obras ou itens juntos (ex.: um jogo e um livro), CADA UM entra como assunto; "
     "(b) recomendado: o criador recomenda o item a quem assiste, de forma explícita ('baixa', 'usa', 'testa', 'leia', 'link na bio', 'eu recomendo'); "
     "(c) necessario: sem o item não dá para fazer o que o vídeo ensina.\n"
     "NÃO ENTRA: menção de passagem; exemplo ou comparação dentro de outro assunto; ferramenta usada só para gravar/editar/postar; marca que só aparece na tela; "
