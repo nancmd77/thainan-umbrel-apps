@@ -888,6 +888,18 @@ class ModelosHigh(unittest.TestCase):
             main.req("GET", "https://api.hikerapi.com/sys/balance", {"x-access-key": "k"})
         self.assertIn("Mozilla", vistos.get("User-agent", ""))
 
+class TSteam(unittest.TestCase):
+    def test_jogo_busca_na_steam(self):
+        def fake(m, u, h=None, b=None, timeout=60, raw=False):
+            if "steampowered" in u:
+                return {"items": [{"type": "app", "name": "Grand Theft Auto IV: The Complete Edition", "id": 12210, "platforms": {"windows": True}}]}
+            return {"results": []}
+        with mock.patch.object(main, "req", fake):
+            cs = main.candidatos({"searx_url": "http://s"}, {"nome": "Grand Theft Auto IV", "tipo": "jogo"}, [])
+        self.assertEqual(cs[0]["url"], "https://store.steampowered.com/app/12210/")
+        self.assertIn("(PC)", cs[0]["titulo"])
+
+
 class TDecider(unittest.TestCase):
     """v1.11: Decider confere escolhas fechadas; fora do ar = vale o Gemini."""
     C = {"llm_url": "http://router/v1", "llm_key": "k"}
