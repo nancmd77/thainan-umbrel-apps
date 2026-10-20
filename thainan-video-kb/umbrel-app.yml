@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs viram resumo, tags e página no SilverBullet
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.9.1"
+version: "1.10.0"
 port: 8519
 description: >-
   Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página no SilverBullet (mural, assuntos, player) e, se ligado, fonte no Open Notebook.
@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Links nos cards: quando o vídeo apresenta ou recomenda uma ferramenta, produto, livro, episódio de podcast ou repositório, o Video KB acha a página certa (busca própria + GitHub, Apple Podcasts e Google Books), confere se abre e põe no card. Menção de passagem não entra. Liga em Configurações > Links do que o vídeo apresenta.
+  Instagram sem cookie: com usuário e senha (e a chave do autenticador, se usar 2FA), o Video KB entra sozinho, guarda a sessão e refaz o login quando ela cai, só pra ler os salvos. Com a chave da HikerAPI, legenda, números, capa e vídeo de cada Reel vêm por ela, sem usar a sua conta. Se o Instagram pedir código, o aviso aparece em Coletores. Cookies viram reserva.
 dependencies: []
 path: ""
 defaultUsername: ""
