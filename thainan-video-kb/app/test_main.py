@@ -1105,3 +1105,6 @@ class TDuplicadas(unittest.TestCase):
     def test_github_consultas_soltam_palavras(self):
         qs = main.github_consultas("Legislação Brasileira em Markdown", "todas as leis do Brasil markdown github")
         self.assertEqual(qs[:3], ["Legislação Brasileira em Markdown", "todas leis brasil", "legislacao brasileira"])
+        qt = main.github_consultas("Legislação brasileira em Markdown", "", "", "Repositório GitHub reúne leis do Brasil em Markdown para IAs")
+        self.assertIn("leis brasil", qt)
+        self.assertLessEqual(len(qt), 7)
