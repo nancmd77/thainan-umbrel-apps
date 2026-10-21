@@ -1024,3 +1024,20 @@ class TInstagram(unittest.TestCase):
         self.assertNotIn("ig_codigo", ex)
         self.assertNotIn("ig_pass", ex)
         self.assertNotIn("hiker_key", ex)
+
+
+class TestSbLocal(unittest.TestCase):
+    def test_grava_e_le_na_pasta_local(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        old = main.SB_LOCAL
+        main.SB_LOCAL = d
+        try:
+            self.assertTrue(main.sb_ligado({"sb_on": "0"}))
+            main.sb_put({}, "Reels/Um reel.md", "oi")
+            self.assertEqual(main.sb_get({}, "Reels/Um reel.md"), b"oi")
+            self.assertIsNone(main.sb_get({}, "Reels/nao.md"))
+            with self.assertRaises(ValueError):
+                main.sb_put({}, "../fora.md", "x")
+        finally:
+            main.SB_LOCAL = old
