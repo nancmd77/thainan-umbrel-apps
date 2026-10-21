@@ -8,10 +8,11 @@ services:
   web:
     image: node:22-alpine
     restart: on-failure
-    # O código vem no pacote do app (app.tgz.part*, copiado pela loja para ${APP_DATA_DIR}); é extraído a cada partida.
-    command: ["sh", "-c", "rm -rf /tmp/app && mkdir -p /tmp/app && cat /bundle/app.tgz.part* | tar xz -C /tmp/app && cd /tmp/app && exec node server.js"]
+    # Código: baixa o pacote da tag REF no GitHub a cada partida (o Umbrel não troca os arquivos do app no update); sem rede, usa o pacote local.
+    command: ["sh", "-c", "rm -rf /tmp/app /tmp/pk && mkdir -p /tmp/app /tmp/pk && i=0; while wget -q -O /tmp/pk/app.tgz.part$$(printf %02d $$i) https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/app.tgz.part$$(printf %02d $$i); do i=$$((i+1)); done; rm -f /tmp/pk/app.tgz.part$$(printf %02d $$i); if [ $$i -gt 0 ] && cat /tmp/pk/app.tgz.part* | tar xz -C /tmp/app; then echo pacote $$REF; else rm -rf /tmp/app/* && cat /bundle/app.tgz.part* | tar xz -C /tmp/app && echo pacote local; fi && cd /tmp/app && exec node server.js"]
     environment:
       PORT: "8765"
+      REF: selah-v0.3.1
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
