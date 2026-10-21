@@ -1101,3 +1101,7 @@ class TDuplicadas(unittest.TestCase):
         with mock.patch.object(main, "req", fake):
             self.assertEqual(main.github_dono("https://github.com/ctresb/leis"), "dono @ctresb (C3B); titular no LICENSE: João Davi")
         self.assertEqual(main.github_dono("https://example.com/x"), "")
+
+    def test_github_consultas_soltam_palavras(self):
+        qs = main.github_consultas("Legislação Brasileira em Markdown", "todas as leis do Brasil markdown github")
+        self.assertEqual(qs[:3], ["Legislação Brasileira em Markdown", "todas leis brasil", "legislacao brasileira"])
