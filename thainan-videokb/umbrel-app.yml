@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon.png
 category: Productivity
-version: "0.3.3"
+version: "0.3.4"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.3: lê direto do Video KB (sem SilverBullet), Alforje, Lida com a semana, passagens, tarefas e o ritmo do mês.
+  Selah 0.3.4: um card por vídeo (sem repetidos), abas do Alforje presas logo abaixo da busca e texto dos cartões sem palavra cortada no celular.
 dependencies: []
 path: ""
 defaultUsername: ""
