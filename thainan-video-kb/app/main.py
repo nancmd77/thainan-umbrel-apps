@@ -1091,18 +1091,34 @@ PALAVRA_VAZIA = set("a o as os de da do das dos em e para pra com no na nos nas 
                     "markdown md the of for in and to with repo".split())
 
 
-def github_consultas(nome, busca="", autor=""):
+def busca_github_varias(consultas):
+    """v1.12.4: junta as variações e ordena por estrelas; a primeira consulta que acha algo não esconde o repo famoso das outras."""
+    vistos, out = set(), []
+    for qg in consultas:
+        try:
+            for x in busca_github(qg):
+                if x["url"] not in vistos:
+                    vistos.add(x["url"])
+                    out.append(x)
+        except Exception as e:
+            log("busca no GitHub falhou:", scrub(e)[:120])
+    est = lambda x: int((re.search(r"\((\d+) estrelas\)", x["titulo"]) or [0, 0])[1])
+    return sorted(out, key=est, reverse=True)[:8]
+
+
+def github_consultas(nome, busca="", autor="", titulo=""):
     """Consultas pro GitHub, da mais exata pra mais solta; sem repetir."""
     limpa = lambda t: [w for w in re.findall(r"[\w-]+", fold(t)) if w not in PALAVRA_VAZIA and len(w) > 2]
     sig, sigb = limpa(nome), limpa(busca)
-    cand = [nome, " ".join(sigb), " ".join(sig), " ".join(sigb[:3]), " ".join(sig[:2]),
+    sigt = limpa(titulo)
+    cand = [nome, " ".join(sigb), " ".join(sig), " ".join(sigt[:3]), " ".join(sigb[:3]), " ".join(sig[:2]),
             f"{sig[0]} user:{autor}" if sig and re.fullmatch(r"[\w-]+", autor or "") else ""]
     out = []
     for x in cand:
         x = (x or "").strip()
         if x and x.lower() not in (y.lower() for y in out):
             out.append(x)
-    return out[:5]
+    return out[:6]
 
 
 def github_dono(u):
@@ -1167,8 +1183,7 @@ def candidatos(c, it, urls_leg):
     if leg:
         fontes.append(lambda: [{"titulo": "Link da legenda do post", "url": u, "trecho": ""} for u in leg[:3]])
     if tipo == "repositorio":  # v1.12.1: a IA dá um nome descritivo, não o do repo; a busca do GitHub exige todas as palavras, então tenta variações
-        for qg in github_consultas(nome, it.get("busca") or "", it.get("marca_autor") or ""):
-            fontes.append(lambda qg=qg: busca_github(qg))
+        fontes.append(lambda: busca_github_varias(github_consultas(nome, it.get("busca") or "", it.get("marca_autor") or "", it.get("_titulo") or "")))
         fontes.append(lambda: busca_searx(c, f"site:github.com {nome}"))
     if tipo == "podcast":
         fontes.append(lambda: busca_podcast(alvo))
@@ -1195,7 +1210,7 @@ def candidatos(c, it, urls_leg):
             log("busca de link falhou:", scrub(e)[:120])
     out = out[:14]
     # v1.12.2: o escolhedor também recusava repo certo por "outro autor" (dono só pelo apelido). Os 3 primeiros do GitHub levam o dono real
-    for x in [x for x in out if re.match(r"https?://(www\.)?github\.com/[\w.-]+/[\w.-]+", x["url"])][:3]:
+    for x in [x for x in out if re.match(r"https?://(www\.)?github\.com/[\w.-]+/[\w.-]+", x["url"])][:5]:
         dono = github_dono(x["url"])
         if dono:
             x["trecho"] = ((x.get("trecho") or "") + " | " + dono).strip(" |")
@@ -1296,7 +1311,7 @@ def step_links(j, c):
         if ok is False:
             log_links.append(f"decider barrou: {it['nome']}")
             continue
-        cands = candidatos(c, it, urls_leg)
+        cands = candidatos(c, {**it, "_titulo": a["titulo"]}, urls_leg)
         if not cands:
             log_links.append(f"sem candidatos: {it['nome']}")
             continue
