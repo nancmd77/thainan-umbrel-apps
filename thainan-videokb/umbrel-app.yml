@@ -1,16 +1,15 @@
 manifestVersion: 1
 id: thainan-videokb
-name: Video KB
-tagline: Seus reels e vídeos salvos, com resumo, gancho e pontos-chave
+name: Selah
+tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon.png
 category: Productivity
-version: "0.1.0"
+version: "0.3.0"
 port: 8765
 description: >-
-  Base de conhecimento de vídeos no visual do mymind: grade masonry, busca ao vivo, modo escuro/claro e,
-  em cada card, player 9:16 com TLDW, gancho, pontos-chave, tags e notas.
-
-  Por enquanto com 1 reel de teste. Notas e tags ficam em ${APP_DATA_DIR}/estado.
+  Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
+  gancho, resumo, pontos-chave, linha do tempo que pula o vídeo, transcrição, etiquetas e notas. Temas Papel,
+  Floresta e Akira. Privado, só seu.
 developer: Thainan Caldeira
 website: https://videokb.nonve.dpdns.org
 submitter: Thainan Caldeira
@@ -19,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Primeira versão: front real do mymind (CSS e JS espelhados) servido por Node sem dependências.
+  Selah 0.3: lê direto do Video KB (sem SilverBullet), Alforje, Lida com a semana, passagens, tarefas e o ritmo do mês.
 dependencies: []
 path: ""
 defaultUsername: ""
