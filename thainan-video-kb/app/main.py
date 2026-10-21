@@ -901,7 +901,9 @@ def tema_fixo(tema, fixos):
 PROMPT_VISAO = (
     ' Você também recebe folhas 3x3 com frames do vídeo (cada célula tem o nome do frame; os tempos estão na lista "frames") '
     'e a transcrição com tempos [mm:ss]. Inclua a chave "o_que_aparece": lista curta e cronológica de strings "mm:ss: ..." '
-    "com o que aparece na tela, texto escrito na tela e ações, alinhado com o que é dito. Só o que dá pra ver, sem inventar."
+    "com o que aparece na tela, texto escrito na tela e ações, alinhado com o que é dito. Só o que dá pra ver, sem inventar. "
+    'Inclua também "na_tela_literal": lista de endereços, domínios, @perfis, nomes de repositório (dono/repo), comandos de instalação e nomes de '
+    "app/produto/livro ESCRITOS na tela, copiados letra por letra como aparecem (sem traduzir nem corrigir). Se não der pra ler com certeza, não inclua."
 )
 PROMPT_TEXTO = PROMPT.split(', "transcricao_limpa"')[0] + "."
 HUMOR = (' Inclua também "humor": true se o conteúdo é meme, piada, esquete de humor, trend ou entretenimento engraçado sem informação útil para guardar; '
@@ -967,6 +969,7 @@ def parse_analysis(raw, transcript, tags_max=8):
         "o_que_aparece": [str(x).strip() for x in (a.get("o_que_aparece") if isinstance(a.get("o_que_aparece"), list)
                           else [a.get("o_que_aparece")] if a.get("o_que_aparece") else []) if str(x).strip()],
         "humor": a.get("humor") is True or str(a.get("humor")).lower() == "true",
+        "na_tela_literal": [str(x).strip()[:200] for x in (a.get("na_tela_literal") if isinstance(a.get("na_tela_literal"), list) else []) if str(x).strip()][:20],
     }
 
 
@@ -1091,6 +1094,36 @@ PALAVRA_VAZIA = set("a o as os de da do das dos em e para pra com no na nos nas 
                     "markdown md the of for in and to with repo".split())
 
 
+def da_tela(textos, nome=""):
+    """URLs, domínios e dono/repo escritos na tela (lidos pela visão). Repo do GitHub só entra se existir de verdade."""
+    txt = "\n".join(textos)
+    out, vistos = [], set()
+    for u in re.findall(r"https?://[^\s<>\"')\]]+", txt):
+        u = u.rstrip(".,;)")
+        if u not in vistos:
+            vistos.add(u)
+            out.append({"titulo": "Escrito na tela do vídeo", "url": u, "trecho": ""})
+    sem_url = re.sub(r"https?://\S+", " ", txt)
+    for dono, repo in re.findall(r"(?:github\.com/|(?<![\w./@-]))([A-Za-z0-9][\w-]{0,38})/([\w.-]{1,100})(?![\w/])", sem_url):
+        repo = repo.rstrip(".").removesuffix(".git")
+        u = f"https://github.com/{dono}/{repo}"
+        if u.lower() in (x.lower() for x in vistos) or dono.isdigit() or repo.isdigit():
+            continue
+        vistos.add(u)
+        try:
+            r = req("GET", f"https://api.github.com/repos/{dono}/{repo}", {"Accept": "application/vnd.github+json", "User-Agent": "video-kb"}, timeout=15)
+            out.append({"titulo": f"{r['full_name']} ({r.get('stargazers_count', 0)} estrelas) · escrito na tela do vídeo", "url": r["html_url"],
+                        "trecho": (r.get("description") or "")[:220]})
+        except Exception:
+            pass  # não existe (ou leitura errada da tela): não vira candidato
+    for dom in re.findall(r"(?<![\w@/.-])((?:[a-z0-9-]+\.)+(?:com|com\.br|io|ai|dev|app|org|net|br|co|so|sh|gg|me|tv|xyz))(?![\w.-])", sem_url, re.I):
+        u = "https://" + dom.lower()
+        if u not in vistos and not re.search(r"github\.com$", dom, re.I):
+            vistos.add(u)
+            out.append({"titulo": "Domínio escrito na tela do vídeo", "url": u, "trecho": ""})
+    return out[:6]
+
+
 def busca_github_varias(consultas):
     """v1.12.4: junta as variações e ordena por estrelas; a primeira consulta que acha algo não esconde o repo famoso das outras."""
     vistos, out = set(), []
@@ -1180,6 +1213,9 @@ def candidatos(c, it, urls_leg):
     nome, tipo = it["nome"], it["tipo"]
     alvo = " ".join(x for x in (nome, it.get("marca_autor", "")) if x)
     fontes = []
+    tela = it.get("_tela") or []
+    if tela:  # v1.12.6 (ideia do nan): nome do repo/endereço lido nos quadros do vídeo vem antes de qualquer busca
+        fontes.append(lambda: da_tela(tela, nome))
     if it.get("url_citada"):
         fontes.append(lambda: [{"titulo": "URL citada no vídeo", "url": it["url_citada"], "trecho": ""}])
     leg = [u for u in urls_leg if fold(nome).split(" ")[0][:5] in fold(u) or len(urls_leg) <= 2]
@@ -1314,7 +1350,7 @@ def step_links(j, c):
         if ok is False:
             log_links.append(f"decider barrou: {it['nome']}")
             continue
-        cands = candidatos(c, {**it, "_titulo": a["titulo"]}, urls_leg)
+        cands = candidatos(c, {**it, "_titulo": a["titulo"], "_tela": (a.get("na_tela_literal") or []) + (a.get("o_que_aparece") or [])}, urls_leg)
         if not cands:
             log_links.append(f"sem candidatos: {it['nome']}")
             continue
