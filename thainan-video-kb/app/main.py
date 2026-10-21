@@ -28,6 +28,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, parse_qs, urlencode, urlsplit
 
 DATA = os.environ.get("DATA_DIR", "/data")
+# v1.12: sem SilverBullet, as páginas e a mídia vão pra esta pasta (mesmo formato do space); o Selah lê daqui.
+SB_LOCAL = os.environ.get("SB_LOCAL", "")
 PORT = int(os.environ.get("PORT", "8080"))
 SCRIBE_MODEL = "scribe_v2"  # doc POST /v1/speech-to-text (confirmado 2026-10)
 COOKIE_ERR = re.compile(r"login|log in|sign in|cookie|authentica|401|403|private|checkpoint", re.I)
@@ -129,7 +131,7 @@ LABEL = {k: l for k, l, _, _, _ in FIELDS}
 
 KEY = {"tipo": "kind", "visao": "visao", "transcricao": "transcript", "texto": "transcript", "resumo": "analysis", "links": "links", "karakeep": "kk", "notebook": "nb", "silverbullet": "sb7"}
 STAGE_PT = {"tipo": "Identificando", "texto": "Lendo o texto", "audio": "Baixando vídeo", "visao": "Vendo o vídeo", "transcricao": "Transcrevendo", "resumo": "Resumindo", "links": "Buscando links",
-            "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Escrevendo no SilverBullet",
+            "karakeep": "Gravando no Karakeep", "notebook": "Enviando ao Open Notebook", "silverbullet": "Preparando pro Selah" if os.environ.get("SB_LOCAL") else "Escrevendo no SilverBullet",
             "novo": "Aguardando", "pronto": "Concluído"}
 STATUS_PT = {"fila": "Na fila", "rodando": "Rodando", "erro": "Erro", "pronto": "Pronto", "ignorado": "Ignorado"}
 
@@ -1329,7 +1331,22 @@ def step_karakeep(j, c):
     j["data"]["kk"] = True
 
 
+def sb_local(path):
+    """Caminho dentro de SB_LOCAL; nunca sai dela."""
+    f = os.path.realpath(os.path.join(SB_LOCAL, path))
+    if not f.startswith(os.path.realpath(SB_LOCAL) + os.sep):
+        raise ValueError("caminho fora da pasta: " + path)
+    return f
+
+
 def sb_put(c, path, data, ctype="text/markdown"):
+    if SB_LOCAL:
+        f = sb_local(path)
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        with open(f + ".tmp", "wb") as o:
+            o.write(data if isinstance(data, bytes) else data.encode())
+        os.replace(f + ".tmp", f)
+        return 200
     import urllib.request as ur
     rq = ur.Request(c["sb_url"].rstrip("/") + "/.fs/" + ur.quote(path), data=data if isinstance(data, bytes) else data.encode(),
                     method="PUT", headers={"Authorization": "Bearer " + c["sb_token"], "Content-Type": ctype})
@@ -1448,6 +1465,12 @@ def sb_capa(j, c):
 
 def sb_get(c, path):
     """Bytes do arquivo no SilverBullet; None só se não existe (404). Outro erro sobe: nunca confundir "fora do ar" com "vazio"."""
+    if SB_LOCAL:
+        f = sb_local(path)
+        if not os.path.exists(f):
+            return None
+        with open(f, "rb") as o:
+            return o.read()
     import urllib.request as ur
     try:
         with ur.urlopen(ur.Request(c["sb_url"].rstrip("/") + "/.fs/" + ur.quote(path), headers={"Authorization": "Bearer " + c["sb_token"]}), timeout=30) as r:
@@ -1830,6 +1853,8 @@ def sb_topo_todos(c):
 
 
 def sb_ligado(c):
+    if SB_LOCAL:  # o Selah depende dessas páginas: sempre ligado
+        return True
     return c.get("sb_on") == "1" and bool(c.get("sb_url") and c.get("sb_token"))
 
 
@@ -1906,7 +1931,8 @@ def sb_regrava_todos(c, flag="sb_v183"):
 
 
 def step_silverbullet(j, c):
-    need(c, "sb_url", "sb_token")
+    if not SB_LOCAL:
+        need(c, "sb_url", "sb_token")
     sb_reestilo(j, c)
     sb_midia(j, c)
     sb_meta(j, c)
@@ -2331,7 +2357,7 @@ def queue_page(flash="", p=None):
     p = {k: v for k, v in (p or {}).items() if k in ("q", "status", "fonte", "tag", "tema") and v}
     c, todos = cfg(), itens()
     lista = filtrar(todos, p)
-    sb_url = c.get("sb_url") if sb_ligado(c) else ""
+    sb_url = c.get("sb_url") if sb_ligado(c) and not SB_LOCAL else ""
     sel = lambda nome, ops, rot: (f'<label for="f-{nome}" class="vh">{rot}</label><select id="f-{nome}" name="{nome}">'
                                   f'<option value="">{rot}: todos</option>' + "".join(
         f'<option value="{e(v)}"{" selected" if p.get(nome) == v else ""}>{e(t)}</option>' for v, t in ops) + "</select>")
