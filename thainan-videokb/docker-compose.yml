@@ -14,6 +14,8 @@ services:
       PORT: "8765"
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
+      SB_DIR: /cerebro
     volumes:
       - ${APP_DATA_DIR}:/bundle:ro
       - ${APP_DATA_DIR}/estado:/estado
+      - ${APP_DATA_DIR}/../thainan-video-kb/data/cerebro:/cerebro:ro
