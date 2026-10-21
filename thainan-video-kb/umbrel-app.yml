@@ -1,17 +1,17 @@
 manifestVersion: 1
 id: thainan-video-kb
 name: Video KB Worker
-tagline: Vídeos, páginas e PDFs viram resumo, tags e página no SilverBullet
+tagline: Vídeos, páginas e PDFs viram resumo, tags e página no Selah
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
 version: "1.12.6"
 port: 8519
 description: >-
-  Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página no SilverBullet (mural, assuntos, player) e, se ligado, fonte no Open Notebook.
+  Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página guardada no seu servidor, que o Selah mostra e, se ligado, fonte no Open Notebook.
 
   Karakeep é opcional: ligue em Configurações para usar bookmarks como entrada e gravar resumo, nota e tags lá.
 
-  Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, SilverBullet, Open Notebook). As chaves ficam só no volume do app.
+  Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, Open Notebook). As chaves ficam só no volume do app.
 developer: Thainan Caldeira
 website: https://github.com/nancmd77/thainan-umbrel-apps
 submitter: Thainan Caldeira
