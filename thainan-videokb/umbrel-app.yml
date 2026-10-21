@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.4.0"
+version: "0.4.1"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.4.0: logo da fermata, endereço próprio (selah.nonve.dpdns.org), menu do topo clicável também no celular, grade de 2, 3 ou 4 por linha no Alforje, marca de "Novo" com contagem por categoria e a categoria mais recente primeiro, ajustes sem rolagem lateral e textos mais legíveis.
+  Selah 0.4.1: favicon da fermata; a Lida mostra a semana inteira em telas largas (sexta e sábado sumiam) e as formas viraram contorno; o Maná não rola mais de lado e vira carrossel no celular; no celular, voltar do Alforje pro Tudo não deixa mais os cards espremidos numa coluna; textos com mais contraste e tudo em português.
 dependencies: []
 path: ""
 defaultUsername: ""
