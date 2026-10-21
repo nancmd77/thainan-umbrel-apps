@@ -8,11 +8,31 @@ services:
   web:
     image: node:22-alpine
     restart: on-failure
-    # Código: baixa o pacote da tag REF no GitHub a cada partida (o Umbrel não troca os arquivos do app no update); sem rede, usa o pacote local.
-    command: ["sh", "-c", "rm -rf /tmp/app /tmp/pk && mkdir -p /tmp/app /tmp/pk && i=0; while wget -q -O /tmp/pk/app.tgz.part$$(printf %02d $$i) https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/app.tgz.part$$(printf %02d $$i); do i=$$((i+1)); done; rm -f /tmp/pk/app.tgz.part$$(printf %02d $$i); if [ $$i -gt 0 ] && cat /tmp/pk/app.tgz.part* | tar xz -C /tmp/app; then echo pacote $$REF; else rm -rf /tmp/app/* && cat /bundle/app.tgz.part* | tar xz -C /tmp/app && echo pacote local; fi && cd /tmp/app && exec node server.js"]
+    # Código: baixa o pacote da tag REF no GitHub a cada partida (o Umbrel não troca o pacote no update); sem rede, usa o pacote local.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rm -rf /tmp/app && mkdir -p /tmp/app
+        cat > /tmp/baixa.js <<'FIM'
+        const R = process.env.REF, b = 'https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/' + R + '/thainan-videokb/app.tgz.part';
+        (async () => {
+          const partes = [];
+          for (let i = 0; i < 30; i++) {
+            const r = await fetch(b + String(i).padStart(2, '0'), { signal: AbortSignal.timeout(90000) });
+            if (r.status === 404) break;
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            partes.push(Buffer.from(await r.arrayBuffer()));
+          }
+          if (!partes.length) throw new Error('nenhuma parte');
+          require('fs').writeFileSync('/tmp/pacote.tgz', Buffer.concat(partes));
+          console.log('pacote', R, partes.length, 'partes');
+        })().catch((e) => { console.error('sem pacote do GitHub:', e.message); process.exit(1); });
+        FIM
+        if node /tmp/baixa.js && tar xzf /tmp/pacote.tgz -C /tmp/app; then :; else rm -rf /tmp/app && mkdir -p /tmp/app && cat /bundle/app.tgz.part* | tar xz -C /tmp/app && echo "usando o pacote local"; fi
+        cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.3.1
+      REF: selah-v0.3.2
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
