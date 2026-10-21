@@ -1041,3 +1041,63 @@ class TestSbLocal(unittest.TestCase):
                 main.sb_put({}, "../fora.md", "x")
         finally:
             main.SB_LOCAL = old
+
+
+class TDuplicadas(unittest.TestCase):
+    """v1.12.1: reprocessar não pode criar página duplicada nem perder a página do item."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        main.DATA = self.tmp.name
+        main.init()
+        self.sb = tempfile.mkdtemp()
+        self.old, main.SB_LOCAL = main.SB_LOCAL, self.sb
+
+    def tearDown(self):
+        main.SB_LOCAL = self.old
+        self.tmp.cleanup()
+
+    def _job(self, status="pronto", page="Reels/Título velho"):
+        main.add_job("https://www.instagram.com/reel/ABC/")
+        j = main.job(1)
+        j["data"] = {"sb": {"page": page}, "analysis": {"titulo": "x"}}
+        j.update(status=status)
+        main.save(j)
+        return main.job(1)
+
+    def test_reprocessar_tudo_mantem_pagina(self):
+        self._job()
+        main.reprocessar(False)
+        j = main.job(1)
+        self.assertEqual((j["status"], j["data"]), ("fila", {"sb": {"page": "Reels/Título velho"}}))
+
+    def test_rodando_so_marca_e_worker_refaz(self):
+        self._job(status="rodando")
+        main.reprocessar(False)
+        j = main.job(1)
+        self.assertEqual(j["status"], "rodando")  # não sobrescreve o que o worker está fazendo
+        self.assertIn("analysis", j["data"])
+        self.assertTrue(main.refazer_pedido(1))
+        self.assertFalse(main.refazer_pedido(1))
+
+    def test_orfa_do_mesmo_original_some(self):
+        os.makedirs(os.path.join(self.sb, "Reels"))
+        fm = '\n---\nlink: "https://www.instagram.com/reel/ABC/"\n---\n\n# x\n'
+        for nome in ("Título velho.md", "Título novo.md"):
+            open(os.path.join(self.sb, "Reels", nome), "w").write(fm)
+        open(os.path.join(self.sb, "Reels", "Outro.md"), "w").write('\n---\nlink: "https://www.instagram.com/reel/XYZ/"\n---\n')
+        self.assertEqual(main.sb_orfas("Reels/Título novo", "https://www.instagram.com/reel/ABC/"), 1)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.sb, "Reels"))), ["Outro.md", "Título novo.md"])
+
+    def test_github_dono_com_license(self):
+        import base64
+
+        def fake(method, url, headers=None, body=None, timeout=60, raw=False):
+            if url.endswith("/users/ctresb"):
+                return {"name": "C3B"}
+            if url.endswith("/repos/ctresb/leis/license"):
+                return {"content": base64.b64encode(b"MIT License\n\nCopyright (c) 2026 Jo\xc3\xa3o Davi\n").decode()}
+            raise AssertionError(url)
+        with mock.patch.object(main, "req", fake):
+            self.assertEqual(main.github_dono("https://github.com/ctresb/leis"), "dono @ctresb (C3B); titular no LICENSE: João Davi")
+        self.assertEqual(main.github_dono("https://example.com/x"), "")
