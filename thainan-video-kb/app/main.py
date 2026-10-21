@@ -1066,6 +1066,7 @@ PROMPT_ESCOLHA = (
     "repositório oficial; site oficial da ferramenta/serviço; página do episódio ou do podcast (Spotify, Apple Podcasts ou site do programa); "
     "página do livro (editora, Amazon, Google Books); jogo que sai para PC: a página dele na Steam (store.steampowered.com), senão o site oficial; produto: a loja que o vídeo cita, senão a página oficial do fabricante, senão um anúncio do item exato numa loja grande. "
     "Nunca escolha notícia, review, blog, vídeo, rede social, fórum, wiki ou loja de outro item quando existir a página do item. "
+    "O autor pode aparecer só pelo apelido/usuário; nome no perfil ou titular no LICENSE igual ao citado conta como mesmo autor. "
     "Se nenhum candidato é claramente o item certo (nome diferente, outro produto, outro autor), responda i = -1. Errar o link é pior que não ter link. "
     'Responda só JSON: {"i": número, "rotulo": "nome curto do item para o botão", "porque": "até 8 palavras: por que este item está no vídeo"}.'
 )
@@ -1192,7 +1193,13 @@ def candidatos(c, it, urls_leg):
                     out.append({**x, "url": u})
         except Exception as e:
             log("busca de link falhou:", scrub(e)[:120])
-    return out[:14]
+    out = out[:14]
+    # v1.12.2: o escolhedor também recusava repo certo por "outro autor" (dono só pelo apelido). Os 3 primeiros do GitHub levam o dono real
+    for x in [x for x in out if re.match(r"https?://(www\.)?github\.com/[\w.-]+/[\w.-]+", x["url"])][:3]:
+        dono = github_dono(x["url"])
+        if dono:
+            x["trecho"] = ((x.get("trecho") or "") + " | " + dono).strip(" |")
+    return out
 
 
 def url_viva(u):
@@ -1299,10 +1306,10 @@ def step_links(j, c):
             {"role": "user", "content": f"Item: {json.dumps(it, ensure_ascii=False)}\n\nVídeo: {a['titulo']}. {a['resumo']}\n\nCandidatos:\n{lista}"}]}, modelo))
         i = int(esc_.get("i", -1)) if str(esc_.get("i", "-1")).lstrip("-").isdigit() else -1
         if not 0 <= i < len(cands):
-            log_links.append(f"nenhum candidato certo: {it['nome']}")
+            log_links.append(f"nenhum candidato certo: {it['nome']} (viu {len(cands)}: " + ", ".join(re.sub(r"^https?://(www\.)?", "", x["url"])[:50] for x in cands[:5]) + ")")
             continue
         u = cands[i]["url"]
-        if "github.com/" in u:  # v1.12.1: o Decider recusava repo certo porque o dono aparece só pelo apelido (ex.: @ctresb = João Davi)
+        if "github.com/" in u and "dono @" not in (cands[i].get("trecho") or ""):  # v1.12.1: o Decider recusava repo certo porque o dono aparece só pelo apelido (ex.: @ctresb = João Davi)
             dono = github_dono(u)
             if dono:
                 cands[i] = {**cands[i], "trecho": (cands[i].get("trecho") or "") + " | " + dono}
