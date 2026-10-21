@@ -1111,14 +1111,17 @@ def github_consultas(nome, busca="", autor="", titulo=""):
     limpa = lambda t: [w for w in re.findall(r"[\w-]+", fold(t)) if w not in PALAVRA_VAZIA and len(w) > 2]
     sig, sigb = limpa(nome), limpa(busca)
     sigt = limpa(titulo)
-    cand = [nome, " ".join(sigb), " ".join(sig), " ".join(sigt[:3]), " ".join(sigb[:3]), " ".join(sig[:2]),
+    # v1.12.5: o título traz verbo e enfeite ("reúne", "para IAs"); a busca do GitHub exige todas as palavras, então vão PARES de palavras
+    vizinhos = lambda ws: [f"{x} {y}" for x, y in zip(ws, ws[1:])]
+    pares = vizinhos(sigb) + vizinhos(sigt) + vizinhos(sig)
+    cand = [nome, " ".join(sigb), " ".join(sig), *pares,
             f"{sig[0]} user:{autor}" if sig and re.fullmatch(r"[\w-]+", autor or "") else ""]
     out = []
     for x in cand:
         x = (x or "").strip()
         if x and x.lower() not in (y.lower() for y in out):
             out.append(x)
-    return out[:6]
+    return out[:7]
 
 
 def github_dono(u):
