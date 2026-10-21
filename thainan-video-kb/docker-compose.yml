@@ -12,7 +12,7 @@ services:
     environment:
       PORT: "8080"
       DATA_DIR: /data
-      REF: video-kb-v1.12.4
+      REF: video-kb-v1.12.5
       SB_LOCAL: /data/cerebro
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
