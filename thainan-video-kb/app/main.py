@@ -1086,6 +1086,24 @@ def busca_github(consulta, n=5):
             for x in r.get("items", [])[:n]]
 
 
+PALAVRA_VAZIA = set("a o as os de da do das dos em e para pra com no na nos nas um uma repositorio repositório github projeto open source "
+                    "markdown md the of for in and to with repo".split())
+
+
+def github_consultas(nome, busca="", autor=""):
+    """Consultas pro GitHub, da mais exata pra mais solta; sem repetir."""
+    limpa = lambda t: [w for w in re.findall(r"[\w-]+", fold(t)) if w not in PALAVRA_VAZIA and len(w) > 2]
+    sig, sigb = limpa(nome), limpa(busca)
+    cand = [nome, " ".join(sigb), " ".join(sig), " ".join(sigb[:3]), " ".join(sig[:2]),
+            f"{sig[0]} user:{autor}" if sig and re.fullmatch(r"[\w-]+", autor or "") else ""]
+    out = []
+    for x in cand:
+        x = (x or "").strip()
+        if x and x.lower() not in (y.lower() for y in out):
+            out.append(x)
+    return out[:5]
+
+
 def github_dono(u):
     """github.com/dono/repo: nome do perfil e titular do LICENSE (o dono costuma aparecer só pelo apelido). Falhou = vazio."""
     m = re.match(r"https?://(?:www\.)?github\.com/([\w.-]+)/([\w.-]+)", u or "")
@@ -1147,8 +1165,10 @@ def candidatos(c, it, urls_leg):
     leg = [u for u in urls_leg if fold(nome).split(" ")[0][:5] in fold(u) or len(urls_leg) <= 2]
     if leg:
         fontes.append(lambda: [{"titulo": "Link da legenda do post", "url": u, "trecho": ""} for u in leg[:3]])
-    if tipo == "repositorio":
-        fontes.append(lambda: busca_github(nome))
+    if tipo == "repositorio":  # v1.12.1: a IA dá um nome descritivo, não o do repo; a busca do GitHub exige todas as palavras, então tenta variações
+        for qg in github_consultas(nome, it.get("busca") or "", it.get("marca_autor") or ""):
+            fontes.append(lambda qg=qg: busca_github(qg))
+        fontes.append(lambda: busca_searx(c, f"site:github.com {nome}"))
     if tipo == "podcast":
         fontes.append(lambda: busca_podcast(alvo))
     if tipo == "livro":
