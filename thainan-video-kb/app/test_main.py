@@ -1108,3 +1108,12 @@ class TDuplicadas(unittest.TestCase):
         qt = main.github_consultas("Legislação brasileira em Markdown", "", "", "Repositório GitHub reúne leis do Brasil em Markdown para IAs")
         self.assertIn("leis brasil", qt)
         self.assertLessEqual(len(qt), 7)
+
+    def test_da_tela_le_repo_dos_quadros(self):
+        def fake(m, u, h=None, b=None, timeout=60, raw=False):
+            if u.endswith("/repos/ctresb/leis"):
+                return {"full_name": "ctresb/leis", "stargazers_count": 777, "html_url": "https://github.com/ctresb/leis", "description": "Todas as leis do Brasil"}
+            raise RuntimeError("HTTP 404")
+        with mock.patch.object(main, "req", fake):
+            r = main.da_tela(["00:03: página do GitHub mostra ctresb/leis", "00:04: 2/3 das leis", "00:05: fulano/naoexiste"])
+        self.assertEqual([x["url"] for x in r], ["https://github.com/ctresb/leis"])
