@@ -1086,6 +1086,30 @@ def busca_github(consulta, n=5):
             for x in r.get("items", [])[:n]]
 
 
+def github_dono(u):
+    """github.com/dono/repo: nome do perfil e titular do LICENSE (o dono costuma aparecer só pelo apelido). Falhou = vazio."""
+    m = re.match(r"https?://(?:www\.)?github\.com/([\w.-]+)/([\w.-]+)", u or "")
+    if not m:
+        return ""
+    dono, repo = m[1], m[2].removesuffix(".git")
+    h = {"Accept": "application/vnd.github+json", "User-Agent": "video-kb"}
+    partes = []
+    try:
+        perfil = req("GET", f"https://api.github.com/users/{dono}", h, timeout=15)
+        partes.append(f"dono @{dono}" + (f" ({perfil['name']})" if perfil.get("name") else ""))
+    except Exception:
+        partes.append(f"dono @{dono}")
+    try:
+        lic = req("GET", f"https://api.github.com/repos/{dono}/{repo}/license", h, timeout=15)
+        txt = base64.b64decode(lic.get("content") or "").decode("utf-8", "replace")
+        cp = re.search(r"Copyright\s*(?:\(c\)|©)?\s*(?:\d{4}[\s,-]*)*(.+)", txt, re.I)
+        if cp:
+            partes.append("titular no LICENSE: " + cp[1].strip()[:80])
+    except Exception:
+        pass
+    return "; ".join(partes)
+
+
 def busca_podcast(consulta, n=5):
     out = []
     for ent in ("podcastEpisode", "podcast"):
@@ -1258,10 +1282,15 @@ def step_links(j, c):
             log_links.append(f"nenhum candidato certo: {it['nome']}")
             continue
         u = cands[i]["url"]
+        if "github.com/" in u:  # v1.12.1: o Decider recusava repo certo porque o dono aparece só pelo apelido (ex.: @ctresb = João Davi)
+            dono = github_dono(u)
+            if dono:
+                cands[i] = {**cands[i], "trecho": (cands[i].get("trecho") or "") + " | " + dono}
         ok = decider_sim(c, f"página certa? {it['nome']}", {"item": {k: it.get(k) for k in ("tipo", "nome", "marca_autor", "busca", "loja_citada", "url_citada")},
                                                              "video": a["titulo"] + ". " + a["resumo"], "pagina": cands[i]},
                          "Esta página leva ao PRÓPRIO item (mesmo nome, mesmo autor/fabricante/dono), no lugar oficial ou mais útil para usar, ler, ouvir ou comprar? "
                          "Jogo de PC na Steam conta como página do próprio item (edição completa do mesmo jogo também). "
+                         "O dono pode aparecer só pelo apelido/usuário; nome no perfil ou titular no LICENSE igual ao autor citado conta como mesmo autor. "
                          "Projeto parecido, fork, plugin de outro autor, notícia, review, blog, vídeo ou rede social = não.",
                          "Sim, é a página do próprio item.", "Não: outro item, outro autor ou página sobre o item.")
         if ok is False:
@@ -1352,6 +1381,44 @@ def sb_put(c, path, data, ctype="text/markdown"):
                     method="PUT", headers={"Authorization": "Bearer " + c["sb_token"], "Content-Type": ctype})
     with ur.urlopen(rq, timeout=60) as r:
         return r.status
+
+
+def sb_orfas(page, orig):
+    """v1.12.1: apaga outras páginas (pasta local) do MESMO original. Uma página por item, sempre."""
+    if not SB_LOCAL or not orig:
+        return 0
+    pasta_ = os.path.dirname(sb_local(page + ".md"))
+    alvo, n = "link: " + json.dumps(orig, ensure_ascii=False), 0
+    for f in glob.glob(os.path.join(pasta_, "*.md")):
+        if os.path.realpath(f) == os.path.realpath(sb_local(page + ".md")):
+            continue
+        try:
+            with open(f, encoding="utf-8") as h:
+                topo = h.read(4000)
+        except OSError:
+            continue
+        partes = topo.lstrip().split("---")
+        fm = partes[1] if topo.lstrip().startswith("---") and len(partes) > 2 else ""
+        if any(l.strip() == alvo for l in fm.splitlines()):
+            os.remove(f)
+            n += 1
+            log("página duplicada apagada:", os.path.basename(f))
+    return n
+
+
+def sb_orfas_todas():
+    n = 0
+    for r in q("SELECT id FROM jobs WHERE status='pronto'"):
+        j = job(r["id"])
+        pag = (j["data"].get("sb") or {}).get("page")
+        if pag:
+            try:
+                n += sb_orfas(pag, j["orig"])
+            except Exception as e:
+                log("limpeza de duplicadas falhou:", scrub(e)[:120])
+    if n:
+        log(f"{n} página(s) duplicada(s) apagada(s)")
+    return n
 
 
 def sb_nome(t):
@@ -1944,6 +2011,7 @@ def step_silverbullet(j, c):
     fm, tags, tema, video = sb_reel_campos(j, c, capa)
     md = sb_reel_md(j, page, a, sb, capa, tema, fm, tags, video)
     sb_put(c, page + ".md", md)
+    sb_orfas(page, j["orig"])
     sb_put(c, tema + ".md", SB_TEMA.format(tema=a["tema"].replace('"', ""), sintese=sb_sintese(j, c, a["tema"])))
     d["sb"] = {**sb, "page": page, "capa": capa, "capa_orig": True, "tema": tema, "t": time.time()}
     d["sb7"] = True
@@ -2022,6 +2090,11 @@ def run(jid):
             log(f"job {jid} erro em {s}: {j['error']}")
             return
         save(j)
+        if refazer_pedido(jid):  # pediram reprocessar enquanto rodava
+            j["status"] = "fila"
+            zerar(j)
+            log(f"job {jid} refeito a pedido")
+            return
     j.update(stage="pronto", status="pronto", error="")
     save(j)
     log(f"job {jid} pronto")
@@ -2557,11 +2630,27 @@ def reprocessar_item(jid):
         save(j)
         WAKE.set()
         return
-    pag = (j["data"].get("sb") or {}).get("page")  # v1.11.3: refaz do zero, mas na mesma página do SilverBullet
+    zerar(j)
+    WAKE.set()
+
+
+def zerar(j):
+    """Refaz do zero mantendo a página (v1.11.3). Item rodando (v1.12.1): só marca; o worker refaz quando terminar a etapa,
+    senão o save do worker apagava o reset (ou o reset apagava a página nova) e nascia página duplicada."""
+    if j["status"] == "rodando":
+        q("INSERT OR REPLACE INTO kv VALUES(?, '1')", (f"refazer:{j['id']}",))
+        return
+    pag = (j["data"].get("sb") or {}).get("page")
     j["data"] = {"sb": {"page": pag}} if pag else {}
     j.update(status="fila", error="", after=0)
     save(j)
-    WAKE.set()
+
+
+def refazer_pedido(jid):
+    if q("SELECT v FROM kv WHERE k=?", (f"refazer:{jid}",)):
+        q("DELETE FROM kv WHERE k=?", (f"refazer:{jid}",))
+        return True
+    return False
 
 
 def reprocessar(so_sb):
@@ -2575,7 +2664,8 @@ def reprocessar(so_sb):
             for k in ("midia", "linha", "video"):
                 (j["data"].get("sb") or {}).pop(k, None)
         else:
-            j["data"] = {}
+            zerar(j)  # v1.12.1: antes zerava tudo e perdia a página; título novo = página nova e a velha ficava órfã
+            continue
         j.update(status="fila", error="", after=0)
         save(j)
     q("INSERT OR REPLACE INTO kv VALUES('mural_sujo','1')")
@@ -2658,6 +2748,10 @@ class H(BaseHTTPRequestHandler):
             reprocessar(m[1] == "sb")
             self.go("Reprocessando tudo." if m[1] == "tudo" else "Reprocessando o SilverBullet.")
         elif m := re.fullmatch(r"/remover/(\d+)", path):
+            j = job(int(m[1]))
+            pag = j and (j["data"].get("sb") or {}).get("page")
+            if pag and SB_LOCAL and os.path.exists(sb_local(pag + ".md")):  # v1.12.1: apagar aqui tira do Selah também
+                os.remove(sb_local(pag + ".md"))
             q("DELETE FROM jobs WHERE id=?", (int(m[1]),))  # só tira da fila do Video KB; `seen` fica, coletor não re-adiciona
             self.go("Removido.")
         elif m := re.fullmatch(r"/item/(\d+)/reprocessar", path):
@@ -2671,6 +2765,7 @@ def main():
     init()
     threading.Thread(target=links_teste, daemon=True).start()  # v1.9: teste dos links nos 3 reels
     sb_refila()  # v1.3.3+: não depende do nan clicar Salvar
+    threading.Thread(target=sb_orfas_todas, daemon=True).start()  # v1.12.1: limpa duplicadas que já existem
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=poller, daemon=True).start()
     threading.Thread(target=collector, daemon=True).start()
