@@ -6,7 +6,7 @@ services:
       APP_PORT: 7456
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/nexu-io/od:latest@sha256:d9a5ba6698f49f3cba78f70586e5b64a0f8e09e384ccf8a1b2c39387a677a66f
+    image: ghcr.io/nexu-io/od:latest@sha256:5fc38ad9dd67dceb89a332c52ded43745be1071816c6683607f7032200693643
     user: "0:0"
     restart: on-failure
     environment:
