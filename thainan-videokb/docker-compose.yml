@@ -32,7 +32,7 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.5.0
+      REF: selah-v0.5.1
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
