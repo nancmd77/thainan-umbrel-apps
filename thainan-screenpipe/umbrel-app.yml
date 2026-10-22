@@ -1,0 +1,22 @@
+manifestVersion: 1
+id: thainan-screenpipe
+name: Screenpipe Trabalho
+tagline: Copia em tempo real do Screenpipe do notebook de trabalho
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-anytype/icon.png
+category: Developer
+version: "1.0.0"
+port: 8543
+description: >-
+  Puxa a cada 5 segundos, pelo tunel do Screenpipe, os prints da tela, textos, apps, cliques/teclas e transcricoes de audio, guarda tudo no Nonve e monta um video por hora. Visualizador com busca.
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nancmd77/thainan-umbrel-apps
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: Primeira versao.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
