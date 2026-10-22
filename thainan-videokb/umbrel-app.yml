@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.5.2"
+version: "0.5.3"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.5.2: corrige a Lida que podia aparecer com o visual antigo depois do update. O navegador guardava estilos e scripts da versão anterior por horas; agora cada arquivo leva a sua versão e o Selah sempre carrega o mais novo. Inclui tudo da 0.5.1: cursor magnético, segurar com dither e lira, farelos ao concluir.
+  Selah 0.5.3: a Lida mostra o cursor magnético, o dither ao segurar e os farelos mesmo quando as animações do sistema estão desligadas (no Windows, "Efeitos de animação"). Antes o Selah obedecia essa opção e caía na versão sem efeitos.
 dependencies: []
 path: ""
 defaultUsername: ""
