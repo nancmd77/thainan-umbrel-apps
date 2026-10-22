@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.5.0"
+version: "0.5.1"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.5.0: tipografia nova. O texto e a interface usam a Departure Mono (pixel, retrô de computador) e os títulos usam a Selah Híbrida, a serifa com algumas letras pixeladas, também no itálico. A Lida virou uma lista vertical de linhas finas: segure pra concluir, toque pra ver o ritmo e o mês. No celular, nomes longos quebram em duas linhas em vez de cortar.
+  Selah 0.5.1: a Lida ganhou vida. No computador, o cursor vira uma placa que gruda na tarefa. Ao segurar, a cor entra com borda em dither de pixel e soa uma nota de lira grave, como uma fermata. Ao concluir, a linha se desfaz em farelos de texto (▓ ▒ ░ # + : ·) com um dedilhado abafado em ré. No celular também funciona, e quem pede menos movimento no sistema fica com a versão calma.
 dependencies: []
 path: ""
 defaultUsername: ""
