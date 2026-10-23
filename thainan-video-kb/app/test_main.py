@@ -932,6 +932,42 @@ class TDecider(unittest.TestCase):
             self.assertIsNone(main.decidir(self.C, "t", {}, {"type": "choice", "instructions": "?", "criteria": {"0": "a"}}))
 
 
+
+class TestIgTodos(unittest.TestCase):
+    def setUp(self):
+        main.init()
+        main.q("DELETE FROM jobs"); main.q("DELETE FROM seen"); main.q("DELETE FROM removidos"); main.q("DELETE FROM kv WHERE k LIKE 'col:%'")
+        main.cfg_save({"ig_user": "@nan", "ig_pass": "SENHA-SECRETA", "col_instagram": "1"})
+
+    def test_enfileira_so_os_que_faltam(self):
+        main.add_job("https://www.instagram.com/p/JA/")
+        main.add_job("https://www.instagram.com/reel/REEL/")
+        main.q("INSERT INTO removidos VALUES(?)", ("https://instagram.com/p/TIREI",))
+        urls = [f"https://www.instagram.com/p/{k}/" for k in ("NOVO1", "JA", "REEL", "TIREI", "NOVO2")]
+        with mock.patch.object(main, "ig_saved", lambda c, n=30, so_videos=False: urls if (n == 0 and so_videos) else []):
+            main.ig_todos()
+        st = json.loads(main.q("SELECT v FROM kv WHERE k='col:instagram_todos'")[0]["v"])
+        self.assertEqual((st["videos"], st["novos"], st["rodando"], st["erro"]), (5, 2, False, ""))
+        got = {r["url"] for r in main.q("SELECT url FROM jobs")}
+        self.assertIn("https://instagram.com/p/NOVO1", got); self.assertIn("https://instagram.com/p/NOVO2", got)
+        self.assertNotIn("https://instagram.com/p/TIREI", got); self.assertNotIn("https://instagram.com/p/REEL", got)
+
+    def test_so_videos(self):
+        class M:
+            def __init__(s, code, t): s.d = {"code": code, "media_type": t}
+            def model_dump(s, mode=None): return s.d
+        class Cl:
+            def collection_medias(s, pk, amount=21): return [M("V", 2), M("F", 1), M("C", 8)]
+        with mock.patch.object(main, "ig_call", lambda c, fn: fn(Cl())):
+            self.assertEqual(main.ig_saved({}, n=0, so_videos=True), ["https://www.instagram.com/p/V/"])
+            self.assertEqual(len(main.ig_saved({}, n=0)), 3)
+
+    def test_erro_sem_senha_no_estado(self):
+        with mock.patch.object(main, "ig_saved", side_effect=RuntimeError(main.IG_ERR + "senha recusada")):
+            main.ig_todos()
+        st = json.loads(main.q("SELECT v FROM kv WHERE k='col:instagram_todos'")[0]["v"])
+        self.assertIn("senha recusada", st["erro"]); self.assertFalse(st["rodando"])
+
 if __name__ == "__main__":
     unittest.main()
 
