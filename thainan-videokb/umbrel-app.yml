@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.5.3"
+version: "0.6.0"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.5.3: a Lida mostra o cursor magnético, o dither ao segurar e os farelos mesmo quando as animações do sistema estão desligadas (no Windows, "Efeitos de animação"). Antes o Selah obedecia essa opção e caía na versão sem efeitos.
+  Selah 0.6.0: chega o Papiro, as notícias do AlternativeTo em português, como um jornal. Cada matéria vira uma coluna com a cor de um tema, resumo completo, foto em ASCII e virada de página com som de papel (dá pra desligar). O Selah lê a matéria inteira sozinho e resume com o Gemini do 9Router (usa a configuração do Video KB). A Lida agora se chama Pavio.
 dependencies: []
 path: ""
 defaultUsername: ""
