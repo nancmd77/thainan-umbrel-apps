@@ -1,6 +1,6 @@
 """Leitor do Papiro: devolve o texto completo de uma matéria do AlternativeTo.
 O site fica atrás do Cloudflare; o Scrapling (Fetcher leve, curl_cffi imitando o TLS do Chrome/Safari) passa sem abrir navegador.
-Só a rede interna do app usa. GET /ler?url=<matéria>  ->  {titulo, paragrafos, externos, og, autor}
+Só a rede interna do app usa. GET /ler?url=<matéria>  ->  {titulo, paragrafos, externos, links, apps_at, og, autor};  GET /app?url=<app no AlternativeTo> -> {nome, site, github}
 GET /saude -> ok
 GET /mini?f=<caminho no cerebro>  ->  miniatura webp (480 px de largura) da capa, com cache em disco. Desempenho do Selah (23 out).
 Na partida, gera em segundo plano as miniaturas que faltam."""
@@ -66,11 +66,22 @@ def extrair(p):
         if espaco(h.get_all_text()) == 'External links':
             ul = h.next
             while ul is not None and ul.tag != 'ul': ul = ul.next
-            if ul is not None: ext = [espaco(a.get_all_text()) for a in ul.css('a')][:8]
+            if ul is not None: ext = [(espaco(a.get_all_text()), a.attrib.get('href', '')) for a in ul.css('a')][:8]
             break
+    # links do corpo da matéria (anúncio oficial, notas de versão, site do app): só http(s) de fora do AlternativeTo
+    corpo = [(espaco(a.get_all_text()), a.attrib.get('href', '')) for a in p.css('div.md_News a')]
+    links, vistos = [], set()
+    for nome, url in [(n, u) for n, u in ext] + corpo:
+        if not re.match(r'^https?://', url or '') or re.search(r'//([^/]*\.)?alternativeto\.net(/|$)', url) or url in vistos or not nome: continue
+        vistos.add(url); links.append({'nome': nome[:140], 'url': url[:500], 'ext': (nome, url) in ext})
+    # apps citados (páginas do AlternativeTo): o Selah pergunta o site oficial e o GitHub de cada um em /app
+    apps_at, va = [], set()
+    for nome, url in corpo:
+        m = re.match(r'^https://alternativeto\.net/software/([^/]+)/', url or '')
+        if m and m.group(1) not in va and nome: va.add(m.group(1)); apps_at.append({'nome': nome[:60], 'url': f'https://alternativeto.net/software/{m.group(1)}/about/'})
     og = um(p, 'meta[property="og:image"]')
     autor = um(p, 'a.profile-link')
-    return {'titulo': tit, 'paragrafos': ps, 'externos': [x for x in ext if x],
+    return {'titulo': tit, 'paragrafos': ps, 'externos': [n for n, _ in ext if n], 'links': links[:12], 'apps_at': apps_at[:6],
             'og': og.attrib.get('content', '') if og is not None else '', 'autor': espaco(autor.get_all_text()) if autor is not None else ''}
 
 
@@ -84,6 +95,27 @@ def ler(url):
             d = extrair(p)
             if d['paragrafos']: d['perfil'] = perfil; return d
             erro = f'{perfil}: sem texto'
+        except Exception as e:
+            erro = f'{perfil}: {str(e)[:160]}'
+    raise RuntimeError(erro)
+
+
+def app(url):
+    """Página do app no AlternativeTo -> site oficial e GitHub (os links marcados como "Official Website" e "GitHub")."""
+    erro = ''
+    for perfil, espera in TENTATIVAS[:3]:
+        if espera: time.sleep(espera)
+        try:
+            p = Fetcher.get(url, impersonate=perfil, stealthy_headers=True, timeout=30, retries=1)
+            if p.status != 200: erro = f'{perfil}: HTTP {p.status}'; continue
+            site = gh = ''
+            for a in p.css('a'):
+                t, h = espaco(a.get_all_text()), a.attrib.get('href', '')
+                if not re.match(r'^https?://', h) or 'sponsored' in (a.attrib.get('rel') or ''): continue
+                if not site and t.startswith('Official Website'): site = h
+                if not gh and re.match(r'^https://github\.com/[^/]+', h) and t in ('GitHub', 'View on GitHub'): gh = h
+            h1 = um(p, 'h1')
+            return {'nome': espaco(h1.get_all_text()) if h1 is not None else '', 'site': site[:300], 'github': gh[:300]}
         except Exception as e:
             erro = f'{perfil}: {str(e)[:160]}'
     raise RuntimeError(erro)
@@ -105,6 +137,11 @@ class H(BaseHTTPRequestHandler):
             except Exception as e: return self.responder(503, {'erro': str(e)})
             self.send_response(200); self.send_header('Content-Type', 'image/webp'); self.send_header('ETag', '"' + etag + '"')
             self.send_header('Content-Length', str(len(b))); self.end_headers(); self.wfile.write(b); return
+        if u.path == '/app':
+            alvo = (parse_qs(u.query).get('url') or [''])[0]
+            if not re.match(r'^https://alternativeto\.net/software/[\w.-]+/about/$', alvo): return self.responder(400, {'erro': 'só páginas de app do AlternativeTo'})
+            try: return self.responder(200, app(alvo))
+            except Exception as e: print('[leitor] app falhou', alvo, e, flush=True); return self.responder(502, {'erro': str(e)})
         if u.path != '/ler': return self.responder(404, {'erro': 'rota'})
         alvo = (parse_qs(u.query).get('url') or [''])[0]
         a = urlparse(alvo)
