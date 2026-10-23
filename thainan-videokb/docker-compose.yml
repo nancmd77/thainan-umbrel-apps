@@ -32,7 +32,7 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.6.1
+      REF: selah-v0.6.2
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
@@ -50,12 +50,16 @@ services:
     restart: on-failure
     environment:
       PORT: "8790"
-      REF: selah-v0.6.1
+      CEREBRO_DIR: /cerebro
+      MINI_DIR: /leitor/mini
+      REF: selah-v0.6.2
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
     volumes:
       - ${APP_DATA_DIR}:/bundle:ro
       - ${APP_DATA_DIR}/leitor:/leitor
+      # miniaturas das capas (webp 480 px) saem daqui, só leitura
+      - ${APP_DATA_DIR}/../thainan-video-kb/data/cerebro:/cerebro:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -64,4 +68,6 @@ services:
         python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/leitor.py', '/leitor/leitor.py.new')" && mv /leitor/leitor.py.new /leitor/leitor.py || { [ -f /leitor/leitor.py ] || cp /bundle/leitor.py /leitor/leitor.py; echo "download do leitor falhou, usando a cópia local"; }
         # Scrapling e dependências em versões fixas, instalados uma vez no volume
         [ -f /leitor/pylib/.v0.5 ] || { pip install -q --target /leitor/pylib scrapling==0.5 curl_cffi==0.16.3 patchright==1.64.2 browserforge==1.2.4 && touch /leitor/pylib/.v0.5; }
+        # Pillow pras miniaturas das capas (0.6.2)
+        [ -f /leitor/pylib/.pil12 ] || { pip install -q --target /leitor/pylib pillow==12.3.0 && touch /leitor/pylib/.pil12; }
         PYTHONPATH=/leitor/pylib exec python -u /leitor/leitor.py
