@@ -38,6 +38,8 @@ services:
   n8n:
     image: n8nio/n8n:2.30.4@sha256:d1606a508b1e426de07a98fa10f3758ef474b17590c6f181a0dd38c999f819d0
     restart: on-failure
+    # a pasta de dados nasce como root no Umbrel; o n8n (uid 1000) não conseguia gravar config
+    user: "0:0"
     depends_on:
       - db
       - redis
@@ -49,6 +51,7 @@ services:
       DB_POSTGRESDB_USER: postgres
       DB_POSTGRESDB_PASSWORD: ${APP_SEED}
       N8N_ENCRYPTION_KEY: ${APP_SEED}
+      N8N_USER_FOLDER: /home/node
       GENERIC_TIMEZONE: America/Sao_Paulo
       TZ: America/Sao_Paulo
       N8N_DEFAULT_LOCALE: en

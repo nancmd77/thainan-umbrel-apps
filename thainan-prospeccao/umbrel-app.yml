@@ -4,7 +4,7 @@ name: Prospecção Instagram
 tagline: Stack da prospecção (n8n, Postgres, Redis, Evolution) migrada do Cloudfy
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-prospeccao/icon.png
 category: automation
-version: "1.0.0"
+version: "1.0.1"
 port: 8550
 description: >-
   Clone da infraestrutura "bloodyibis" do Cloudfy para o Nonve: n8n 2.30.4 (fuso America/Sao_Paulo), PostgreSQL 17 com pgvector (bancos db, n8n e evolution), Redis 8.2 e Evolution API v2.3.7 para o WhatsApp.
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/prospeccao-instagram
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Primeira versão: mesma stack do Cloudfy, sem Supabase e sem Chatwoot (Chatwoot é o app thainan-chatwoot, opcional).
+  Corrige a permissão da pasta de dados do n8n, que impedia o n8n de iniciar.
 dependencies: []
 path: ""
 defaultUsername: ""
