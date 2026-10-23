@@ -32,11 +32,36 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.5.3
+      REF: selah-v0.6.0
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
+      # Papiro: texto completo pelo leitor (Scrapling) e resumo em pt pelo 9Router da config do Video KB (só leitura)
+      LEITOR_URL: http://thainan-videokb_leitor_1:8790
+      VKB_CONFIG: /vkb/config.json
     volumes:
       - ${APP_DATA_DIR}:/bundle:ro
       - ${APP_DATA_DIR}/estado:/estado
       - ${APP_DATA_DIR}/../thainan-video-kb/data/cerebro:/cerebro:ro
+      - ${APP_DATA_DIR}/../thainan-video-kb/data/config.json:/vkb/config.json:ro
+  leitor:
+    # Papiro: lê as matérias do AlternativeTo (atrás do Cloudflare) com o Scrapling leve, sem navegador; só a rede interna usa
+    image: python:3.13-slim
+    restart: on-failure
+    environment:
+      PORT: "8790"
+      REF: selah-v0.6.0
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_ROOT_USER_ACTION: ignore
+    volumes:
+      - ${APP_DATA_DIR}:/bundle:ro
+      - ${APP_DATA_DIR}/leitor:/leitor
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        # código: baixa leitor.py da tag REF (o Umbrel não troca a pasta do app no update); sem rede, usa a cópia local
+        python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/leitor.py', '/leitor/leitor.py.new')" && mv /leitor/leitor.py.new /leitor/leitor.py || { [ -f /leitor/leitor.py ] || cp /bundle/leitor.py /leitor/leitor.py; echo "download do leitor falhou, usando a cópia local"; }
+        # Scrapling e dependências em versões fixas, instalados uma vez no volume
+        [ -f /leitor/pylib/.v0.5 ] || { pip install -q --target /leitor/pylib scrapling==0.5 curl_cffi==0.16.3 patchright==1.64.2 browserforge==1.2.4 && touch /leitor/pylib/.v0.5; }
+        PYTHONPATH=/leitor/pylib exec python -u /leitor/leitor.py
