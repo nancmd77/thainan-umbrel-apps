@@ -4,7 +4,7 @@ name: openGym
 tagline: Self-hosted gym and body-weight tracker
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opengym/icon.png
 category: Productivity
-version: "1.0.3"
+version: "1.0.4"
 port: 8088
 description: >-
   openGym is a self-hosted workout tracker with passkeys, weekly plans, and guided workouts.
@@ -22,7 +22,7 @@ repo: https://github.com/DuarteSantos8/openGym
 support: https://github.com/DuarteSantos8/openGym/issues
 gallery: []
 releaseNotes: >-
-  Nova imagem latest publicada pelo projeto (sha256:4bc07fe7d1f0). (2026-10-17)
+  Nova imagem latest publicada pelo projeto (sha256:57f4dd3fb9e4). (2026-10-23)
 dependencies: []
 path: ""
 defaultUsername: ""
