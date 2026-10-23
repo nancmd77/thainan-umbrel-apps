@@ -32,7 +32,7 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.6.0
+      REF: selah-v0.6.1
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
@@ -50,7 +50,7 @@ services:
     restart: on-failure
     environment:
       PORT: "8790"
-      REF: selah-v0.6.0
+      REF: selah-v0.6.1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
     volumes:
