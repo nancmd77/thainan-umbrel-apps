@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs viram resumo, tags e página no Selah
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.12.6"
+version: "1.13.0"
 port: 8519
 description: >-
   Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página guardada no seu servidor, que o Selah mostra e, se ligado, fonte no Open Notebook.
@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Sem cards repetidos: reprocessar mantém a página de cada vídeo, duplicadas antigas somem sozinhas e apagar aqui tira do Selah. Links: lê nos quadros do vídeo o nome do repositório e endereços escritos na tela; busca no GitHub mais esperta e reconhece o autor pelo LICENSE.
+  Puxa TODOS os vídeos salvos do Instagram, não só os mais recentes. Roda sozinho uma vez depois da atualização e depois fica no botão em Configurações > Manutenção. Fotos e carrosséis ficam de fora, e o que você apagou da lista não volta.
 dependencies: []
 path: ""
 defaultUsername: ""
