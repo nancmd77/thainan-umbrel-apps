@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.6.2"
+version: "0.6.3"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.6.2: muito mais rápido. Abre em menos de 1 segundo (antes ~25 s) e baixa ~1,4 MB em vez de ~38 MB: capas em miniatura leve, prateleiras do Alforje montadas aos poucos, fios e dither só perto da tela, e respostas comprimidas e em cache. O visual não muda.
+  Selah 0.6.3: as abas de pasta no topo do Alforje agora são o padrão (Tudo + uma aba por tema; clicar abre só aquele tema). Mantém o desempenho do 0.6.2.
 dependencies: []
 path: ""
 defaultUsername: ""
