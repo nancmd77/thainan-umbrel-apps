@@ -222,6 +222,7 @@ def init():
         data TEXT DEFAULT '{}', created REAL, updated REAL)""")
     q("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT)")
     q("CREATE TABLE IF NOT EXISTS seen(fonte TEXT, url TEXT, PRIMARY KEY(fonte, url))")  # coletores: já visto
+    q("CREATE TABLE IF NOT EXISTS removidos(url TEXT PRIMARY KEY)")  # v1.13: removido à mão nunca volta, nem no "puxar todos"
     cols = {r["name"] for r in q("PRAGMA table_info(jobs)")}
     for col, ddl in (("kind", "TEXT DEFAULT ''"), ("after", "REAL DEFAULT 0")):  # v1.1: migra banco da 1.0
         if col not in cols:
@@ -518,10 +519,11 @@ def ig_video(c, url, out, qual):
     return path
 
 
-def ig_saved(c, n=30):
-    """Lista dos salvos (todas as coleções) pela conta do usuário: 1 a 2 chamadas por coleta."""
+def ig_saved(c, n=30, so_videos=False):
+    """Lista dos salvos (todas as coleções) pela conta do usuário: 1 a 2 chamadas por coleta. n=0: todos (paginado)."""
     medias = ig_call(c, lambda cl: [m.model_dump(mode="json") for m in cl.collection_medias("ALL_MEDIA_AUTO_COLLECTION", amount=n)])
-    return [f"https://www.instagram.com/p/{m['code']}/" for m in medias if m.get("code")]
+    return [f"https://www.instagram.com/p/{m['code']}/" for m in medias
+            if m.get("code") and (not so_videos or m.get("media_type") == 2)]  # 2 = vídeo/Reel
 
 
 class Later(Exception):
@@ -2325,6 +2327,41 @@ def ingest(c, fonte, urls):
     return novos
 
 
+IG_TODOS = threading.Lock()
+
+
+def ig_todos():
+    """v1.13 (nan, 22 out: "eu quero todos os vídeos salvos"): a coleta normal só olha os 30 mais recentes e a 1ª
+    coleta só enfileirou 20. Isto pagina TODOS os salvos e enfileira cada vídeo que ainda não está na lista
+    (nem foi removido à mão). Foto e carrossel ficam de fora. Estado em kv 'col:instagram_todos'."""
+    if not IG_TODOS.acquire(blocking=False):
+        return
+    st = {"quando": time.time(), "rodando": True, "videos": 0, "novos": 0, "erro": ""}
+    try:
+        q("INSERT OR REPLACE INTO kv VALUES(?,?)", ("col:instagram_todos", json.dumps(st)))
+        c = cfg()
+        if not ig_login_on(c):
+            raise RuntimeError("Configure o login do Instagram em Configurações")
+        urls = ig_saved(c, n=0, so_videos=True)
+        st["videos"] = len(urls)
+        removidos = {r["url"] for r in q("SELECT url FROM removidos")}
+        for u in reversed(urls):  # mais antigo primeiro: a fila termina nos mais recentes
+            n = norm(u)
+            reel = n.replace("/p/", "/reel/", 1)
+            if n in removidos or reel in removidos or q("SELECT 1 FROM jobs WHERE url IN (?,?)", (n, reel)):
+                continue
+            st["novos"] += add_job(u)
+            q("INSERT OR IGNORE INTO seen VALUES(?,?)", ("instagram:saved", n))
+        log(f"instagram todos: {st['videos']} vídeos salvos, {st['novos']} novos na fila")
+    except Exception as e:
+        st["erro"] = scrub(e)[:300]
+        log("instagram todos:", st["erro"])
+    finally:
+        st["rodando"] = False
+        q("INSERT OR REPLACE INTO kv VALUES(?,?)", ("col:instagram_todos", json.dumps(st)))
+        IG_TODOS.release()
+
+
 def collect_once():
     c = cfg()
     for name, (label, fn) in COLLECTORS.items():
@@ -2344,6 +2381,10 @@ def collect_once():
 
 def collector():
     time.sleep(60)  # deixa o servidor subir
+    c = cfg()
+    if c.get("col_instagram") == "1" and ig_login_on(c) and not q("SELECT 1 FROM kv WHERE k='ig_todos_v1'"):
+        q("INSERT OR REPLACE INTO kv VALUES('ig_todos_v1','1')")  # v1.13: uma vez sozinho; depois só pelo botão
+        threading.Thread(target=ig_todos, daemon=True).start()
     while True:
         try:
             collect_once()
@@ -2550,6 +2591,9 @@ def queue_page(flash="", p=None):
         st = json.loads((q("SELECT v FROM kv WHERE k=?", ("col:" + name,)) or [{"v": "{}"}])[0]["v"])
         qd = f"última coleta {fmt_time(st['quando'])}, {st['novos']} novo(s)" if st.get("quando") else "ainda não coletou"
         cols.append(f'<li><strong>{e(label)}</strong>: {qd}' + (f'<p class="err">{e(st["erro"])}</p>' if st.get("erro") else "") + "</li>")
+        if name == "instagram" and (t := json.loads((q("SELECT v FROM kv WHERE k='col:instagram_todos'") or [{"v": "{}"}])[0]["v"])).get("quando"):
+            qt = "puxando todos os salvos…" if t.get("rodando") else f"todos os salvos {fmt_time(t['quando'])}: {t['videos']} vídeo(s), {t['novos']} novo(s) na fila"
+            cols.append(f'<li><strong>Instagram: todos</strong>: {qt}' + (f'<p class="err">{e(t["erro"])}</p>' if t.get("erro") else "") + "</li>")
     erros_col = [json.loads(r["v"]).get("erro", "") for r in q("SELECT v FROM kv WHERE k LIKE 'col:%'")]
     aviso = any("Cookies expiraram" in x for x in erros_col)
     aviso_ig = any(x.startswith(IG_ERR) for x in erros_col)
@@ -2605,6 +2649,8 @@ def config_page(flash=""):
                '<details><summary>Manutenção</summary><div class="row">'
                '<form method="post" action="/reprocessar/tudo" onsubmit="return confirm(\'Reprocessar TUDO? Baixa, transcreve e resume de novo cada item (gasta Scribe e IA).\')">'
                '<button class="sec" type="submit">Reprocessar tudo</button></form>'
+               '<form method="post" action="/coletar/instagram-todos" onsubmit="return confirm(\'Puxar TODOS os vídeos salvos do Instagram? Cada vídeo novo entra na fila (gasta HikerAPI, Scribe e IA).\')">'
+               '<button class="sec" type="submit">Puxar todos os vídeos salvos do Instagram</button></form>'
                '<form method="post" action="/reprocessar/sb" onsubmit="return confirm(\'Refazer no SilverBullet todos os itens (página, vídeo na qualidade atual, quadros, mural)?\')">'
                '<button class="sec" type="submit">Reprocessar só SilverBullet</button></form>'
                '<form method="get" action="/config/export"><button class="sec" type="submit">Exportar configuração (sem segredos)</button></form></div>'
@@ -2828,11 +2874,16 @@ class H(BaseHTTPRequestHandler):
         elif m := re.fullmatch(r"/reprocessar/(tudo|sb)", path):
             reprocessar(m[1] == "sb")
             self.go("Reprocessando tudo." if m[1] == "tudo" else "Reprocessando o SilverBullet.")
+        elif path == "/coletar/instagram-todos":
+            threading.Thread(target=ig_todos, daemon=True).start()
+            self.go("Puxando todos os vídeos salvos do Instagram. Os novos entram na fila aos poucos.")
         elif m := re.fullmatch(r"/remover/(\d+)", path):
             j = job(int(m[1]))
             pag = j and (j["data"].get("sb") or {}).get("page")
             if pag and SB_LOCAL and os.path.exists(sb_local(pag + ".md")):  # v1.12.1: apagar aqui tira do Selah também
                 os.remove(sb_local(pag + ".md"))
+            if j:
+                q("INSERT OR IGNORE INTO removidos VALUES(?)", (j["url"],))
             q("DELETE FROM jobs WHERE id=?", (int(m[1]),))  # só tira da fila do Video KB; `seen` fica, coletor não re-adiciona
             self.go("Removido.")
         elif m := re.fullmatch(r"/item/(\d+)/reprocessar", path):
