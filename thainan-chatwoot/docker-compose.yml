@@ -7,7 +7,7 @@ services:
       PROXY_AUTH_ADD: "false"
 
   rails:
-    image: chatwoot/chatwoot:v4.19.0
+    image: chatwoot/chatwoot:v4.19.1
     restart: on-failure
     depends_on:
       - postgres
@@ -38,7 +38,7 @@ services:
       - ${APP_DATA_DIR}/data/storage:/app/storage
 
   sidekiq:
-    image: chatwoot/chatwoot:v4.19.0
+    image: chatwoot/chatwoot:v4.19.1
     restart: on-failure
     depends_on:
       - postgres

@@ -6,7 +6,7 @@ services:
       APP_PORT: 8080
       PROXY_AUTH_ADD: "false"
   web:
-    image: mayswind/ezbookkeeping:latest@sha256:96093e4bd1892dc0010942d71539a1088a6cde075607ef6589f54cd65738b906
+    image: mayswind/ezbookkeeping:latest@sha256:584e4d7f6fc1642773e840b56296f8782912e3bb17abfe3c49097508b198cdb7
     restart: on-failure
     user: "1000:1000"
     environment:
