@@ -4,7 +4,7 @@ name: TREK
 tagline: Self-hosted travel planner
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-trek/icon.png
 category: Productivity
-version: "1.0.2"
+version: "1.0.3"
 port: 3010
 description: >-
   TREK is a self-hosted travel planner for trips, itineraries, and bookings.
@@ -18,7 +18,7 @@ repo: https://github.com/liketrek/TREK
 support: https://github.com/liketrek/TREK/issues
 gallery: []
 releaseNotes: >-
-  Nova imagem latest publicada pelo projeto (sha256:6b7c8f275cc0). (2026-10-22)
+  Nova imagem latest publicada pelo projeto (sha256:0c0a8f5b488f). (2026-10-25)
 dependencies: []
 path: ""
 defaultUsername: ""
