@@ -19,7 +19,7 @@ services:
           cp /tmp/ds/images/*.jpg /out/img/ && cp /tmp/ds/videos/*.gif /out/gif/
         fi
   api:
-    image: ghcr.io/duartesantos8/opengym-api:latest@sha256:57f4dd3fb9e4a6f48aa139b09de60398098ba85457f9498c1bcd4ac86c948f12
+    image: ghcr.io/duartesantos8/opengym-api:latest@sha256:21d1fde39470d9c91424db51be64f5dd57c75b0b493345016f1d6e268dceae16
     restart: on-failure
     environment:
       PORT: "3000"
