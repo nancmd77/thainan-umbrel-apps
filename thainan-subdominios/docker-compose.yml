@@ -11,13 +11,21 @@ services:
     ports:
       - "8791:80"
     environment:
-      DOMAIN: nonve.dpdns.org
-      TARGET_HOST: 10.203.0.1
-      EXCLUDE: "cloudflared tailscale murmur cobalt thainan-subdominios"
-      INTERVAL: "30"
+      UPSTREAM: "10.203.0.1:80"
+      INTERVAL: "300"
       REF: main
-    volumes:
-      - ${APP_DATA_DIR}/..:/apps:ro
+      TILES: >-
+        20128=nonve-9router.eu1.netbird.services
+        13119=nonve-ntfy.eu1.netbird.services
+        3001=nonve-llm.eu1.netbird.services
+        8233=nonve-links.eu1.netbird.services
+        5230=nonve-memos.eu1.netbird.services
+        8088=nonve-opengym.eu1.netbird.services
+        3100=nonve-yuvomi.eu1.netbird.services
+        8519=nonve-videokb.eu1.netbird.services
+        8502=nonve-notebook.eu1.netbird.services
+        8550=nonve-prospeccao.eu1.netbird.services
+        8765=selah.eu1.netbird.services
     entrypoint: ["/bin/sh", "-c"]
     command:
       - wget -qO /run.sh "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-subdominios/run.sh" && exec sh /run.sh
