@@ -1,39 +1,53 @@
 #!/bin/sh
-# Subdomínios automáticos: lê os apps instalados no Umbrel e liga
-# <app>.$DOMAIN -> $TARGET_HOST:<porta do app>. Atualiza a cada $INTERVAL s.
-DOMAIN="${DOMAIN:-nonve.dpdns.org}"
-TARGET="${TARGET_HOST:-10.203.0.1}"
-EXCL=" ${EXCLUDE:-} "
-INTERVAL="${INTERVAL:-30}"
+# Acesso remoto ao dashboard do Umbrel: Caddy na frente do painel (porta 80 do host).
+# Injeta /__nonve-tiles.js no index para os tiles abrirem os endereços públicos
+# (NetBird) em vez de <host>:<porta>, que só funciona em casa.
+UP="${UPSTREAM:-10.203.0.1:80}"
+REF="${REF:-main}"
+RAW="https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$REF/thainan-subdominios"
 mkdir -p /srv /etc/caddy
 
-field() { awk -v k="$1" -F': *' '$1==k{v=$2;gsub(/["\047\r ]/,"",v);print v;exit}' "$2"; }
-
-gen() {
-  rows=""
-  {
-    printf '{\n\tadmin localhost:2019\n\tauto_https off\n}\n:80 {\nroute {\n'
-    for f in /apps/*/umbrel-app.yml; do
-      [ -f "$f" ] || continue
-      id=$(field id "$f"); port=$(field port "$f")
-      [ -n "$id" ] && [ -n "$port" ] || continue
-      case "$EXCL" in *" $id "*) continue;; esac
-      sub=$(echo "${id#thainan-}" | tr 'A-Z_' 'a-z-')
-      m=$(echo "$sub" | tr -c 'a-z0-9\n' '_')
-      printf '\t@%s host %s.%s\n\treverse_proxy @%s %s:%s\n' "$m" "$sub" "$DOMAIN" "$m" "$TARGET" "$port"
-      rows="$rows<li><a href=\"https://$sub.$DOMAIN\">$sub.$DOMAIN</a> &rarr; porta $port</li>"
-    done
-    printf '\t@painel not host *.%s\n\thandle @painel {\n\t\troot * /srv\n\t\tfile_server\n\t}\n\trespond 404\n}\n}\n' "$DOMAIN"
-  } > /tmp/Caddyfile.new
-  printf '<!doctype html><meta charset="utf-8"><title>Subdomínios</title><style>body{font:16px system-ui;max-width:640px;margin:40px auto;padding:0 16px}li{margin:6px 0}</style><h1>Subdomínios automáticos</h1><ul>%s</ul><p>Atualiza a cada %ss.</p>' "$rows" "$INTERVAL" > /srv/index.html
+mapa() {  # "porta=host porta=host" -> {"porta":"host",...}
+  printf '{'; s=""
+  for par in $TILES; do printf '%s"%s":"%s"' "$s" "${par%%=*}" "${par#*=}"; s=","; done
+  printf '}'
 }
 
-gen; cp /tmp/Caddyfile.new /etc/caddy/Caddyfile
-caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
-while sleep "$INTERVAL"; do
-  gen
-  if ! cmp -s /tmp/Caddyfile.new /etc/caddy/Caddyfile; then
-    cp /tmp/Caddyfile.new /etc/caddy/Caddyfile
-    caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile && echo "rotas atualizadas"
+atualiza() {
+  wget -qO /tmp/tiles.js "$RAW/tiles.js" || [ -f /srv/__nonve-tiles.js ] || return
+  [ -s /tmp/tiles.js ] && sed "s|__MAPA__|$(mapa)|" /tmp/tiles.js > /srv/__nonve-tiles.js
+  if wget -qO /tmp/index.html "http://$UP/" && grep -q '</head>' /tmp/index.html; then
+    sed 's|</head>|<script src="/__nonve-tiles.js"></script></head>|' /tmp/index.html > /srv/index.html
   fi
-done
+}
+
+atualiza
+cat > /etc/caddy/Caddyfile <<CF
+{
+	admin off
+	auto_https off
+}
+:80 {
+	header /__nonve-tiles.js Cache-Control "no-cache"
+	handle /__nonve-tiles.js {
+		root * /srv
+		file_server
+	}
+	@pagina {
+		header Sec-Fetch-Dest document
+		not path /api/* /trpc/* /manager-api/* /files-api/*
+		file /srv/index.html
+	}
+	handle @pagina {
+		header Cache-Control "no-cache"
+		root * /srv
+		rewrite * /index.html
+		file_server
+	}
+	handle {
+		reverse_proxy $UP
+	}
+}
+CF
+caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
+while sleep "${INTERVAL:-300}"; do atualiza; done
