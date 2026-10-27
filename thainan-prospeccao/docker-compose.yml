@@ -132,7 +132,7 @@ services:
     ports:
       - "8551:3000"
     environment:
-      REF: prospeccao-painel-v1.0.0
+      REF: prospeccao-painel-v1.1.0
       PORT: "3000"
       NODE_ENV: production
       TZ: America/Sao_Paulo
