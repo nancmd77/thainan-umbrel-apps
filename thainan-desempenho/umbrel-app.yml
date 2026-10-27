@@ -2,9 +2,9 @@ manifestVersion: 1
 id: thainan-desempenho
 name: Desempenho
 tagline: Ajustes de CPU e rede do Nonve aplicados no boot
-icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-anytype/icon.png
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-desempenho/icon.png
 category: Developer
-version: "1.0.0"
+version: "1.0.1"
 port: 8532
 description: >-
   Mantém o Nonve em modo desempenho: turbo ligado, processador que acelera na hora e esfria parado (fan mais calma), rede com BBR, buffers maiores e sem economia de energia na placa de rede. Reaplica a cada 5 minutos. Desinstalar volta tudo ao padrão no próximo reboot.
@@ -15,7 +15,7 @@ submission: https://github.com/nancmd77/thainan-umbrel-apps
 repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
-releaseNotes: Primeira versão.
+releaseNotes: Ícone próprio no dashboard (antes usava o do Anytype).
 dependencies: []
 path: ""
 defaultUsername: ""
