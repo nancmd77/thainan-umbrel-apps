@@ -4,7 +4,7 @@ name: Prospecção Instagram
 tagline: Stack da prospecção (n8n, Postgres, Redis, Evolution) migrada do Cloudfy
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-prospeccao/icon.png
 category: automation
-version: "1.0.3"
+version: "1.0.4"
 port: 8550
 description: >-
   Clone da infraestrutura "bloodyibis" do Cloudfy para o Nonve: n8n 2.30.4 (fuso America/Sao_Paulo), PostgreSQL 17 com pgvector (bancos db, n8n e evolution), Redis 8.2, Evolution API v2.3.7 para o WhatsApp e o painel de operação (porta 8551).
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/prospeccao-instagram
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Novo serviço "painel": o painel de operação vira um app próprio (porta 8551, rota NetBird nonve-painel), com as abas de sempre e a nova aba Controle. Os workflows continuam desligados.
+  Painel redesenhado do zero no estilo do workspace do Replit (escuro): sidebar no computador, barra de abas no celular, botão Run para o próximo passo. A pausa do painel agora é de verdade: não expira sozinha em 24h (chave própria no Redis). Controle mostra só os erros dos últimos 7 dias e "—" onde não há registro. Os workflows continuam desligados.
 dependencies: []
 path: ""
 defaultUsername: ""
