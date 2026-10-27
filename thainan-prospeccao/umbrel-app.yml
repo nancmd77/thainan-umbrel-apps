@@ -4,7 +4,7 @@ name: Prospecção Instagram
 tagline: Stack da prospecção (n8n, Postgres, Redis, Evolution) migrada do Cloudfy
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-prospeccao/icon.png
 category: automation
-version: "1.0.4"
+version: "1.0.5"
 port: 8550
 description: >-
   Clone da infraestrutura "bloodyibis" do Cloudfy para o Nonve: n8n 2.30.4 (fuso America/Sao_Paulo), PostgreSQL 17 com pgvector (bancos db, n8n e evolution), Redis 8.2, Evolution API v2.3.7 para o WhatsApp e o painel de operação (porta 8551).
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/prospeccao-instagram
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Painel redesenhado do zero no estilo do workspace do Replit (escuro): sidebar no computador, barra de abas no celular, botão Run para o próximo passo. A pausa do painel agora é de verdade: não expira sozinha em 24h (chave própria no Redis). Controle mostra só os erros dos últimos 7 dias e "—" onde não há registro. Os workflows continuam desligados.
+  Trilha gringa: serviço novo "reeditor" (baixa o Reel mais forte do perfil, transcreve com timestamps, a IA escolhe o melhor trecho de 15 a 30 s e faz um corte cru 9:16, sem efeitos; o estilo da edição entra depois) e DM curta em inglês. No painel, a fila de Enviar mostra os leads gringos com o vídeo, Baixar vídeo, Copiar DM, Abrir perfil e Marcar enviado, com filtro e meta diária próprios. Os workflows continuam desligados.
 dependencies: []
 path: ""
 defaultUsername: ""
