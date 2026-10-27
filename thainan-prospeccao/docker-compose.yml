@@ -118,3 +118,40 @@ services:
       TZ: America/Sao_Paulo
     volumes:
       - ${APP_DATA_DIR}/data/evolution:/evolution/instances
+
+  # Painel de operação (app próprio, substitui o painel servido pelo n8n).
+  # Código: nancmd77/prospeccao-instagram, pasta apps/painel. O bundle (um arquivo
+  # só, sem segredo) é baixado da tag REF deste repo a cada start; sem rede, usa a
+  # última cópia em /data. Porta 8551 no host: rota pública via NetBird.
+  painel:
+    image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+    restart: on-failure
+    depends_on:
+      - db
+      - redis
+    ports:
+      - "8551:3000"
+    environment:
+      REF: prospeccao-painel-v1.0.0
+      PORT: "3000"
+      NODE_ENV: production
+      TZ: America/Sao_Paulo
+      PG_HOST: thainan-prospeccao_db_1
+      PG_USER: postgres
+      PG_PASSWORD: ${APP_SEED}
+      PG_DB: db
+      PG_N8N_DB: n8n
+      REDIS_HOST: thainan-prospeccao_redis_1
+      REDIS_PASSWORD: ${APP_SEED}
+      REDIS_DB: "0"
+      SESSION_SECRET: ${APP_SEED}
+      N8N_URL: http://thainan-prospeccao_n8n_1:5678
+    volumes:
+      - ${APP_DATA_DIR}/data/painel:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cd /data
+        node -e "fetch('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/'+process.env.REF+'/thainan-prospeccao/painel/server.mjs').then(r=>{if(!r.ok)throw new Error('http '+r.status);return r.text()}).then(t=>{if(t.length<10000)throw new Error('curto');require('fs').writeFileSync('/data/server.mjs.new',t)})" && mv /data/server.mjs.new /data/server.mjs || echo "download do painel falhou, usando a copia em /data"
+        exec node /data/server.mjs
+
