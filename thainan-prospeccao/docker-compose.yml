@@ -56,9 +56,9 @@ services:
       TZ: America/Sao_Paulo
       N8N_DEFAULT_LOCALE: en
       N8N_PROTOCOL: https
-      N8N_HOST: prospeccao.nonve.dpdns.org
-      WEBHOOK_URL: https://prospeccao.nonve.dpdns.org/
-      N8N_EDITOR_BASE_URL: https://prospeccao.nonve.dpdns.org/
+      N8N_HOST: nonve-prospeccao.eu1.netbird.services
+      WEBHOOK_URL: https://nonve-prospeccao.eu1.netbird.services/
+      N8N_EDITOR_BASE_URL: https://nonve-prospeccao.eu1.netbird.services/
       N8N_PROXY_HOPS: "1"
       N8N_SECURE_COOKIE: "false"
       N8N_PAYLOAD_SIZE_MAX: "200"
