@@ -36,7 +36,10 @@ cat > /etc/caddy/Caddyfile <<CF
 	@pagina {
 		header Sec-Fetch-Dest document
 		not path /api/* /trpc/* /manager-api/* /files-api/*
-		file /srv/index.html
+		file {
+			root /srv
+			try_files /index.html
+		}
 	}
 	handle @pagina {
 		header Cache-Control "no-cache"
