@@ -4,7 +4,7 @@ name: 9Router
 tagline: Self-hosted AI gateway for coding tools
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/d97cfc21ab8f0f61a3c1c120bdb9e38d2a9fb5ac/thainan-9router/icon.png
 category: AI
-version: "0.5.111"
+version: "0.5.112"
 port: 20128
 description: >-
   9Router is a self-hosted AI router that connects coding tools (Claude Code, Cursor, Copilot, Codex, etc.) to many providers with fallback and token savings.
@@ -18,7 +18,7 @@ repo: https://github.com/decolua/9router
 support: https://github.com/decolua/9router/issues
 gallery: []
 releaseNotes: >-
-  Atualizado automaticamente para 0.5.111. (2026-10-26)
+  Atualizado automaticamente para 0.5.112. (2026-10-28)
 dependencies: []
 path: ""
 defaultUsername: ""
