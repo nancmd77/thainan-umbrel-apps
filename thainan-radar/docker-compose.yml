@@ -21,9 +21,14 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        set -e
-        B="https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-radar"
-        mkdir -p /app/web/assets
-        for f in server.mjs web/index.html web/assets/app.js web/assets/app.css; do wget -qO "/app/$$f" "$$B/$$f?t=$$(date +%s)" || { [ -s "/data/cache/$$f" ] && mkdir -p "$$(dirname /app/$$f)" && cp "/data/cache/$$f" "/app/$$f"; }; done
-        mkdir -p /data/cache/web/assets && for f in server.mjs web/index.html web/assets/app.js web/assets/app.css; do cp "/app/$$f" "/data/cache/$$f"; done
-        exec node /app/server.mjs
+        cat > /tmp/boot.mjs <<'JS'
+        import fs from "node:fs"; import path from "node:path";
+        const B = `https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/${process.env.REF || "main"}/thainan-radar/`;
+        for (const f of ["server.mjs", "web/index.html", "web/assets/app.js", "web/assets/app.css"]) {
+          const dst = path.join("/app", f), cache = path.join("/data/cache", f);
+          fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.mkdirSync(path.dirname(cache), { recursive: true });
+          try { const r = await fetch(B + f + "?t=" + Date.now()); if (!r.ok) throw new Error(r.status); const b = Buffer.from(await r.arrayBuffer()); fs.writeFileSync(dst, b); fs.writeFileSync(cache, b); console.log("baixado", f, b.length); }
+          catch (e) { console.log("falhou", f, String(e), "usando cache"); fs.copyFileSync(cache, dst); }
+        }
+        JS
+        node /tmp/boot.mjs && exec node /app/server.mjs
