@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-radar
+name: Radar de Repos
+tagline: Repos em alta no GitHub com o veredito do Decider e botão Instalar
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-radar/icon.png
+category: developer
+version: "1.0.0"
+port: 8560
+description: >-
+  Página diária do Radar de Repos, montada em Open UI (OpenUI Lang, Thesys) pelo Gemini 4 Argon via 9Router: 15 repos em alta no GitHub de Hoje, Semana e Mês, com o veredito do Decider, pra que serve, onde encaixa pro nan e um botão Instalar/Usar que grava o pedido numa fila lida pelo Hark a cada 15 min (8h–23h).
+
+  Dados e fila ficam em app-data/thainan-radar/data. Escrita dos dados e baixa da fila exigem token; acesso externo só pelo NetBird com SSO.
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nancmd77/thainan-umbrel-apps
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão: página em Open UI, fila de instalação e botão Instalar.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
