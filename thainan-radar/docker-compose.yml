@@ -23,7 +23,7 @@ services:
       - |
         cat > /tmp/boot.mjs <<'JS'
         import fs from "node:fs"; import path from "node:path";
-        const B = `https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/${process.env.REF || "main"}/thainan-radar/`;
+        const B = "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/" + (process.env.REF || "main") + "/thainan-radar/";
         for (const f of ["server.mjs", "web/index.html", "web/assets/app.js", "web/assets/app.css"]) {
           const dst = path.join("/app", f), cache = path.join("/data/cache", f);
           fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.mkdirSync(path.dirname(cache), { recursive: true });
