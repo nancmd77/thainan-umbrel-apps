@@ -1,5 +1,5 @@
 // Radar de Repos (Nonve) — serve a página Open UI, os dados e a fila de instalação. Sem dependências.
-import http from "node:http"; import fs from "node:fs"; import path from "node:path"; import crypto from "node:crypto";
+import http from "node:http"; import fs from "node:fs"; import path from "node:path"; import crypto from "node:crypto"; import zlib from "node:zlib";
 const DATA = process.env.DATA_DIR || "/data", WEB = process.env.WEB_DIR || "/app/web", PORT = +(process.env.PORT || 8561);
 const TOKEN_SHA = (process.env.WRITE_TOKEN_SHA256 || "").toLowerCase();
 fs.mkdirSync(DATA, { recursive: true });
@@ -7,11 +7,23 @@ const F = (n) => path.join(DATA, n);
 const ler = (n, d) => { try { return JSON.parse(fs.readFileSync(F(n), "utf8")); } catch { return d; } };
 const gravar = (n, v) => { fs.writeFileSync(F(n) + ".tmp", typeof v === "string" ? v : JSON.stringify(v, null, 1)); fs.renameSync(F(n) + ".tmp", F(n)); };
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json" };
-const enviar = (res, code, body, tipo = "application/json; charset=utf-8") => { res.writeHead(code, { "Content-Type": tipo, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }); res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body)); };
+let REQ = null; const cacheGz = new Map();
+const enviar = (res, code, body, tipo = "application/json; charset=utf-8", estatico = false) => {
+  let buf = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
+  const h = { "Content-Type": tipo, "X-Content-Type-Options": "nosniff", "Vary": "Accept-Encoding" };
+  if (estatico) { const tag = '"' + crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16) + '"'; h.ETag = tag; h["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400"; if (REQ && REQ.headers["if-none-match"] === tag) { res.writeHead(304, h); return res.end(); } }
+  else h["Cache-Control"] = "no-store";
+  if (buf.length > 1024 && /gzip/.test((REQ && REQ.headers["accept-encoding"]) || "") && !/image\/png/.test(tipo)) {
+    const k = estatico ? h.ETag : null; let gz = k && cacheGz.get(k); if (!gz) { gz = zlib.gzipSync(buf, { level: 6 }); if (k) cacheGz.set(k, gz); }
+    buf = gz; h["Content-Encoding"] = "gzip";
+  }
+  h["Content-Length"] = buf.length; res.writeHead(code, h); res.end(buf);
+};
 const corpo = (req, max = 2e6) => new Promise((ok, no) => { let b = ""; req.on("data", (c) => { b += c; if (b.length > max) { no(new Error("grande")); req.destroy(); } }); req.on("end", () => { try { ok(b ? JSON.parse(b) : {}); } catch (e) { no(e); } }); });
 const autorizado = (req) => { const t = (req.headers.authorization || "").replace(/^Bearer\s+/i, ""); if (!TOKEN_SHA || !t) return false; const h = crypto.createHash("sha256").update(t).digest("hex"); return crypto.timingSafeEqual(Buffer.from(h), Buffer.from(TOKEN_SHA.padEnd(64, "0").slice(0, 64))); };
 let ultimoPedido = {};
 http.createServer(async (req, res) => {
+  REQ = req;
   const u = new URL(req.url, "http://x"); const p = u.pathname.replace(/\/+$/, "") || "/";
   try {
     if (req.method === "GET" && p === "/api/radar") return enviar(res, 200, ler("hoje.json", { gerado: "", periodos: {} }));
@@ -48,6 +60,6 @@ http.createServer(async (req, res) => {
     if (req.method !== "GET") return enviar(res, 405, { erro: "método" });
     let f = path.normalize(path.join(WEB, p === "/" ? "index.html" : p)); if (!f.startsWith(WEB)) return enviar(res, 403, "");
     if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(WEB, "index.html");
-    return enviar(res, 200, fs.readFileSync(f), MIME[path.extname(f)] || "application/octet-stream");
+    return enviar(res, 200, fs.readFileSync(f), MIME[path.extname(f)] || "application/octet-stream", !f.endsWith("index.html"));
   } catch (e) { return enviar(res, 500, { erro: String(e.message || e) }); }
 }).listen(PORT, "0.0.0.0", () => console.log("radar na porta", PORT));
