@@ -30,6 +30,15 @@ http.createServer(async (req, res) => {
     if (req.method === "GET" && p === "/api/ui") { let t = ""; try { t = fs.readFileSync(F("ui.oui"), "utf8"); } catch {} return enviar(res, 200, t, "text/plain; charset=utf-8"); }
     if (req.method === "GET" && p === "/api/fila") return enviar(res, 200, { pedidos: ler("fila.json", []) });
     if (req.method === "GET" && p === "/api/saude") return enviar(res, 200, { ok: true, gerado: ler("hoje.json", {}).gerado || null, pendentes: ler("fila.json", []).filter((x) => x.status === "pendente").length });
+    if (req.method === "GET" && p === "/api/avaliacoes") return enviar(res, 200, { avaliacoes: ler("avaliacoes.json", []) });
+    if (req.method === "POST" && p === "/api/avaliar") {
+      const b = await corpo(req, 4000); const repo = String(b.repo || "").trim(); const voto = String(b.voto || "");
+      if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !["serve", "nao_serve", "limpar"].includes(voto)) return enviar(res, 400, { erro: "repo/voto" });
+      const hoje = ler("hoje.json", { periodos: {} }); const item = Object.values(hoje.periodos).flat().find((r) => r.repo.toLowerCase() === repo.toLowerCase()) || {};
+      let lista = ler("avaliacoes.json", []).filter((a) => a.repo.toLowerCase() !== repo.toLowerCase());
+      if (voto !== "limpar") lista.push({ repo: item.repo || repo, voto, veredito_radar: item.veredito || null, nota_radar: item.nota ?? null, onde: item.onde || null, desc: String(item.desc || "").slice(0, 300), lang: item.lang || null, em: new Date().toISOString() });
+      gravar("avaliacoes.json", lista.slice(-1000)); return enviar(res, 200, { ok: true });
+    }
     if (req.method === "POST" && p === "/api/instalar") {
       const b = await corpo(req, 4000); const repo = String(b.repo || "").trim(); const acao = b.acao === "usar" ? "usar" : "instalar";
       const hoje = ler("hoje.json", { periodos: {} }); const item = Object.values(hoje.periodos).flat().find((r) => r.repo.toLowerCase() === repo.toLowerCase());
