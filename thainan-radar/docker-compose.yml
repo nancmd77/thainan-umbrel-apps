@@ -1,0 +1,29 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-radar_web_1
+      APP_PORT: 8561
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: node:22-alpine
+    restart: unless-stopped
+    ports:
+      - "8561:8561"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      REF: main
+      PORT: "8561"
+      DATA_DIR: /data
+      WEB_DIR: /app/web
+      WRITE_TOKEN_SHA256: "f5936d9242ba1bb8585fcb39d9919a90b7d2eb481ece206a96b5e3de60bb7607"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        B="https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-radar"
+        mkdir -p /app/web/assets
+        for f in server.mjs web/index.html web/assets/app.js web/assets/app.css; do wget -qO "/app/$$f" "$$B/$$f?t=$$(date +%s)" || { [ -s "/data/cache/$$f" ] && mkdir -p "$$(dirname /app/$$f)" && cp "/data/cache/$$f" "/app/$$f"; }; done
+        mkdir -p /data/cache/web/assets && for f in server.mjs web/index.html web/assets/app.js web/assets/app.css; do cp "/app/$$f" "/data/cache/$$f"; done
+        exec node /app/server.mjs
