@@ -28,7 +28,17 @@ services:
           console.log('pacote', R, partes.length, 'partes');
         })().catch((e) => { console.error('sem pacote do GitHub:', e.message); process.exit(1); });
         FIM
-        if node /tmp/baixa.js && tar xzf /tmp/pacote.tgz -C /tmp/app; then :; else rm -rf /tmp/app && mkdir -p /tmp/app && cat /bundle/app.tgz.part* | tar xz -C /tmp/app && echo "usando o pacote local"; fi
+        # 0.6.7: no boot do Nonve a rede demora; tenta por até ~5 min antes de desistir
+        ok=0
+        for t in $$(seq 1 30); do
+          if node /tmp/baixa.js && tar xzf /tmp/pacote.tgz -C /tmp/app; then ok=1; cp /tmp/pacote.tgz "/estado/pacote-$$REF.tgz.new" && mv "/estado/pacote-$$REF.tgz.new" "/estado/pacote-$$REF.tgz"; break; fi
+          rm -rf /tmp/app && mkdir -p /tmp/app; echo "tentativa $$t sem rede, de novo em 10 s"; sleep 10
+        done
+        # sem rede: usa a última cópia boa desta versão; só em último caso o pacote antigo do bundle
+        if [ "$$ok" = 0 ]; then
+          if [ -f "/estado/pacote-$$REF.tgz" ] && tar xzf "/estado/pacote-$$REF.tgz" -C /tmp/app; then echo "usando a cópia salva de $$REF"
+          else rm -rf /tmp/app && mkdir -p /tmp/app && cat /bundle/app.tgz.part* | tar xz -C /tmp/app && echo "usando o pacote local"; fi
+        fi
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
@@ -65,7 +75,12 @@ services:
       - |
         set -e
         # código: baixa leitor.py da tag REF (o Umbrel não troca a pasta do app no update); sem rede, usa a cópia local
-        python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/leitor.py', '/leitor/leitor.py.new')" && mv /leitor/leitor.py.new /leitor/leitor.py || { [ -f /leitor/leitor.py ] || cp /bundle/leitor.py /leitor/leitor.py; echo "download do leitor falhou, usando a cópia local"; }
+        ok=0
+        for t in $$(seq 1 30); do
+          python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/leitor.py', '/leitor/leitor.py.new')" 2>/dev/null && mv /leitor/leitor.py.new /leitor/leitor.py && ok=1 && break
+          echo "leitor: tentativa $$t sem rede, de novo em 10 s"; sleep 10
+        done
+        [ "$$ok" = 1 ] || { [ -f /leitor/leitor.py ] || cp /bundle/leitor.py /leitor/leitor.py; echo "download do leitor falhou, usando a cópia local"; }
         # Scrapling e dependências em versões fixas, instalados uma vez no volume
         [ -f /leitor/pylib/.v0.5 ] || { pip install -q --target /leitor/pylib scrapling==0.5 curl_cffi==0.16.3 patchright==1.64.2 browserforge==1.2.4 && touch /leitor/pylib/.v0.5; }
         # Pillow pras miniaturas das capas (0.6.2)
