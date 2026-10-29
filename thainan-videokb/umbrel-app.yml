@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.6.6"
+version: "0.6.7"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.6.6: Papiro com folhear de jornal de verdade (a página dobra no meio), colunas sem corte embaixo, manchete e corpo nas fontes do Selah e links úteis em cada notícia (fonte oficial, notas da versão, site da ferramenta, GitHub e imprensa), com nova tentativa quando a leitura falha.
+  Selah 0.6.7: quando o servidor liga sem internet, o Selah espera a rede voltar (até 5 min) e guarda a última versão boa, em vez de abrir a versão antiga.
 dependencies: []
 path: ""
 defaultUsername: ""
