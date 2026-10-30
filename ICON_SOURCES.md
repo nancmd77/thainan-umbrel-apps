@@ -20,3 +20,4 @@
 | thainan-trek | official docs/trek-icon.png | `https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-trek/icon.png` |
 | thainan-wallos | official images/icon/android-chrome-512x512.png | `https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-wallos/icon.png` |
 | thainan-yuvomi | official deploy/umbrel/icon.svg | `https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-yuvomi/icon.png` |
+| thainan-waha | official logo.png (devlikeapro/waha, 150px upscaled, white square) | `https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-waha/icon.png` |
