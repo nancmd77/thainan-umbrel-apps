@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-claude-mem
+name: claude-mem servidor
+tagline: Memória central do claude-mem (Postgres + pgvector) para os agentes da VM Roberta
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-claude-mem/icon.png
+category: developer
+version: "15.5.0"
+port: 37876
+description: >-
+  claude-mem (thedotmack/claude-mem) em modo servidor self-hosted: HTTP /v1 com auth por API key, recall MCP em /v1/mcp, Postgres 17 com pgvector (busca por significado) e pg_textsearch, Valkey (BullMQ) e o generation worker que gera as observações pelo 9Router do Nonve.
+
+  Sem cmem.ai, sem cloud sync. API em http://10.203.0.1:37877 (rede da VM) e na LAN; toda requisição exige Bearer key. Senha do Postgres gerada no primeiro start em app-data/thainan-claude-mem/secrets.
+developer: Thainan Caldeira
+website: https://github.com/thedotmack/claude-mem
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/thedotmack/claude-mem
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão: claude-mem 15.5.0 em modo servidor.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
