@@ -60,3 +60,6 @@ thainan-yuvomi:
 thainan-9router:
   image: ghcr.io/nancmd77/9router
   mode: tag
+thainan-waha:
+  image: devlikeapro/waha
+  mode: digest
