@@ -1,0 +1,303 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-claude-mem_cmem-server_1
+      APP_PORT: 37877
+      PROXY_AUTH_ADD: "false"
+
+  cmem-init:
+    image: node:20.19.6-bookworm
+    restart: "no"
+    volumes:
+      - ${APP_DATA_DIR}/secrets:/secrets
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ ! -s /secrets/pg_password ]; then
+          umask 077
+          head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > /secrets/pg_password
+          echo "senha do postgres gerada"
+        fi
+        chown 999:999 /secrets/pg_password
+        chmod 400 /secrets/pg_password
+        chmod 711 /secrets
+
+  cmem-postgres:
+    image: pgvector/pgvector:0.8.7-pg17-trixie
+    restart: unless-stopped
+    stop_grace_period: 60s
+    depends_on:
+      cmem-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: cmem
+      POSTGRES_DB: claude_mem
+      POSTGRES_PASSWORD_FILE: /secrets/pg_password
+      POSTGRES_INITDB_ARGS: "--locale-provider=builtin --locale=C.UTF-8"
+    volumes:
+      - ${APP_DATA_DIR}/secrets:/secrets:ro
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if ! ls /usr/share/postgresql/17/extension/pg_textsearch*.control >/dev/null 2>&1; then
+          (apt-get update -qq && apt-get install -y -qq --no-install-recommends "postgresql-17-pg-textsearch=1.5.*") >/tmp/apt.log 2>&1 || echo "pg_textsearch indisponivel; busca por palavra cai no ts_rank"
+        fi
+        if ls /usr/share/postgresql/17/extension/pg_textsearch*.control >/dev/null 2>&1; then
+          exec docker-entrypoint.sh postgres -c shared_preload_libraries=pg_textsearch
+        fi
+        exec docker-entrypoint.sh postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cmem -d claude_mem"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+  cmem-valkey:
+    image: valkey/valkey:8.1.11-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - ${APP_DATA_DIR}/data/valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  cmem-server:
+    image: node:20.19.6-bookworm
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "37877:37877"
+    depends_on:
+      cmem-postgres:
+        condition: service_healthy
+      cmem-valkey:
+        condition: service_healthy
+    volumes:
+      - ${APP_DATA_DIR}/secrets:/secrets:ro
+      - ${APP_DATA_DIR}/runtime/server:/rt
+      - ${APP_DATA_DIR}/data/server:/data/claude-mem
+    environment:
+      CMEM_MODE: server
+      CLAUDE_MEM_VERSION: "15.5.0"
+      CLAUDE_MEM_DOCKER: "1"
+      CLAUDE_MEM_RUNTIME: server-beta
+      CLAUDE_MEM_DATA_DIR: /data/claude-mem
+      CLAUDE_MEM_QUEUE_ENGINE: bullmq
+      CLAUDE_MEM_REDIS_URL: redis://thainan-claude-mem_cmem-valkey_1:6379
+      CLAUDE_MEM_REDIS_MODE: docker
+      CMEM_PG_HOST: thainan-claude-mem_cmem-postgres_1
+      CLAUDE_MEM_AUTH_MODE: api-key
+      CLAUDE_MEM_CHROMA_ENABLED: "false"
+      CLAUDE_MEM_SERVER_VECTOR_SEARCH: "auto"
+      CLAUDE_MEM_EMBEDDING_MODEL: paraphrase-multilingual-MiniLM-L12-v2
+      CLAUDE_MEM_TELEMETRY_DISABLED: "1"
+      DO_NOT_TRACK: "1"
+      CLAUDE_MEM_HOST: 0.0.0.0
+      CLAUDE_MEM_SERVER_HOST: 0.0.0.0
+      CLAUDE_MEM_SERVER_PORT: "37877"
+      CLAUDE_MEM_WORKER_HOST: 0.0.0.0
+      CLAUDE_MEM_WORKER_PORT: "37877"
+      CLAUDE_MEM_PUBLIC_URL: http://10.203.0.1:37877
+      CLAUDE_MEM_GENERATION_DISABLED: "true"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/start.sh <<'SH'
+        set -eu
+        MODE="$${CMEM_MODE:-server}"
+        V="$${CLAUDE_MEM_VERSION:-15.5.0}"
+        BUNV="$${BUN_VERSION:-1.3.12}"
+        APP="/rt"
+        export HOME=/root
+        export NPM_CONFIG_PREFIX="$$APP/npm-global"
+        export PATH="$$APP/npm-global/bin:$$PATH"
+        export NPM_CONFIG_UPDATE_NOTIFIER=false
+        mkdir -p "$$APP" /data/claude-mem
+        if [ ! -f "$$APP/ok-$$V-$$BUNV" ]; then
+          echo "[cmem] instalando claude-mem@$$V + bun@$$BUNV em $$APP ($$MODE)"
+          rm -rf "$$APP/pkg"
+          mkdir -p "$$APP/pkg"
+          cd "$$APP/pkg"
+          npm init -y >/dev/null
+          npm install --omit=dev --no-audit --no-fund "claude-mem@$$V" "pg@8"
+          cd "$$APP/pkg/node_modules/claude-mem/plugin"
+          ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm install --omit=dev --legacy-peer-deps --no-audit --no-fund
+          npm install -g --no-audit --no-fund "bun@$$BUNV"
+          rm -f "$$APP"/ok-*
+          touch "$$APP/ok-$$V-$$BUNV"
+          npm cache clean --force >/dev/null 2>&1 || true
+        fi
+        S="$$APP/pkg/node_modules/claude-mem/plugin/scripts/server-service.cjs"
+        PW="$$(cat /secrets/pg_password)"
+        export CLAUDE_MEM_SERVER_DATABASE_URL="postgres://cmem:$${PW}@$${CMEM_PG_HOST}:5432/claude_mem"
+        unset PW
+        cd /data/claude-mem
+
+        boot() {
+          # Troca o hash de chaves recem-criadas pelo hash de chaves geradas fora daqui (so o hash entra no app).
+          i=0
+          until curl -fsS "http://127.0.0.1:$${CLAUDE_MEM_SERVER_PORT}/healthz" >/dev/null 2>&1; do
+            i=$$((i+1)); [ "$$i" -gt 120 ] && { echo "[cmem-boot] servidor nao ficou pronto"; return 0; }; sleep 5
+          done
+          mkdir -p /data/claude-mem/boot
+          for spec in $${CMEM_BOOT_KEYS:-}; do
+            label="$${spec%%=*}"; hash="$${spec#*=}"
+            case "$$label" in rw) scopes="memories:read,memories:write";; *) scopes="memories:read";; esac
+            [ -f "/data/claude-mem/boot/$$hash" ] && continue
+            out="$$(bun "$$S" server api-key create --scope "$$scopes" --name "nonve-$$label" 2>/dev/null || true)"
+            res="$$(printf '%s' "$$out" | node "$$APP/swap.cjs" "$$hash" 2>&1 || true)"
+            echo "[cmem-boot] $$label: $$res"
+            case "$$res" in ok*) touch "/data/claude-mem/boot/$$hash";; esac
+          done
+        }
+
+        cat > "$$APP/swap.cjs" <<'JS'
+        const { Client } = require("/rt/pkg/node_modules/pg");
+        let s = ""; process.stdin.on("data", d => s += d).on("end", async () => {
+          const m = s.match(/\{[\s\S]*"id"[\s\S]*\}/); if (!m) { console.log("erro: create sem json"); return; }
+          const j = JSON.parse(m[0]); const hash = process.argv[2];
+          const c = new Client({ connectionString: process.env.CLAUDE_MEM_SERVER_DATABASE_URL }); await c.connect();
+          const cols = (await c.query("select column_name from information_schema.columns where table_name='api_keys'")).rows.map(r => r.column_name);
+          if (!cols.includes("key_hash")) { console.log("erro: api_keys sem key_hash: " + cols.join(",")); await c.end(); return; }
+          const r = await c.query("UPDATE api_keys SET key_hash=$$1 WHERE id=$$2", [hash, j.id]);
+          console.log(`ok id=$${j.id} team=$${j.teamId} project=$${j.projectId} scopes=$${(j.scopes||[]).join("+")} rows=$${r.rowCount}`);
+          await c.end();
+        });
+        JS
+
+        case "$$MODE" in
+          server)
+            echo "[cmem] server-beta HTTP em :$${CLAUDE_MEM_SERVER_PORT}"
+            boot &
+            exec bun "$$S" --daemon
+            ;;
+          worker)
+            unset CLAUDE_MEM_GENERATION_DISABLED
+            echo "[cmem] generation worker (provider $${CLAUDE_MEM_SERVER_PROVIDER:-?}, modelo $${CLAUDE_MEM_SERVER_MODEL:-padrao})"
+            exec bun "$$S" worker start
+            ;;
+        esac
+        SH
+        exec sh /tmp/start.sh
+
+  cmem-worker:
+    image: node:20.19.6-bookworm
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      cmem-postgres:
+        condition: service_healthy
+      cmem-valkey:
+        condition: service_healthy
+    volumes:
+      - ${APP_DATA_DIR}/secrets:/secrets:ro
+      - ${APP_DATA_DIR}/runtime/worker:/rt
+      - ${APP_DATA_DIR}/data/worker:/data/claude-mem
+    environment:
+      CMEM_MODE: worker
+      CLAUDE_MEM_VERSION: "15.5.0"
+      CLAUDE_MEM_DOCKER: "1"
+      CLAUDE_MEM_RUNTIME: server-beta
+      CLAUDE_MEM_DATA_DIR: /data/claude-mem
+      CLAUDE_MEM_QUEUE_ENGINE: bullmq
+      CLAUDE_MEM_REDIS_URL: redis://thainan-claude-mem_cmem-valkey_1:6379
+      CLAUDE_MEM_REDIS_MODE: docker
+      CMEM_PG_HOST: thainan-claude-mem_cmem-postgres_1
+      CLAUDE_MEM_AUTH_MODE: api-key
+      CLAUDE_MEM_CHROMA_ENABLED: "false"
+      CLAUDE_MEM_SERVER_VECTOR_SEARCH: "auto"
+      CLAUDE_MEM_EMBEDDING_MODEL: paraphrase-multilingual-MiniLM-L12-v2
+      CLAUDE_MEM_TELEMETRY_DISABLED: "1"
+      DO_NOT_TRACK: "1"
+      CLAUDE_MEM_SERVER_PROVIDER: openrouter
+      CLAUDE_MEM_OPENROUTER_BASE_URL: http://thainan-9router_web_1:20128/v1
+      CLAUDE_MEM_OPENROUTER_APP_NAME: claude-mem-nonve
+      CLAUDE_MEM_SERVER_MODEL: ag/gemini-3.8-flash-high
+      CLAUDE_MEM_SERVER_GENERATION_CONCURRENCY: "2"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/start.sh <<'SH'
+        set -eu
+        MODE="$${CMEM_MODE:-server}"
+        V="$${CLAUDE_MEM_VERSION:-15.5.0}"
+        BUNV="$${BUN_VERSION:-1.3.12}"
+        APP="/rt"
+        export HOME=/root
+        export NPM_CONFIG_PREFIX="$$APP/npm-global"
+        export PATH="$$APP/npm-global/bin:$$PATH"
+        export NPM_CONFIG_UPDATE_NOTIFIER=false
+        mkdir -p "$$APP" /data/claude-mem
+        if [ ! -f "$$APP/ok-$$V-$$BUNV" ]; then
+          echo "[cmem] instalando claude-mem@$$V + bun@$$BUNV em $$APP ($$MODE)"
+          rm -rf "$$APP/pkg"
+          mkdir -p "$$APP/pkg"
+          cd "$$APP/pkg"
+          npm init -y >/dev/null
+          npm install --omit=dev --no-audit --no-fund "claude-mem@$$V" "pg@8"
+          cd "$$APP/pkg/node_modules/claude-mem/plugin"
+          ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm install --omit=dev --legacy-peer-deps --no-audit --no-fund
+          npm install -g --no-audit --no-fund "bun@$$BUNV"
+          rm -f "$$APP"/ok-*
+          touch "$$APP/ok-$$V-$$BUNV"
+          npm cache clean --force >/dev/null 2>&1 || true
+        fi
+        S="$$APP/pkg/node_modules/claude-mem/plugin/scripts/server-service.cjs"
+        PW="$$(cat /secrets/pg_password)"
+        export CLAUDE_MEM_SERVER_DATABASE_URL="postgres://cmem:$${PW}@$${CMEM_PG_HOST}:5432/claude_mem"
+        unset PW
+        cd /data/claude-mem
+
+        boot() {
+          # Troca o hash de chaves recem-criadas pelo hash de chaves geradas fora daqui (so o hash entra no app).
+          i=0
+          until curl -fsS "http://127.0.0.1:$${CLAUDE_MEM_SERVER_PORT}/healthz" >/dev/null 2>&1; do
+            i=$$((i+1)); [ "$$i" -gt 120 ] && { echo "[cmem-boot] servidor nao ficou pronto"; return 0; }; sleep 5
+          done
+          mkdir -p /data/claude-mem/boot
+          for spec in $${CMEM_BOOT_KEYS:-}; do
+            label="$${spec%%=*}"; hash="$${spec#*=}"
+            case "$$label" in rw) scopes="memories:read,memories:write";; *) scopes="memories:read";; esac
+            [ -f "/data/claude-mem/boot/$$hash" ] && continue
+            out="$$(bun "$$S" server api-key create --scope "$$scopes" --name "nonve-$$label" 2>/dev/null || true)"
+            res="$$(printf '%s' "$$out" | node "$$APP/swap.cjs" "$$hash" 2>&1 || true)"
+            echo "[cmem-boot] $$label: $$res"
+            case "$$res" in ok*) touch "/data/claude-mem/boot/$$hash";; esac
+          done
+        }
+
+        cat > "$$APP/swap.cjs" <<'JS'
+        const { Client } = require("/rt/pkg/node_modules/pg");
+        let s = ""; process.stdin.on("data", d => s += d).on("end", async () => {
+          const m = s.match(/\{[\s\S]*"id"[\s\S]*\}/); if (!m) { console.log("erro: create sem json"); return; }
+          const j = JSON.parse(m[0]); const hash = process.argv[2];
+          const c = new Client({ connectionString: process.env.CLAUDE_MEM_SERVER_DATABASE_URL }); await c.connect();
+          const cols = (await c.query("select column_name from information_schema.columns where table_name='api_keys'")).rows.map(r => r.column_name);
+          if (!cols.includes("key_hash")) { console.log("erro: api_keys sem key_hash: " + cols.join(",")); await c.end(); return; }
+          const r = await c.query("UPDATE api_keys SET key_hash=$$1 WHERE id=$$2", [hash, j.id]);
+          console.log(`ok id=$${j.id} team=$${j.teamId} project=$${j.projectId} scopes=$${(j.scopes||[]).join("+")} rows=$${r.rowCount}`);
+          await c.end();
+        });
+        JS
+
+        case "$$MODE" in
+          server)
+            echo "[cmem] server-beta HTTP em :$${CLAUDE_MEM_SERVER_PORT}"
+            boot &
+            exec bun "$$S" --daemon
+            ;;
+          worker)
+            unset CLAUDE_MEM_GENERATION_DISABLED
+            echo "[cmem] generation worker (provider $${CLAUDE_MEM_SERVER_PROVIDER:-?}, modelo $${CLAUDE_MEM_SERVER_MODEL:-padrao})"
+            exec bun "$$S" worker start
+            ;;
+        esac
+        SH
+        exec sh /tmp/start.sh
