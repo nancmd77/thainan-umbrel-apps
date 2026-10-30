@@ -1,0 +1,36 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: 10.21.0.1
+      APP_PORT: 8537
+  ponte:
+    image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      OUVIR: "10.21.0.1:8537"
+      DESTINO: "10.203.0.2:7317"
+    entrypoint: ["python", "-u", "-c"]
+    command:
+      - |
+        import asyncio, os
+        lh, lp = os.environ["OUVIR"].split(":"); dh, dp = os.environ["DESTINO"].split(":")
+        async def pipe(r, w):
+            try:
+                while (d := await r.read(65536)): w.write(d); await w.drain()
+            except Exception: pass
+            finally:
+                try: w.close()
+                except Exception: pass
+        async def handle(cr, cw):
+            try: sr, sw = await asyncio.wait_for(asyncio.open_connection(dh, int(dp)), 10)
+            except Exception: cw.close(); return
+            await asyncio.gather(pipe(cr, sw), pipe(sr, cw))
+        async def main():
+            while True:
+                try:
+                    s = await asyncio.start_server(handle, lh, int(lp)); print("ponte", lh, lp, "->", dh, dp)
+                    async with s: await s.serve_forever()
+                except Exception as e: print("erro", e); await asyncio.sleep(10)
+        asyncio.run(main())
