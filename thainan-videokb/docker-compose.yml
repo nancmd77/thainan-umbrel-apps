@@ -42,7 +42,7 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.7.1
+      REF: selah-v0.8.0
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
@@ -62,7 +62,7 @@ services:
       PORT: "8790"
       CEREBRO_DIR: /cerebro
       MINI_DIR: /leitor/mini
-      REF: selah-v0.7.1
+      REF: selah-v0.8.0
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
       PLAYWRIGHT_BROWSERS_PATH: /leitor/browsers
