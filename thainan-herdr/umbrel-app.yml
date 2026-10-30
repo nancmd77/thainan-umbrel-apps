@@ -1,0 +1,22 @@
+manifestVersion: 1
+id: thainan-herdr
+name: herdr
+tagline: Painel dos agentes de código da VM Roberta
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-herdr/icon.png
+category: Developer
+version: "1.0.0"
+port: 7318
+description: >-
+  Atalho para o painel web do herdr que roda na VM Roberta: mostra os agentes (Claude Code, omp, agy) trabalhando, com terminal ao vivo. Na rede de casa abre direto; fora de casa o tile leva ao endereço público com login do NetBird.
+developer: herdrdev
+website: https://github.com/herdrdev/herdr
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/herdrdev/herdr
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: Primeira versão.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
