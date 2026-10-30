@@ -27,7 +27,7 @@ services:
     environment:
       TZ: America/Sao_Paulo
       WHATSAPP_DEFAULT_ENGINE: WEBJS
-      WAHA_BASE_URL: http://thainan-waha_waha_1:3000
+      WAHA_BASE_URL: http://10.21.0.1:8570
       WAHA_PUBLIC_URL: http://${DEVICE_DOMAIN_NAME}:8570
       WAHA_DASHBOARD_ENABLED: "true"
       WAHA_DASHBOARD_USERNAME: nan
@@ -42,8 +42,10 @@ services:
       WHATSAPP_FILES_FOLDER: /app/.media
       WHATSAPP_FILES_LIFETIME: "3600"
       WAHA_EVENTS_DOWNLOAD_MEDIA: "true"
-      # Mensagens recebidas vão pro n8n do Nonve (fluxo de transcrição de áudio).
-      WHATSAPP_HOOK_URL: http://thainan-prospeccao_n8n_1:5678/webhook/waha-audio
+      # Mensagens recebidas vão pro n8n do Nonve (transcrição de áudio). WAHA só aceita
+      # URL "de verdade" (sem _ no host), então vai pelo gateway da rede do Umbrel (10.21.0.1)
+      # na porta do app_proxy de cada app.
+      WHATSAPP_HOOK_URL: http://10.21.0.1:8550/webhook/waha-audio
       WHATSAPP_HOOK_EVENTS: message
       WAHA_LOG_FORMAT: PRETTY
       WAHA_LOG_LEVEL: info
