@@ -4,7 +4,7 @@ name: Chatwoot
 tagline: Open-source customer engagement suite
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-chatwoot/icon.png
 category: Social
-version: "4.19.1"
+version: "4.19.1-r1"
 port: 3000
 description: >-
   Chatwoot is an open-source customer support platform (live chat, email, social channels).
@@ -19,7 +19,7 @@ repo: https://github.com/chatwoot/chatwoot
 support: https://github.com/chatwoot/chatwoot/issues
 gallery: []
 releaseNotes: >-
-  Atualizado automaticamente para v4.19.1. (2026-10-24)
+  Webhooks para a rede interna liberados (SAFE_FETCH_ALLOW_PRIVATE_NETWORK, pro WAHA), cadastro aberto desligado. Chatwoot v4.19.1.
 dependencies: []
 path: ""
 defaultUsername: ""
