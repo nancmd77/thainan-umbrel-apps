@@ -4,7 +4,7 @@ name: claude-mem servidor
 tagline: Memória central do claude-mem (Postgres + pgvector) para os agentes da VM Roberta
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-claude-mem/icon.png
 category: developer
-version: "15.5.0"
+version: "15.5.0-r2"
 port: 37876
 description: >-
   claude-mem (thedotmack/claude-mem) em modo servidor self-hosted: HTTP /v1 com auth por API key, recall MCP em /v1/mcp, Postgres 17 com pgvector (busca por significado) e pg_textsearch, Valkey (BullMQ) e o generation worker que gera as observações pelo 9Router do Nonve.
@@ -18,7 +18,7 @@ repo: https://github.com/thedotmack/claude-mem
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Primeira versão: claude-mem 15.5.0 em modo servidor.
+  Prefixo da fila BullMQ fixo (server e worker na mesma fila).
 dependencies: []
 path: ""
 defaultUsername: ""
