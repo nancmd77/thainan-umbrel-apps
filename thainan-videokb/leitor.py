@@ -1,6 +1,7 @@
-"""Leitor do Papiro: devolve o texto completo de uma matéria do AlternativeTo.
+"""Leitor do Papiro: devolve o texto completo de uma matéria (AlternativeTo com extração própria; outros sites, genérica).
 O site fica atrás do Cloudflare; o Scrapling (Fetcher leve, curl_cffi imitando o TLS do Chrome/Safari) passa sem abrir navegador.
 Só a rede interna do app usa. GET /ler?url=<matéria>  ->  {titulo, paragrafos, externos, links, apps_at, og, autor};  GET /app?url=<app no AlternativeTo> -> {nome, site, github}
+GET /feed?url=<feed>  ->  o XML do feed, pra fontes que barram o Selah (403/429 do Cloudflare); só os domínios de FEED_HOSTS; último recurso = navegador (StealthyFetcher). Papiro 0.7 (30 out).
 GET /saude -> ok
 GET /mini?f=<caminho no cerebro>  ->  miniatura webp (480 px de largura) da capa, com cache em disco. Desempenho do Selah (23 out).
 Na partida, gera em segundo plano as miniaturas que faltam."""
@@ -47,6 +48,7 @@ def aquecer():
 
 
 HOSTS = {'alternativeto.net', 'www.alternativeto.net'}
+FEED_HOSTS = {'linustechtips.com', 'www.linustechtips.com', 'adrenaline.com.br', 'www.adrenaline.com.br', 'phys.org', 'www.phys.org'}
 TENTATIVAS = [('chrome', 0), ('chrome', 4), ('safari', 0), ('safari', 8)]  # (perfil, espera antes em s)
 espaco = lambda t: re.sub(r'\s+', ' ', t or '').strip()
 
@@ -85,6 +87,51 @@ def extrair(p):
             'og': og.attrib.get('content', '') if og is not None else '', 'autor': espaco(autor.get_all_text()) if autor is not None else ''}
 
 
+FORA = re.compile(r'menu|nav|comment|footer|sidebar|related|newsletter|share|social|subscribe|promo|widget|cookie|banner', re.I)
+
+
+def fora(e):
+    """bloco de navegação/rodapé/comentários: não é a matéria"""
+    while e is not None and e.tag not in ('body', 'html'):
+        if e.tag in ('nav', 'header', 'footer', 'aside', 'form') or FORA.search(e.attrib.get('class', '') + ' ' + e.attrib.get('id', '')): return True
+        e = e.parent
+    return False
+
+
+def extrair_generico(p, url):
+    """Qualquer site: o bloco que junta mais texto em <p>/<li> (pontuação no pai e meia no avô, fora menus/rodapés);
+    sem <p> (texto solto com <br>), o <article> ou corpo da matéria quebrado em linhas; sem nada, og:description."""
+    meta = lambda k: (um(p, f'meta[property="{k}"]') or um(p, f'meta[name="{k}"]'))
+    h1, ogt, ogd, og = um(p, 'h1'), meta('og:title'), meta('og:description'), meta('og:image')
+    tit = espaco(h1.get_all_text()) if h1 is not None else (ogt.attrib.get('content', '') if ogt is not None else '')
+    LIXO = re.compile(r'^(veja também|leia também|join the discussion|enter your email|subscribe|sign up|you can follow)', re.I)
+    def texto(els): return [x for x in (espaco(e.get_all_text(separator='')) for e in els if not fora(e)) if len(x) > 40 and not LIXO.match(x)]
+    nota, el = {}, {}
+    for e in p.css('p, li'):
+        t = espaco(e.get_all_text(separator=''))
+        if len(t) < (80 if e.tag == 'li' else 40) or fora(e): continue
+        for pai, peso in ((e.parent, 1), (e.parent.parent if e.parent is not None else None, .5)):
+            if pai is None: continue
+            k = pai._root; el[k] = pai; nota[k] = nota.get(k, 0) + len(t) * peso
+    caixa = el[max(nota, key=nota.get)] if nota else None
+    ps = texto(caixa.css('p, li')) if caixa is not None else []
+    if sum(map(len, ps)) < 400:  # texto solto (ex.: TechPowerUp): linhas do corpo da matéria
+        for c in p.css('[itemprop="articleBody"], .newspost, .entry-content, .post-content, .article-body, article'):
+            linhas = [x for x in (espaco(l) for l in c.get_all_text(separator='\n').split('\n')) if len(x) > 60]
+            if sum(map(len, linhas)) > sum(map(len, ps)): caixa, ps = c, linhas
+            if sum(map(len, ps)) >= 400: break
+    if not ps and ogd is not None and len(ogd.attrib.get('content', '')) > 40: ps = [espaco(ogd.attrib['content'])]
+    host = re.sub(r'^www\.', '', urlparse(url).hostname or '')
+    links, vistos = [], set()
+    for a in (caixa.css('a') if caixa is not None else []):
+        nome, u = espaco(a.get_all_text()), a.attrib.get('href', '')
+        h = re.sub(r'^www\.', '', urlparse(u).hostname or '')
+        if not re.match(r'^https?://', u) or not nome or u in vistos or h == host or h.endswith('.' + host): continue
+        vistos.add(u); links.append({'nome': nome[:140], 'url': u[:500], 'ext': False})
+    return {'titulo': tit, 'paragrafos': ps[:40], 'externos': [], 'links': links[:12], 'apps_at': [],
+            'og': og.attrib.get('content', '') if og is not None else '', 'autor': ''}
+
+
 def ler(url):
     erro = ''
     for perfil, espera in TENTATIVAS:
@@ -92,11 +139,35 @@ def ler(url):
         try:
             p = Fetcher.get(url, impersonate=perfil, stealthy_headers=True, timeout=30, retries=1)
             if p.status != 200: erro = f'{perfil}: HTTP {p.status}'; continue
-            d = extrair(p)
+            d = extrair(p) if urlparse(url).hostname in HOSTS else extrair_generico(p, url)
             if d['paragrafos']: d['perfil'] = perfil; return d
             erro = f'{perfil}: sem texto'
         except Exception as e:
             erro = f'{perfil}: {str(e)[:160]}'
+    raise RuntimeError(erro)
+
+
+def feed(url):
+    """XML cru do feed (mesmo Fetcher e tentativas da matéria)."""
+    erro = ''
+    for perfil, espera in TENTATIVAS[:3]:
+        if espera: time.sleep(espera)
+        try:
+            p = Fetcher.get(url, impersonate=perfil, stealthy_headers=True, timeout=30, retries=1)
+            b = p.body if isinstance(p.body, bytes) else str(p.body).encode()
+            if p.status == 200 and re.search(rb'<(rss|feed|rdf:RDF)[\s>]', b[:2000]): return b
+            erro = f'{perfil}: HTTP {p.status}'
+        except Exception as e:
+            erro = f'{perfil}: {str(e)[:160]}'
+    # Cloudflare "managed" (fórum da LTT): só um navegador de verdade passa. Mais lento (~15 s), por isso é o último recurso.
+    try:
+        from scrapling.fetchers import StealthyFetcher
+        p = StealthyFetcher.fetch(url, headless=True, solve_cloudflare=True, timeout=90000)
+        b = p.body if isinstance(p.body, bytes) else str(p.body).encode()
+        if p.status == 200 and re.search(rb'<(rss|feed|rdf:RDF)[\s>]', b[:2000]): return b
+        erro += f' | navegador: HTTP {p.status}'
+    except Exception as e:
+        erro += f' | navegador: {str(e)[:160]}'
     raise RuntimeError(erro)
 
 
@@ -142,10 +213,18 @@ class H(BaseHTTPRequestHandler):
             if not re.match(r'^https://alternativeto\.net/software/[\w.-]+/about/$', alvo): return self.responder(400, {'erro': 'só páginas de app do AlternativeTo'})
             try: return self.responder(200, app(alvo))
             except Exception as e: print('[leitor] app falhou', alvo, e, flush=True); return self.responder(502, {'erro': str(e)})
+        if u.path == '/feed':
+            alvo = (parse_qs(u.query).get('url') or [''])[0]
+            if urlparse(alvo).scheme != 'https' or urlparse(alvo).hostname not in FEED_HOSTS: return self.responder(400, {'erro': 'feed fora da lista'})
+            try: b = feed(alvo)
+            except Exception as e: print('[leitor] feed falhou', alvo, e, flush=True); return self.responder(502, {'erro': str(e)})
+            self.send_response(200); self.send_header('Content-Type', 'application/xml; charset=utf-8')
+            self.send_header('Content-Length', str(len(b))); self.end_headers(); self.wfile.write(b); return
         if u.path != '/ler': return self.responder(404, {'erro': 'rota'})
         alvo = (parse_qs(u.query).get('url') or [''])[0]
         a = urlparse(alvo)
-        if a.scheme != 'https' or a.hostname not in HOSTS: return self.responder(400, {'erro': 'só matérias do AlternativeTo'})
+        # qualquer site público (0.7): https e nome de domínio; nada de IP, localhost ou nome sem ponto (rede interna)
+        if a.scheme != 'https' or not a.hostname or '.' not in a.hostname or re.match(r'^[\d.]+$|^\[', a.hostname) or a.hostname.endswith(('.local', '.lan', '.internal')): return self.responder(400, {'erro': 'endereço não permitido'})
         t0 = time.time()
         try:
             d = ler(alvo); print('[leitor] ok', d['perfil'], len(d['paragrafos']), f'{time.time()-t0:.1f}s', alvo, flush=True)
