@@ -29,8 +29,36 @@ http.createServer(async (req, res) => {
     if (req.method === "GET" && p === "/api/radar") return enviar(res, 200, ler("hoje.json", { gerado: "", periodos: {} }));
     if (req.method === "GET" && p === "/api/ui") { let t = ""; try { t = fs.readFileSync(F("ui.oui"), "utf8"); } catch {} return enviar(res, 200, t, "text/plain; charset=utf-8"); }
     if (req.method === "GET" && p === "/api/fila") return enviar(res, 200, { pedidos: ler("fila.json", []) });
-    if (req.method === "GET" && p === "/api/saude") return enviar(res, 200, { ok: true, gerado: ler("hoje.json", {}).gerado || null, pendentes: ler("fila.json", []).filter((x) => x.status === "pendente").length });
+    if (req.method === "GET" && p === "/api/saude") return enviar(res, 200, { ok: true, gerado: ler("hoje.json", {}).gerado || null, pendentes: ler("fila.json", []).filter((x) => x.status === "pendente").length, skills_pendentes: ler("skills_fila.json", []).filter((x) => x.status === "pendente").length });
     if (req.method === "GET" && p === "/api/avaliacoes") return enviar(res, 200, { avaliacoes: ler("avaliacoes.json", []) });
+    if (req.method === "GET" && p === "/api/skills") return enviar(res, 200, ler("skills.json", { atualizado: null, itens: [], escopos: [] }));
+    if (req.method === "GET" && p === "/api/skills/fila") return enviar(res, 200, { pedidos: ler("skills_fila.json", []) });
+    if (req.method === "POST" && p === "/api/skills/pedido") {
+      const b = await corpo(req, 4000); const sk = ler("skills.json", { itens: [], escopos: [] });
+      const acao = String(b.acao || ""); const escopo = String(b.escopo || ""); const item = String(b.item || "");
+      const ACOES = ["ativar", "desativar", "ativar_todas", "desativar_todas", "copiar_chat", "aplicar_todos"];
+      if (!ACOES.includes(acao) || !sk.escopos.some((e) => e.id === escopo)) return enviar(res, 400, { erro: "acao/escopo" });
+      if (["ativar", "desativar"].includes(acao) && !sk.itens.some((i) => i.nome === item)) return enviar(res, 400, { erro: "item" });
+      const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress; const agora = Date.now();
+      if (agora - (ultimoPedido["s" + ip] || 0) < 800) return enviar(res, 429, { erro: "calma" }); ultimoPedido["s" + ip] = agora;
+      let fila = ler("skills_fila.json", []);
+      // pedido novo pro mesmo item+escopo substitui o pendente anterior (o último clique vale)
+      fila = fila.filter((x) => !(x.status === "pendente" && x.escopo === escopo && x.item === (item || null) && ["ativar", "desativar"].includes(x.acao) && ["ativar", "desativar"].includes(acao)));
+      const pedido = { id: crypto.randomUUID().slice(0, 8), acao, escopo, item: item || null, pedido_em: new Date().toISOString(), status: "pendente" };
+      fila.push(pedido); gravar("skills_fila.json", fila.slice(-300)); return enviar(res, 200, { ok: true, pedido });
+    }
+    if (req.method === "POST" && p === "/api/skills") {
+      if (!autorizado(req)) return enviar(res, 401, { erro: "token" });
+      const b = await corpo(req, 5e5); if (!Array.isArray(b.itens) || !Array.isArray(b.escopos)) return enviar(res, 400, { erro: "esperado {itens, escopos}" });
+      gravar("skills.json", b); return enviar(res, 200, { ok: true });
+    }
+    if (req.method === "POST" && p === "/api/skills/fila/status") {
+      if (!autorizado(req)) return enviar(res, 401, { erro: "token" });
+      const b = await corpo(req, 8000); const fila = ler("skills_fila.json", []); const x = fila.find((y) => y.id === b.id);
+      if (!x || !["pendente", "em_andamento", "feito", "erro"].includes(b.status)) return enviar(res, 400, { erro: "id/status" });
+      x.status = b.status; x.nota = String(b.nota || "").slice(0, 300); x.atualizado_em = new Date().toISOString(); gravar("skills_fila.json", fila);
+      return enviar(res, 200, { ok: true, pedido: x });
+    }
     if (req.method === "POST" && p === "/api/avaliar") {
       const b = await corpo(req, 4000); const repo = String(b.repo || "").trim(); const voto = String(b.voto || "");
       if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !["serve", "nao_serve", "limpar"].includes(voto)) return enviar(res, 400, { erro: "repo/voto" });
