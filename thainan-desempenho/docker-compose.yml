@@ -3,7 +3,7 @@ services:
   app_proxy:
     environment:
       APP_HOST: 10.21.0.1
-      APP_PORT: 8532
+      APP_PORT: 8533
   tuner:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
     restart: unless-stopped
@@ -52,5 +52,5 @@ services:
           { echo "<!doctype html><meta charset=utf-8><meta name=viewport content=width=device-width><body style='font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px'><h1>Desempenho</h1><pre style='background:#f4f4f5;padding:12px;border-radius:8px'>"; cat /tmp/w/s.txt; echo "</pre>"; } > /tmp/w/index.html
         }
         mkdir -p /tmp/w
-        ( while true; do python -m http.server 8532 --bind 10.21.0.1 -d /tmp/w >/dev/null 2>&1; sleep 10; done ) &
+        ( while true; do python -m http.server 8533 --bind 10.21.0.1 -d /tmp/w >/dev/null 2>&1; sleep 10; done ) &
         while true; do apply; status; sleep 300; done
