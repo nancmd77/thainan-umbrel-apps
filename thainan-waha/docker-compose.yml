@@ -40,7 +40,8 @@ services:
       WAHA_APPS_ON: chatwoot
       WAHA_CLIENT_DEVICE_NAME: Nonve
       WAHA_CLIENT_BROWSER_NAME: Chrome
-      WHATSAPP_RESTART_ALL_SESSIONS: "true"
+      # só religa sessões que estavam rodando (WAHA_WORKER_RESTART_SESSIONS, padrão); parada fica parada
+      WHATSAPP_RESTART_ALL_SESSIONS: "false"
       WAHA_LOCAL_STORE_BASE_DIR: /app/.sessions
       WHATSAPP_FILES_FOLDER: /app/.media
       WHATSAPP_FILES_LIFETIME: "3600"
