@@ -90,6 +90,7 @@ services:
       CLAUDE_MEM_RUNTIME: server-beta
       CLAUDE_MEM_DATA_DIR: /data/claude-mem
       CLAUDE_MEM_QUEUE_ENGINE: bullmq
+      CLAUDE_MEM_QUEUE_REDIS_PREFIX: claude_mem_37877
       CLAUDE_MEM_REDIS_URL: redis://thainan-claude-mem_cmem-valkey_1:6379
       CLAUDE_MEM_REDIS_MODE: docker
       CMEM_PG_HOST: thainan-claude-mem_cmem-postgres_1
@@ -207,6 +208,7 @@ services:
       CLAUDE_MEM_RUNTIME: server-beta
       CLAUDE_MEM_DATA_DIR: /data/claude-mem
       CLAUDE_MEM_QUEUE_ENGINE: bullmq
+      CLAUDE_MEM_QUEUE_REDIS_PREFIX: claude_mem_37877
       CLAUDE_MEM_REDIS_URL: redis://thainan-claude-mem_cmem-valkey_1:6379
       CLAUDE_MEM_REDIS_MODE: docker
       CMEM_PG_HOST: thainan-claude-mem_cmem-postgres_1
@@ -217,6 +219,8 @@ services:
       CLAUDE_MEM_TELEMETRY_DISABLED: "1"
       DO_NOT_TRACK: "1"
       CLAUDE_MEM_SERVER_PROVIDER: openrouter
+      CLAUDE_MEM_SERVER_PORT: "37877"
+      CLAUDE_MEM_WORKER_PORT: "37877"
       CLAUDE_MEM_OPENROUTER_BASE_URL: http://thainan-9router_web_1:20128/v1
       CLAUDE_MEM_OPENROUTER_APP_NAME: claude-mem-nonve
       CLAUDE_MEM_SERVER_MODEL: ag/gemini-3.8-flash-high
