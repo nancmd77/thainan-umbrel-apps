@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     ports:
       - "8791:80"
-      - "8792-8797:8792-8797"
+      - "8792-8796:8792-8796"
     environment:
       UPSTREAM: "10.203.0.1:80"
       INTERVAL: "300"
@@ -20,7 +20,6 @@ services:
         8794=netbird_web_1:80
         8795=thainan-anytype_web_1:8080
         8796=10.21.0.1:8533
-        8797=10.203.0.2:7317
       REF: main
       TILES: >-
         20128=nonve-9router.eu1.netbird.services
@@ -47,6 +46,7 @@ services:
         3435=nonve-obsidian.eu1.netbird.services
         3064=nonve-sure.eu1.netbird.services
         8790=nonve-acesso.eu1.netbird.services
+        7318=nonve-herdr.eu1.netbird.services
     entrypoint: ["/bin/sh", "-c"]
     command:
       - until wget -T 15 -qO /run.sh "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-subdominios/run.sh"; do echo "sem rede, de novo em 10 s"; sleep 10; done; exec sh /run.sh
