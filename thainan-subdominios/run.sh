@@ -52,5 +52,9 @@ cat > /etc/caddy/Caddyfile <<CF
 	}
 }
 CF
+# 2.0.2: atalhos diretos (sem o login extra do Umbrel) pros apps cujo tile cai no app-auth :2000
+for par in $DIRETOS; do
+  printf '\n:%s {\n\treverse_proxy %s\n}\n' "${par%%=*}" "${par#*=}" >> /etc/caddy/Caddyfile
+done
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
 while sleep "${INTERVAL:-300}"; do atualiza; done
