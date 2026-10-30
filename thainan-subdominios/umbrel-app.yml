@@ -1,0 +1,29 @@
+manifestVersion: 1
+id: thainan-subdominios
+name: Acesso Remoto
+tagline: Dashboard do Umbrel por fora, com os tiles abrindo os endereços públicos
+icon: https://github.com/caddyserver.png
+category: Networking
+version: "2.0.6"
+port: 8790
+description: >-
+  Fica na frente do dashboard do Umbrel (porta 8791, publicada no NetBird como
+  nonve-umbrel.eu1.netbird.services). Quando você abre o dashboard por fora, cada
+  tile abre o endereço público do app (nonve-<app>.eu1.netbird.services) em vez de
+  host:porta, que só funciona em casa. App sem endereço público abre em
+  nonve.local:<porta>. Em casa, pelo nonve.local, nada muda. O mapa porta → endereço
+  fica na variável TILES do docker-compose.
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/caddyserver/caddy
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  2.0.1: todos os tiles abrem por fora de casa (13 apps novos, protegidos pelo login do NetBird).
+  então agora ele serve o dashboard pelo NetBird e conserta o link dos tiles. (2026-10-27)
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
