@@ -1,0 +1,65 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-waha_waha_1
+      APP_PORT: 3000
+      PROXY_AUTH_ADD: "false"
+
+  # Segredos (WAHA_API_KEY, WAHA_API_KEY_PLAIN, WAHA_DASHBOARD_PASSWORD,
+  # WHATSAPP_SWAGGER_PASSWORD, REDIS_URL, WHATSAPP_HOOK_CUSTOM_HEADERS no waha;
+  # REDIS_PASSWORD no redis) NAO ficam neste repo: entram pelo env custom do app
+  # no Umbrel (Configurações do app). Sem WAHA_API_KEY o WAHA nem sobe.
+  waha:
+    image: devlikeapro/waha:latest@sha256:2fc1787ddbd343ed2e7d59482846d1b22aa5ca134e29aa8d42d0e88c54e24779
+    restart: unless-stopped
+    shm_size: "1gb"
+    stop_grace_period: 30s
+    depends_on:
+      - redis
+    entrypoint: ["/usr/bin/tini", "--", "/bin/sh", "-c"]
+    command:
+      - |
+        while [ -z "$$WAHA_API_KEY" ] || [ -z "$$REDIS_URL" ]; do
+          echo "aguardando os segredos no env custom do app (WAHA_API_KEY, REDIS_URL...)"; sleep 60
+        done
+        exec /entrypoint.sh
+    environment:
+      TZ: America/Sao_Paulo
+      WHATSAPP_DEFAULT_ENGINE: WEBJS
+      WAHA_BASE_URL: http://thainan-waha_waha_1:3000
+      WAHA_PUBLIC_URL: http://${DEVICE_DOMAIN_NAME}:8570
+      WAHA_DASHBOARD_ENABLED: "true"
+      WAHA_DASHBOARD_USERNAME: nan
+      WHATSAPP_SWAGGER_ENABLED: "true"
+      WHATSAPP_SWAGGER_USERNAME: nan
+      WAHA_APPS_ENABLED: "true"
+      WAHA_APPS_ON: chatwoot
+      WAHA_CLIENT_DEVICE_NAME: Nonve
+      WAHA_CLIENT_BROWSER_NAME: Chrome
+      WHATSAPP_RESTART_ALL_SESSIONS: "true"
+      WAHA_LOCAL_STORE_BASE_DIR: /app/.sessions
+      WHATSAPP_FILES_FOLDER: /app/.media
+      WHATSAPP_FILES_LIFETIME: "3600"
+      WAHA_EVENTS_DOWNLOAD_MEDIA: "true"
+      # Mensagens recebidas vão pro n8n do Nonve (fluxo de transcrição de áudio).
+      WHATSAPP_HOOK_URL: http://thainan-prospeccao_n8n_1:5678/webhook/waha-audio
+      WHATSAPP_HOOK_EVENTS: message
+      WAHA_LOG_FORMAT: PRETTY
+      WAHA_LOG_LEVEL: info
+    volumes:
+      - ${APP_DATA_DIR}/data/sessions:/app/.sessions
+      - ${APP_DATA_DIR}/data/media:/app/.media
+
+  redis:
+    image: redis:7.4.12-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        fi
+        exec redis-server --appendonly yes --protected-mode yes --bind 127.0.0.1
+    volumes:
+      - ${APP_DATA_DIR}/data/redis:/data
