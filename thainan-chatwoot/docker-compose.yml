@@ -24,7 +24,8 @@ services:
       SECRET_KEY_BASE: "REMOVIDO-SEGREDO"
       FRONTEND_URL: "http://${DEVICE_DOMAIN_NAME}:3000"
       FORCE_SSL: "false"
-      ENABLE_ACCOUNT_SIGNUP: "true"
+      ENABLE_ACCOUNT_SIGNUP: "false"
+      RACK_TIMEOUT_SERVICE_TIMEOUT: "60"
       DEFAULT_LOCALE: pt_BR
       ACTIVE_STORAGE_SERVICE: local
       POSTGRES_HOST: thainan-chatwoot_postgres_1
