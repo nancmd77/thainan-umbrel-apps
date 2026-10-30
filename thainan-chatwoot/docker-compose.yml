@@ -35,6 +35,8 @@ services:
       POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
       REDIS_URL: "redis://:bd3eba2d8a374c8b63af2504b556f6ea@thainan-chatwoot_redis_1:6379"
       RAILS_LOG_TO_STDOUT: "true"
+      # WAHA e n8n ficam na rede interna do Umbrel; sem isso o SafeFetch (v4.14+) recusa o webhook do inbox.
+      SAFE_FETCH_ALLOW_PRIVATE_NETWORK: "true"
     volumes:
       - ${APP_DATA_DIR}/data/storage:/app/storage
 
@@ -59,6 +61,8 @@ services:
       POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
       REDIS_URL: "redis://:bd3eba2d8a374c8b63af2504b556f6ea@thainan-chatwoot_redis_1:6379"
       RAILS_LOG_TO_STDOUT: "true"
+      # WAHA e n8n ficam na rede interna do Umbrel; sem isso o SafeFetch (v4.14+) recusa o webhook do inbox.
+      SAFE_FETCH_ALLOW_PRIVATE_NETWORK: "true"
     volumes:
       - ${APP_DATA_DIR}/data/storage:/app/storage
 
