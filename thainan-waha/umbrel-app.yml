@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-waha
+name: WAHA
+tagline: API de WhatsApp (motor WEBJS) com dashboard e integração Chatwoot
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-waha/icon.png
+category: social
+version: "2026.10.1"
+port: 8570
+description: >-
+  WAHA (WhatsApp HTTP API, devlikeapro) com o motor WEBJS (navegador real, menor risco de bloqueio). Desde 2026.6 os recursos Plus estão na imagem gratuita.
+
+  Dashboard em /dashboard e Swagger em / (usuário nan; senha e API key ficam no cofre do Hark e entram pelo env custom do app, nunca no repo). Sessões e mídia persistem em app-data/thainan-waha/data. Redis próprio para os Apps do WAHA (Chatwoot como inbox).
+
+  Mensagens recebidas disparam webhook pro n8n do Nonve (transcrição de áudios). Só rede local/tailnet; não exponha publicamente.
+developer: devlikeapro
+website: https://waha.devlike.pro
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/devlikeapro/waha
+support: https://github.com/devlikeapro/waha/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão na Thainan Appstore (WAHA 2026.10.1, motor WEBJS, app Chatwoot ligado).
+dependencies: []
+path: "/dashboard"
+defaultUsername: "nan"
+defaultPassword: ""
