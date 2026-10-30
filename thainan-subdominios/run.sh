@@ -14,9 +14,9 @@ mapa() {  # "porta=host porta=host" -> {"porta":"host",...}
 }
 
 atualiza() {
-  wget -qO /tmp/tiles.js "$RAW/tiles.js" || [ -f /srv/__nonve-tiles.js ] || return
+  wget -T 15 -qO /tmp/tiles.js "$RAW/tiles.js" || [ -f /srv/__nonve-tiles.js ] || return
   [ -s /tmp/tiles.js ] && sed "s|__MAPA__|$(mapa)|" /tmp/tiles.js > /srv/__nonve-tiles.js
-  if wget -qO /tmp/index.html "http://$UP/" && grep -q '</head>' /tmp/index.html; then
+  if wget -T 15 -qO /tmp/index.html "http://$UP/" && grep -q '</head>' /tmp/index.html; then
     sed 's|</head>|<script src="/__nonve-tiles.js"></script></head>|' /tmp/index.html > /srv/index.html
   fi
 }
