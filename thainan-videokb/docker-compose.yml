@@ -90,6 +90,8 @@ services:
         # 0.7: navegador (Chromium do patchright) pro feed da LTT (Cloudflare "managed"). Instala em 2º plano e sem travar:
         # se falhar, só a LTT fica de fora e o resto do leitor segue normal. Libs do Python e navegador ficam no volume;
         # as libs do sistema (apt) voltam a ser instaladas só quando o container é recriado.
+        # as pastas precisam existir antes do python subir (pasta ausente no PYTHONPATH fica ignorada até reiniciar)
+        mkdir -p /leitor/pynav /leitor/browsers
         (
           [ -f /leitor/pynav/.v07 ] || { pip install -q --target /leitor/pynav playwright==1.64.1 apify-fingerprint-datapoints==0.15.0 msgspec==0.22.0 anyio==4.15.1 protego==0.7.0 click==8.5.0 && touch /leitor/pynav/.v07; } &&
           { [ -f /opt/.navdeps ] || { PYTHONPATH=/leitor/pylib:/leitor/pynav python -m patchright install-deps chromium >/tmp/navdeps.log 2>&1 && touch /opt/.navdeps; }; } &&
