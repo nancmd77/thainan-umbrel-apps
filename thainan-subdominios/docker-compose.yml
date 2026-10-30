@@ -48,4 +48,4 @@ services:
         8790=nonve-acesso.eu1.netbird.services
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - wget -qO /run.sh "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-subdominios/run.sh" && exec sh /run.sh
+      - until wget -T 15 -qO /run.sh "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-subdominios/run.sh"; do echo "sem rede, de novo em 10 s"; sleep 10; done; exec sh /run.sh
