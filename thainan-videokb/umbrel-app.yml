@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.7.1"
+version: "0.8.0"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Selah 0.7.1: Alforje ganhou a opção Recentes: tudo do mais novo pro mais antigo.
+  Selah 0.8.0: o Tudo virou o Retalho, um quadro infinito em grade pra notas, imagens, vídeos e links (colar com Ctrl+V, soltar arquivos, encaixe magnético), com linhas que ligam um card ao outro pela grade e cards que balançam soltos no hover.
 dependencies: []
 path: ""
 defaultUsername: ""
