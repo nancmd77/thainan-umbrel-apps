@@ -4,7 +4,7 @@ name: WAHA
 tagline: API de WhatsApp (motor WEBJS) com dashboard e integração Chatwoot
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-waha/icon.png
 category: social
-version: "2026.10.1-r1"
+version: "2026.10.1-r2"
 port: 8570
 description: >-
   WAHA (WhatsApp HTTP API, devlikeapro) com o motor WEBJS (navegador real, menor risco de bloqueio). Desde 2026.6 os recursos Plus estão na imagem gratuita.
@@ -20,7 +20,7 @@ repo: https://github.com/devlikeapro/waha
 support: https://github.com/devlikeapro/waha/issues
 gallery: []
 releaseNotes: >-
-  Webhook e URL base pelo gateway 10.21.0.1 (o WAHA recusa host com _). WAHA 2026.10.1, motor WEBJS, app Chatwoot ligado.
+  nonve.local aponta pro gateway (anexos do Chatwoot). Webhook e URL base pelo gateway 10.21.0.1 (o WAHA recusa host com _). WAHA 2026.10.1, motor WEBJS, app Chatwoot ligado.
 dependencies: []
 path: "/dashboard"
 defaultUsername: "nan"
