@@ -26,6 +26,19 @@ services:
         8502=nonve-notebook.eu1.netbird.services
         8550=nonve-prospeccao.eu1.netbird.services
         8765=selah.eu1.netbird.services
+        8560=nonve-radar.eu1.netbird.services
+        8095=nonve-adguard.eu1.netbird.services
+        8523=nonve-anytype.eu1.netbird.services
+        5037=nonve-changedetection.eu1.netbird.services
+        9009=nonve-cobalt.eu1.netbird.services
+        8532=nonve-desempenho.eu1.netbird.services
+        8005=nonve-fizzy.eu1.netbird.services
+        2283=nonve-immich.eu1.netbird.services
+        3063=nonve-maybe.eu1.netbird.services
+        8479=nonve-netbird.eu1.netbird.services
+        3435=nonve-obsidian.eu1.netbird.services
+        3064=nonve-sure.eu1.netbird.services
+        8790=nonve-acesso.eu1.netbird.services
     entrypoint: ["/bin/sh", "-c"]
     command:
       - wget -qO /run.sh "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-subdominios/run.sh" && exec sh /run.sh
