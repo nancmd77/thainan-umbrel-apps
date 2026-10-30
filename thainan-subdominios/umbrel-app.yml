@@ -4,7 +4,7 @@ name: Acesso Remoto
 tagline: Dashboard do Umbrel por fora, com os tiles abrindo os endereços públicos
 icon: https://github.com/caddyserver.png
 category: Networking
-version: "2.0.2"
+version: "2.0.3"
 port: 8790
 description: >-
   Fica na frente do dashboard do Umbrel (porta 8791, publicada no NetBird como
