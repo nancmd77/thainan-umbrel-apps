@@ -6,6 +6,10 @@ services:
       APP_PORT: 3000
       PROXY_AUTH_ADD: "false"
 
+  # Segredos (SECRET_KEY_BASE, POSTGRES_PASSWORD, REDIS_URL no rails e no sidekiq;
+  # POSTGRES_PASSWORD no postgres; REDIS_PASSWORD no redis) NAO ficam neste repo:
+  # entram pelo env custom do app no Umbrel (Configuracoes do app). Sem eles o
+  # Chatwoot nem sobe (fica esperando).
   rails:
     image: chatwoot/chatwoot:v4.19.1
     restart: on-failure
@@ -16,12 +20,15 @@ services:
     command:
       - sh
       - -c
-      - bundle exec rails db:chatwoot_prepare && bundle exec rails s -p 3000 -b 0.0.0.0
+      - |
+        while [ -z "$$SECRET_KEY_BASE" ] || [ -z "$$POSTGRES_PASSWORD" ] || [ -z "$$REDIS_URL" ]; do
+          echo "aguardando os segredos no env custom do app (SECRET_KEY_BASE, POSTGRES_PASSWORD, REDIS_URL)"; sleep 60
+        done
+        bundle exec rails db:chatwoot_prepare && exec bundle exec rails s -p 3000 -b 0.0.0.0
     environment:
       NODE_ENV: production
       RAILS_ENV: production
       INSTALLATION_ENV: docker
-      SECRET_KEY_BASE: "e9d742e78dcdbf60910b637eddbc0baf450d42a7f3b35264e82127cbebe4134c6058b81ad2417e071ac6b761f99142f52a6d721b0795fd887962d21ec5e5b4cc"
       FRONTEND_URL: "http://${DEVICE_DOMAIN_NAME}:3000"
       FORCE_SSL: "false"
       ENABLE_ACCOUNT_SIGNUP: "false"
@@ -32,8 +39,6 @@ services:
       POSTGRES_PORT: "5432"
       POSTGRES_DATABASE: chatwoot
       POSTGRES_USERNAME: postgres
-      POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
-      REDIS_URL: "redis://:bd3eba2d8a374c8b63af2504b556f6ea@thainan-chatwoot_redis_1:6379"
       RAILS_LOG_TO_STDOUT: "true"
       # WAHA e n8n ficam na rede interna do Umbrel; sem isso o SafeFetch (v4.14+) recusa o webhook do inbox.
       SAFE_FETCH_ALLOW_PRIVATE_NETWORK: "true"
@@ -46,20 +51,24 @@ services:
     depends_on:
       - postgres
       - redis
-    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    command:
+      - sh
+      - -c
+      - |
+        while [ -z "$$SECRET_KEY_BASE" ] || [ -z "$$POSTGRES_PASSWORD" ] || [ -z "$$REDIS_URL" ]; do
+          echo "aguardando os segredos no env custom do app (SECRET_KEY_BASE, POSTGRES_PASSWORD, REDIS_URL)"; sleep 60
+        done
+        exec bundle exec sidekiq -C config/sidekiq.yml
     environment:
       NODE_ENV: production
       RAILS_ENV: production
       INSTALLATION_ENV: docker
-      SECRET_KEY_BASE: "e9d742e78dcdbf60910b637eddbc0baf450d42a7f3b35264e82127cbebe4134c6058b81ad2417e071ac6b761f99142f52a6d721b0795fd887962d21ec5e5b4cc"
       FRONTEND_URL: "http://${DEVICE_DOMAIN_NAME}:3000"
       FORCE_SSL: "false"
       POSTGRES_HOST: thainan-chatwoot_postgres_1
       POSTGRES_PORT: "5432"
       POSTGRES_DATABASE: chatwoot
       POSTGRES_USERNAME: postgres
-      POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
-      REDIS_URL: "redis://:bd3eba2d8a374c8b63af2504b556f6ea@thainan-chatwoot_redis_1:6379"
       RAILS_LOG_TO_STDOUT: "true"
       # WAHA e n8n ficam na rede interna do Umbrel; sem isso o SafeFetch (v4.14+) recusa o webhook do inbox.
       SAFE_FETCH_ALLOW_PRIVATE_NETWORK: "true"
@@ -72,7 +81,6 @@ services:
     environment:
       POSTGRES_DB: chatwoot
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "45dc869f8b575afb2ace52f87f09a4de"
     volumes:
       - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -84,6 +92,12 @@ services:
   redis:
     image: redis:alpine
     restart: on-failure
-    command: ["redis-server", "--requirepass", "bd3eba2d8a374c8b63af2504b556f6ea"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --requirepass "$$REDIS_PASSWORD"
+        fi
+        exec redis-server --protected-mode yes --bind 127.0.0.1
     volumes:
       - ${APP_DATA_DIR}/data/redis:/data
