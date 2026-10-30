@@ -42,11 +42,11 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.6.6
+      REF: selah-v0.7.0
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
-      # Papiro: texto completo pelo leitor (Scrapling) e resumo em pt pelo 9Router da config do Video KB (só leitura)
+      # Papiro: texto completo pelo leitor (Scrapling); filtro por interesse e resumo em pt pelo 9Router da config do Video KB (só leitura)
       LEITOR_URL: http://thainan-videokb_leitor_1:8790
       VKB_CONFIG: /vkb/config.json
     volumes:
@@ -55,16 +55,18 @@ services:
       - ${APP_DATA_DIR}/../thainan-video-kb/data/cerebro:/cerebro:ro
       - ${APP_DATA_DIR}/../thainan-video-kb/data/config.json:/vkb/config.json:ro
   leitor:
-    # Papiro: lê as matérias do AlternativeTo (atrás do Cloudflare) com o Scrapling leve, sem navegador; só a rede interna usa
+    # Papiro: lê as matérias do AlternativeTo com o Scrapling leve; feeds bloqueados (LTT) pelo navegador como último recurso; só a rede interna usa
     image: python:3.13-slim
     restart: on-failure
     environment:
       PORT: "8790"
       CEREBRO_DIR: /cerebro
       MINI_DIR: /leitor/mini
-      REF: selah-v0.6.6
+      REF: selah-v0.7.0
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
+      PLAYWRIGHT_BROWSERS_PATH: /leitor/browsers
+      DEBIAN_FRONTEND: noninteractive
     volumes:
       - ${APP_DATA_DIR}:/bundle:ro
       - ${APP_DATA_DIR}/leitor:/leitor
@@ -85,4 +87,13 @@ services:
         [ -f /leitor/pylib/.v0.5 ] || { pip install -q --target /leitor/pylib scrapling==0.5 curl_cffi==0.16.3 patchright==1.64.2 browserforge==1.2.4 && touch /leitor/pylib/.v0.5; }
         # Pillow pras miniaturas das capas (0.6.2)
         [ -f /leitor/pylib/.pil12 ] || { pip install -q --target /leitor/pylib pillow==12.3.0 && touch /leitor/pylib/.pil12; }
-        PYTHONPATH=/leitor/pylib exec python -u /leitor/leitor.py
+        # 0.7: navegador (Chromium do patchright) pro feed da LTT (Cloudflare "managed"). Instala em 2º plano e sem travar:
+        # se falhar, só a LTT fica de fora e o resto do leitor segue normal. Libs do Python e navegador ficam no volume;
+        # as libs do sistema (apt) voltam a ser instaladas só quando o container é recriado.
+        (
+          [ -f /leitor/pynav/.v07 ] || { pip install -q --target /leitor/pynav playwright==1.64.1 apify-fingerprint-datapoints==0.15.0 msgspec==0.22.0 anyio==4.15.1 protego==0.7.0 click==8.5.0 && touch /leitor/pynav/.v07; } &&
+          { [ -f /opt/.navdeps ] || { PYTHONPATH=/leitor/pylib:/leitor/pynav python -m patchright install-deps chromium >/tmp/navdeps.log 2>&1 && touch /opt/.navdeps; }; } &&
+          { [ -f /leitor/browsers/.v07 ] || { PYTHONPATH=/leitor/pylib:/leitor/pynav python -m patchright install chromium >/tmp/navbin.log 2>&1 && touch /leitor/browsers/.v07; }; } &&
+          echo "leitor: navegador pronto" || echo "leitor: navegador indisponível, a LTT fica de fora (resto normal)"
+        ) &
+        PYTHONPATH=/leitor/pylib:/leitor/pynav exec python -u /leitor/leitor.py
