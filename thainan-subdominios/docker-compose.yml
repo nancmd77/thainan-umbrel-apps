@@ -10,9 +10,16 @@ services:
     restart: unless-stopped
     ports:
       - "8791:80"
+      - "8792-8796:8792-8796"
     environment:
       UPSTREAM: "10.203.0.1:80"
       INTERVAL: "300"
+      DIRETOS: >-
+        8792=changedetection-io_app_1:5000
+        8793=obsidian_server_1:3000
+        8794=netbird_web_1:80
+        8795=thainan-anytype_web_1:8080
+        8796=10.21.0.1:8532
       REF: main
       TILES: >-
         20128=nonve-9router.eu1.netbird.services
