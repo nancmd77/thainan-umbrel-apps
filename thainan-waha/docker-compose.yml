@@ -14,6 +14,9 @@ services:
     image: devlikeapro/waha:latest@sha256:2fc1787ddbd343ed2e7d59482846d1b22aa5ca134e29aa8d42d0e88c54e24779
     restart: unless-stopped
     shm_size: "1gb"
+    extra_hosts:
+      # anexos do Chatwoot vêm com FRONTEND_URL http://nonve.local:3000
+      - "nonve.local:10.21.0.1"
     stop_grace_period: 30s
     depends_on:
       - redis
