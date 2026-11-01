@@ -4,7 +4,7 @@ name: Anamnese
 tagline: Base de conhecimento pessoal do nan (lembranças, wiki, busca e MCP)
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-anamnese/icon.png
 category: developer
-version: "0.1.0"
+version: "0.1.1"
 port: 8590
 description: >-
   Anamnese guarda o que entra das fontes (sessões dos agentes, Video KB, gravações de voz) como bruto, segmentos e lembranças

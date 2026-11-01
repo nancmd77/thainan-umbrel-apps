@@ -20,7 +20,7 @@ TEMAS = ["Lume e Roberta", "Homelab", "Fé e leitura", "Trabalho", "Saúde e cas
 FONTES = {"sessoes": "Sessões dos agentes", "videokb": "Video KB", "audio": "Áudios", "manual": "Manual", "mcp": "MCP"}
 LOCK = threading.Lock()
 WAKE = threading.Event()
-VERSAO = "0.1.0"
+VERSAO = "0.1.1"
 
 
 def log(*a):
@@ -59,7 +59,7 @@ def init():
         CREATE INDEX IF NOT EXISTS l_tema ON lembranca(tema, criado);
         CREATE INDEX IF NOT EXISTS b_estado ON bruto(estado);
         """)
-    q("UPDATE bruto SET estado='fila' WHERE estado='rodando'")
+    q("UPDATE bruto SET estado='fila' WHERE estado IN ('rodando', 'erro')")
 
 
 def kv(k, v=None):
@@ -87,7 +87,11 @@ def http(method, url, headers, body=None, timeout=180):
     data = body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode()
     r = urllib.request.Request(url, data=data, method=method, headers=headers)
     with urllib.request.urlopen(r, timeout=timeout) as resp:
-        return json.loads(resp.read() or b"{}")
+        raw = resp.read()
+    try:
+        return json.loads(raw or b"{}")
+    except ValueError:
+        raise RuntimeError("resposta não-JSON de " + url.split("/")[2] + ": " + raw[:200].decode("utf-8", "replace"))
 
 
 def llm_json(sistema, usuario, timeout=240):
@@ -95,10 +99,12 @@ def llm_json(sistema, usuario, timeout=240):
     if not c.get("llm_key"):
         raise RuntimeError("sem chave do 9Router na config do Video KB")
     url = (c.get("llm_url") or "http://thainan-9router_web_1:20128/v1").rstrip("/") + "/chat/completions"
-    body = {"model": c.get("model") or "ag/gemini-3.8-flash-high", "temperature": 0.2, "response_format": {"type": "json_object"},
+    body = {"model": c.get("model") or "ag/gemini-3.8-flash-high", "stream": False, "temperature": 0.2, "response_format": {"type": "json_object"},
             "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": usuario}]}
     r = http("POST", url, {"Authorization": "Bearer " + c["llm_key"], "Content-Type": "application/json"}, body, timeout)
-    txt = r["choices"][0]["message"]["content"]
+    txt = ((r.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    if not txt.strip():
+        raise RuntimeError("IA respondeu vazio: " + json.dumps(r)[:200])
     m = re.search(r"\{.*\}", txt, re.S)
     return json.loads(m.group(0) if m else txt)
 
