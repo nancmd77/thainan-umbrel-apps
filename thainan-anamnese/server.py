@@ -20,7 +20,7 @@ TEMAS = ["Lume e Roberta", "Homelab", "Fé e leitura", "Trabalho", "Saúde e cas
 FONTES = {"sessoes": "Sessões dos agentes", "videokb": "Video KB", "audio": "Áudios", "manual": "Manual", "mcp": "MCP"}
 LOCK = threading.Lock()
 WAKE = threading.Event()
-VERSAO = "0.2.2"
+VERSAO = "0.3.0"
 
 
 def log(*a):
@@ -59,7 +59,17 @@ def init():
         CREATE INDEX IF NOT EXISTS l_tema ON lembranca(tema, criado);
         CREATE INDEX IF NOT EXISTS b_estado ON bruto(estado);
         """)
+    cols = {r["name"] for r in q("PRAGMA table_info(lembranca)")}
+    for col, tipo in (("reel", "TEXT"), ("t_ini", "REAL"), ("t_fim", "REAL")):
+        if col not in cols:
+            q(f"ALTER TABLE lembranca ADD COLUMN {col} {tipo}")
+    q("CREATE INDEX IF NOT EXISTS l_reel ON lembranca(reel, t_ini)")
     q("UPDATE bruto SET estado='fila' WHERE estado IN ('rodando', 'erro')")
+    if kv("vkb_formato") != "2":  # Selah fase 1: vídeos com id do reel e tempos; refaz tudo o que veio do Video KB
+        for r in q("SELECT id FROM bruto WHERE fonte='videokb'"):
+            limpar_bruto(r["id"])
+            q("DELETE FROM bruto WHERE id=?", (r["id"],))
+        kv("vkb_desde", 0); kv("vkb_formato", "2")
 
 
 def kv(k, v=None):
@@ -188,7 +198,9 @@ SIS_EXTRAI = (
     "Responda SOMENTE JSON: {\"lembrancas\": [{\"texto\": str, \"tema\": um de TEMAS, \"pessoas\": [nomes], "
     "\"quando\": \"AAAA-MM-DD\" ou \"\", \"substitui\": [ids das lembranças EXISTENTES que esta torna falsas ou desatualizadas]}]}. "
     "No máximo 12 lembranças; nenhuma se não houver nada durável. O nan (Thainan) é o dono da base: nunca o coloque em pessoas "
-    "e não comece frases com 'Thainan salvou', 'Vídeo salvo por Thainan' ou parecido; escreva o conhecimento direto (de quem é a ideia, o que diz)."
+    "e não comece frases com 'Thainan salvou', 'Vídeo salvo por Thainan' ou parecido; escreva o conhecimento direto (de quem é a ideia, o que diz). "
+    "Quando o texto for um vídeo com marcas [mm:ss] na transcrição, cada lembrança leva também \"t\": a marca de onde ela saiu, "
+    "em segundos (inteiro). Se saiu do resumo e não de um trecho, use a marca do trecho que melhor a sustenta."
 )
 
 
@@ -219,6 +231,10 @@ def processar(b):
                f"LEMBRANÇAS EXISTENTES PARECIDAS: {json.dumps([{'id': v['id'], 'texto': v['texto']} for v in viz], ensure_ascii=False)}\n"
                f"TÍTULO: {b['titulo']}\nTEXTO:\n{texto}")
     out = llm_json(SIS_EXTRAI, usuario).get("lembrancas") or []
+    try:
+        meta = json.loads(b.get("meta") or "{}")
+    except (ValueError, TypeError):
+        meta = {}
     ids_viz = {v["id"] for v in viz}
     for l in out[:12]:
         t = str(l.get("texto") or "").strip()[:300]
@@ -226,8 +242,10 @@ def processar(b):
             continue
         tema = decider_tema(t, next((x for x in TEMAS if fold(x) == fold(l.get("tema"))), "Ideias"))
         pessoas = [str(p).strip()[:60] for p in (l.get("pessoas") or []) if str(p).strip() and fold(str(p)) not in ("thainan", "nan", "thainan caldeira", "thainan dos santos caldeira")][:8]
-        lid = q("INSERT INTO lembranca(bruto_id, texto, tema, pessoas, quando, criado) VALUES(?,?,?,?,?,?)",
-                (bid, t, tema, json.dumps(pessoas, ensure_ascii=False), str(l.get("quando") or "")[:10], b["criado"]))[0]["id"]
+        reel = meta.get("reel") if b["fonte"] == "videokb" else None
+        t_ini, t_fim = trecho(meta, l.get("t")) if reel else (None, None)
+        lid = q("INSERT INTO lembranca(bruto_id, texto, tema, pessoas, quando, criado, reel, t_ini, t_fim) VALUES(?,?,?,?,?,?,?,?,?)",
+                (bid, t, tema, json.dumps(pessoas, ensure_ascii=False), str(l.get("quando") or "")[:10], b["criado"], reel, t_ini, t_fim))[0]["id"]
         q("INSERT INTO lembranca_fts(rowid, texto) VALUES(?,?)", (lid, t))
         for old in l.get("substitui") or []:
             if isinstance(old, int) and old in ids_viz:
@@ -253,14 +271,24 @@ def processar(b):
 def limpar_bruto(bid):
     """Refazer de verdade: apaga o que esse bruto gerou (lembranças, ligações, segmentos) e põe na fila."""
     ids = [r["id"] for r in q("SELECT id FROM lembranca WHERE bruto_id=?", (bid,))]
+    refazer_fts = False
     for lid in ids:
-        q("DELETE FROM lembranca_fts WHERE rowid=?", (lid,))
+        try:
+            q("DELETE FROM lembranca_fts WHERE rowid=?", (lid,))
+        except sqlite3.DatabaseError:  # linha fora do índice: reconstrói o índice inteiro no fim
+            refazer_fts = True
         q("DELETE FROM ligacao WHERE a=? OR b=?", (lid, lid))
         q("UPDATE lembranca SET substituida_por=NULL WHERE substituida_por=?", (lid,))
     q("DELETE FROM lembranca WHERE bruto_id=?", (bid,))
-    q("DELETE FROM segmento_fts WHERE rowid IN (SELECT id FROM segmento WHERE bruto_id=?)", (bid,))
+    try:
+        q("DELETE FROM segmento_fts WHERE rowid IN (SELECT id FROM segmento WHERE bruto_id=?)", (bid,))
+    except sqlite3.DatabaseError:
+        refazer_fts = True
     q("DELETE FROM segmento WHERE bruto_id=?", (bid,))
     q("UPDATE bruto SET estado='fila', erro='' WHERE id=?", (bid,))
+    if refazer_fts:
+        q("INSERT INTO lembranca_fts(lembranca_fts) VALUES('rebuild')")
+        q("INSERT INTO segmento_fts(segmento_fts) VALUES('rebuild')")
 
 
 def entrar(fonte, ext_id, titulo, texto, criado=None, meta=None):
@@ -285,6 +313,23 @@ def entrar(fonte, ext_id, titulo, texto, criado=None, meta=None):
 
 
 # ---------- Video KB (só leitura) ----------
+def mmss_s(m):
+    a, b = m.split(":")
+    return int(a) * 60 + int(b)
+
+
+def trecho(meta, t):
+    """Volta (t_ini, t_fim) alinhado às marcas da transcrição; fim = marca seguinte (ou +30 s)."""
+    marcas = sorted(meta.get("marcas") or [])
+    if t is None or not isinstance(t, (int, float)):
+        return None, None
+    t = max(0, int(t))
+    ini = max([m for m in marcas if m <= t], default=t)
+    prox = [m for m in marcas if m > ini]
+    fim = prox[0] if prox else (meta.get("dur") or ini + 30)
+    return float(ini), float(max(fim, ini + 1))
+
+
 def importar_videokb():
     p = os.path.join(VKB, "kb.db")
     if not os.path.exists(p):
@@ -309,10 +354,15 @@ def importar_videokb():
         a = d.get("analysis") or {}
         if not a:
             continue
+        trans = d.get("transcript_t") or d.get("transcript") or ""
         texto = "\n\n".join(x for x in [a.get("titulo", ""), a.get("resumo", ""), "\n".join("- " + str(p) for p in a.get("pontos_chave") or []),
-                                          (d.get("transcript") or "")[:8000]] if x)
+                                          "TRANSCRIÇÃO:\n" + trans[:12000] if trans else ""] if x)
+        marcas = [mmss_s(m) for m in re.findall(r"^\[(\d+:\d\d)\]", trans, re.M)]
+        dur = d.get("duration") or d.get("duracao") or (d.get("meta") or {}).get("duration")
+        meta = {"url": r["url"], "reel": str(r["id"]), "tema_vkb": a.get("tema", ""), "marcas": marcas[:400],
+                "dur": float(dur) if isinstance(dur, (int, float)) else None}
         try:
-            n += entrar("videokb", r["url"], a.get("titulo") or r["url"], texto, r["updated"], {"url": r["url"], "tema_vkb": a.get("tema", "")})[1]
+            n += entrar("videokb", r["url"], a.get("titulo") or r["url"], texto, r["updated"], meta)[1]
         except ValueError:
             pass
         kv("vkb_desde", r["updated"])
@@ -526,7 +576,9 @@ def handler(com_token):
             n = int(self.headers.get("Content-Length") or 0)
             if n > 60_000_000:
                 raise ValueError("corpo grande demais")
-            return self.rfile.read(n) if n else b""
+            if self._lido is None:
+                self._lido = self.rfile.read(n) if n else b""
+            return self._lido
 
         def do_GET(self):
             self.rota("GET")
@@ -538,6 +590,7 @@ def handler(com_token):
             self.rota("DELETE")
 
         def rota(self, metodo):
+            self._lido = None
             u = urlsplit(self.path)
             path, qs = unquote(u.path), {k: v[-1] for k, v in parse_qs(u.query).items()}
             try:
@@ -563,6 +616,12 @@ def handler(com_token):
             except Exception as e:
                 traceback.print_exc()
                 return self.manda(500, {"erro": str(e)})
+            finally:
+                try:  # keep-alive do Funnel: corpo não lido vira lixo no próximo pedido ('{}POST')
+                    if self._lido is None and int(self.headers.get("Content-Length") or 0) <= 60_000_000:
+                        self.corpo()
+                except Exception:
+                    pass
 
         def api(self, metodo, path, qs):
             p = path[5:].strip("/").split("/")
@@ -576,6 +635,9 @@ def handler(com_token):
                 if p[0] == "lembranca" and len(p) == 2:
                     x = uma(int(p[1]))
                     return self.manda(200 if x else 404, x or {"erro": "não achei"})
+                if p[0] == "de_reel" and len(p) == 2:
+                    rows = q("SELECT * FROM lembranca WHERE reel=? AND arquivada=0 ORDER BY t_ini IS NULL, t_ini, id", (p[1],))
+                    return self.manda(200, {"reel": p[1], "total": len(rows), "itens": [lemb(r) for r in rows]})
                 if p == ["temas"]:
                     return self.manda(200, temas())
                 if p == ["grafico"]:
