@@ -20,7 +20,7 @@ TEMAS = ["Lume e Roberta", "Homelab", "Fé e leitura", "Trabalho", "Saúde e cas
 FONTES = {"sessoes": "Sessões dos agentes", "videokb": "Video KB", "audio": "Áudios", "manual": "Manual", "mcp": "MCP"}
 LOCK = threading.Lock()
 WAKE = threading.Event()
-VERSAO = "0.1.1"
+VERSAO = "0.2.0"
 
 
 def log(*a):
@@ -124,6 +124,62 @@ def transcrever(audio, ctype):
     return (r.get("text") or "").strip()
 
 
+# ---------- Decider (igual ao Video KB): escolha fechada, sem texto, via 9Router /v1/systemone ----------
+# Ordem: pplx-decider → jev → microsoft. Abaixo de 85% = incerto. Falhou tudo = None (vale o Gemini).
+DECIDER_MODELOS = ("openrouter/~perplexity/pplx-decider-latest", "openrouter/~typesafe/jev-latest", "openrouter/microsoft/microsoft-decision-1")
+DECIDER_LIMIAR = 0.85
+
+
+def decider_ligado(c=None):
+    c = c if c is not None else vkb_cfg()
+    return str(c.get("decider_on", "1")) != "0" and bool(c.get("llm_key"))
+
+
+def decidir(nome, state, pergunta):
+    """pergunta: {"type": "noul"|"choice", "instructions", "criteria"}. Volta {"valor", "prob", "sim"} ou None (fora do ar/desligado)."""
+    c = vkb_cfg()
+    if not decider_ligado(c):
+        return None
+    url = (c.get("llm_url") or "http://thainan-9router_web_1:20128/v1").rstrip("/") + "/systemone"
+    h = {"Authorization": "Bearer " + c["llm_key"], "Content-Type": "application/json"}
+    for m in DECIDER_MODELOS:
+        try:
+            r = http("POST", url, h, {"model": m, "state": state, "questions": {"q": pergunta}}, timeout=40)
+            a = (r.get("answers") or {}).get("q") or {}
+            if pergunta["type"] == "noul":
+                if not isinstance(a.get("noul"), (int, float)):
+                    raise RuntimeError("resposta sem noul")
+                p = float(a["noul"])
+                out = {"valor": p >= 0.5, "prob": max(p, 1 - p), "sim": p}
+            else:
+                ch = a.get("choice")
+                if ch not in pergunta["criteria"]:
+                    raise RuntimeError("escolha fora da lista")
+                pr = a.get("probabilities") or {}
+                out = {"valor": ch, "prob": float(pr.get(ch, a.get("confidence") or 0))}
+            log(f"decider {nome}: {out['valor']} p={out['prob']:.2f} modelo={str(r.get('model') or m).split('/')[-1]}")
+            return out
+        except Exception as e:
+            log(f"decider {nome} falhou com {m.split('/')[-1]}: {str(e)[:150]}")
+    return None
+
+
+def decider_sim(nome, state, instrucao, sim, nao):
+    """True = Decider confirma (>=85%); False = nega ou está incerto; None = fora do ar (vale o Gemini)."""
+    d = decidir(nome, state, {"type": "noul", "instructions": instrucao, "criteria": {"true": sim, "false": nao}})
+    return None if d is None else d["sim"] >= DECIDER_LIMIAR
+
+
+def decider_tema(texto, tema_gemini):
+    d = decidir(f"tema #{texto[:40]}", {"lembranca": texto, "tema_sugerido": tema_gemini},
+                {"type": "choice", "instructions": "Em qual tema fixo da base pessoal do nan esta lembrança se encaixa melhor?",
+                 "criteria": {t: t for t in TEMAS}})
+    if d and d["valor"] != tema_gemini and d["prob"] >= DECIDER_LIMIAR:
+        log(f"decider trocou tema: {tema_gemini} -> {d['valor']}")
+        return d["valor"]
+    return tema_gemini
+
+
 SIS_EXTRAI = (
     "Você mantém a base de conhecimento pessoal do nan (Thainan). Do texto recebido, extraia LEMBRANÇAS: fatos curtos, "
     "autossuficientes e duráveis (decisões, preferências, estado de projetos, quem é quem, pendências, aprendizados). "
@@ -167,13 +223,20 @@ def processar(b):
         t = str(l.get("texto") or "").strip()[:300]
         if not t:
             continue
-        tema = next((x for x in TEMAS if fold(x) == fold(l.get("tema"))), "Ideias")
+        tema = decider_tema(t, next((x for x in TEMAS if fold(x) == fold(l.get("tema"))), "Ideias"))
         pessoas = [str(p).strip()[:60] for p in (l.get("pessoas") or []) if str(p).strip()][:8]
         lid = q("INSERT INTO lembranca(bruto_id, texto, tema, pessoas, quando, criado) VALUES(?,?,?,?,?,?)",
                 (bid, t, tema, json.dumps(pessoas, ensure_ascii=False), str(l.get("quando") or "")[:10], b["criado"]))[0]["id"]
         q("INSERT INTO lembranca_fts(rowid, texto) VALUES(?,?)", (lid, t))
         for old in l.get("substitui") or []:
             if isinstance(old, int) and old in ids_viz:
+                velha = next(v["texto"] for v in viz if v["id"] == old)
+                ok = decider_sim(f"substitui {lid}->{old}", {"nova": t, "antiga": velha},
+                                 "A lembrança nova torna a antiga falsa ou desatualizada?",
+                                 "Sim: a nova contradiz ou atualiza a antiga.", "Não: as duas continuam valendo.")
+                if ok is False:
+                    log(f"decider barrou substituição {lid}->{old}")
+                    continue
                 q("UPDATE lembranca SET substituida_por=? WHERE id=? AND substituida_por IS NULL", (lid, old))
                 q("INSERT OR IGNORE INTO ligacao VALUES(?,?,?)", (lid, old, "substitui"))
         for p in pessoas:
@@ -304,7 +367,7 @@ def status():
     return {"versao": VERSAO, "lembrancas": q("SELECT COUNT(*) n FROM lembranca WHERE substituida_por IS NULL AND arquivada=0")[0]["n"],
             "substituidas": q("SELECT COUNT(*) n FROM lembranca WHERE substituida_por IS NOT NULL")[0]["n"],
             "arquivadas": q("SELECT COUNT(*) n FROM lembranca WHERE arquivada=1")[0]["n"],
-            "brutos": est, "ia": bool(vkb_cfg().get("llm_key")), "transcricao": bool(vkb_cfg().get("elevenlabs_key")),
+            "brutos": est, "ia": bool(vkb_cfg().get("llm_key")), "decider": decider_ligado(), "transcricao": bool(vkb_cfg().get("elevenlabs_key")),
             "fontes": [{"id": k, "nome": v, "brutos": f.get(k, {}).get("n", 0), "ultimo": f.get(k, {}).get("ultimo")} for k, v in FONTES.items()],
             "temas": temas(), "ultima_gravacao": (q("SELECT MAX(criado) m FROM bruto WHERE fonte='audio'")[0]["m"])}
 
@@ -439,8 +502,11 @@ def handler(com_token):
         def autorizado(self):
             if not com_token:
                 return True
-            t = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
-            return bool(TOKEN_SHA) and hashlib.sha256(t.encode()).hexdigest() == TOKEN_SHA
+            if not TOKEN_SHA:
+                return False
+            # X-Anamnese-Token (sem prefixo) existe porque o Hark injeta outro Bearer no host do Funnel; basta um bater
+            ts = [(self.headers.get("Authorization") or "").removeprefix("Bearer ").strip(), (self.headers.get("X-Anamnese-Token") or "").strip()]
+            return any(t and hashlib.sha256(t.encode()).hexdigest() == TOKEN_SHA for t in ts)
 
         def corpo(self):
             n = int(self.headers.get("Content-Length") or 0)
