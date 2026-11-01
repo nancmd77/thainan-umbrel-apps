@@ -20,7 +20,7 @@ TEMAS = ["Lume e Roberta", "Homelab", "Fé e leitura", "Trabalho", "Saúde e cas
 FONTES = {"sessoes": "Sessões dos agentes", "videokb": "Video KB", "audio": "Áudios", "manual": "Manual", "mcp": "MCP"}
 LOCK = threading.Lock()
 WAKE = threading.Event()
-VERSAO = "0.2.1"
+VERSAO = "0.2.2"
 
 
 def log(*a):
@@ -248,6 +248,19 @@ def processar(b):
         q("INSERT OR IGNORE INTO ligacao VALUES(?,?,?)", (y, x, "mesma fonte"))
     q("UPDATE bruto SET estado='pronto', erro='' WHERE id=?", (bid,))
     log("processado", bid, b["fonte"], len(out), "lembranças")
+
+
+def limpar_bruto(bid):
+    """Refazer de verdade: apaga o que esse bruto gerou (lembranças, ligações, segmentos) e põe na fila."""
+    ids = [r["id"] for r in q("SELECT id FROM lembranca WHERE bruto_id=?", (bid,))]
+    for lid in ids:
+        q("DELETE FROM lembranca_fts WHERE rowid=?", (lid,))
+        q("DELETE FROM ligacao WHERE a=? OR b=?", (lid, lid))
+        q("UPDATE lembranca SET substituida_por=NULL WHERE substituida_por=?", (lid,))
+    q("DELETE FROM lembranca WHERE bruto_id=?", (bid,))
+    q("DELETE FROM segmento_fts WHERE rowid IN (SELECT id FROM segmento WHERE bruto_id=?)", (bid,))
+    q("DELETE FROM segmento WHERE bruto_id=?", (bid,))
+    q("UPDATE bruto SET estado='fila', erro='' WHERE id=?", (bid,))
 
 
 def entrar(fonte, ext_id, titulo, texto, criado=None, meta=None):
@@ -594,7 +607,7 @@ def handler(com_token):
                     q("UPDATE lembranca SET arquivada=? WHERE id=?", (1 if p[2] == "arquivar" else 0, int(p[1])))
                     return self.manda(200, {"ok": True})
                 if p[0] == "bruto" and len(p) == 3 and p[2] == "refazer":
-                    q("UPDATE bruto SET estado='fila' WHERE id=?", (int(p[1]),)); WAKE.set()
+                    limpar_bruto(int(p[1])); WAKE.set()
                     return self.manda(200, {"ok": True})
             return self.manda(404, {"erro": "rota não existe"})
 
