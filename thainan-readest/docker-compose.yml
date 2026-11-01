@@ -124,7 +124,7 @@ services:
       - mc alias set myminio http://minio:9000 readest REMOVIDO-SEGREDO && mc mb --ignore-existing myminio/readest-files
 
   client:
-    image: ghcr.io/readest/readest:latest@sha256:1285f255ff5b4497fade1af21cc5d2747cc4e71d598e5392d6176a18c62ebaae
+    image: ghcr.io/readest/readest:latest@sha256:5d6b2e903a349ed20d7bb7535e53aafb417fb0b0eba75ee1f05f7d269cb24f10
     restart: on-failure
     environment:
       SUPABASE_URL: http://kong:8000
