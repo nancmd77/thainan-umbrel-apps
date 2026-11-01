@@ -20,7 +20,7 @@ TEMAS = ["Lume e Roberta", "Homelab", "Fé e leitura", "Trabalho", "Saúde e cas
 FONTES = {"sessoes": "Sessões dos agentes", "videokb": "Video KB", "audio": "Áudios", "manual": "Manual", "mcp": "MCP"}
 LOCK = threading.Lock()
 WAKE = threading.Event()
-VERSAO = "0.2.0"
+VERSAO = "0.2.1"
 
 
 def log(*a):
@@ -187,7 +187,8 @@ SIS_EXTRAI = (
     "em português do Brasil, com nomes próprios explícitos (nunca 'ele', 'isso'). "
     "Responda SOMENTE JSON: {\"lembrancas\": [{\"texto\": str, \"tema\": um de TEMAS, \"pessoas\": [nomes], "
     "\"quando\": \"AAAA-MM-DD\" ou \"\", \"substitui\": [ids das lembranças EXISTENTES que esta torna falsas ou desatualizadas]}]}. "
-    "No máximo 12 lembranças; nenhuma se não houver nada durável."
+    "No máximo 12 lembranças; nenhuma se não houver nada durável. O nan (Thainan) é o dono da base: nunca o coloque em pessoas "
+    "e não comece frases com 'Thainan salvou', 'Vídeo salvo por Thainan' ou parecido; escreva o conhecimento direto (de quem é a ideia, o que diz)."
 )
 
 
@@ -224,7 +225,7 @@ def processar(b):
         if not t:
             continue
         tema = decider_tema(t, next((x for x in TEMAS if fold(x) == fold(l.get("tema"))), "Ideias"))
-        pessoas = [str(p).strip()[:60] for p in (l.get("pessoas") or []) if str(p).strip()][:8]
+        pessoas = [str(p).strip()[:60] for p in (l.get("pessoas") or []) if str(p).strip() and fold(str(p)) not in ("thainan", "nan", "thainan caldeira", "thainan dos santos caldeira")][:8]
         lid = q("INSERT INTO lembranca(bruto_id, texto, tema, pessoas, quando, criado) VALUES(?,?,?,?,?,?)",
                 (bid, t, tema, json.dumps(pessoas, ensure_ascii=False), str(l.get("quando") or "")[:10], b["criado"]))[0]["id"]
         q("INSERT INTO lembranca_fts(rowid, texto) VALUES(?,?)", (lid, t))
