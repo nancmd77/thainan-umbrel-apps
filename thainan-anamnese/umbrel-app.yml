@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-anamnese
+name: Anamnese
+tagline: Base de conhecimento pessoal do nan (lembranças, wiki, busca e MCP)
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-anamnese/icon.png
+category: developer
+version: "0.1.0"
+port: 8590
+description: >-
+  Anamnese guarda o que entra das fontes (sessões dos agentes, Video KB, gravações de voz) como bruto, segmentos e lembranças
+  (método Saraev: SQLite FTS5/BM25 com recência). Uma lembrança nova pode substituir a antiga. Wiki por tema compilada só quando você pede.
+
+  Telas pela porta do app (com login do Umbrel). API e MCP (buscar, gravar, status) na porta 8591 com Bearer token.
+  IA e transcrição usam as chaves já salvas no Video KB (9Router e ElevenLabs), só leitura.
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nancmd77/thainan-umbrel-apps
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão: banco, API, MCP e importação do Video KB.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

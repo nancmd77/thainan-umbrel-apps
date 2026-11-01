@@ -1,0 +1,44 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-anamnese_web_1
+      APP_PORT: 8590
+  web:
+    image: python:3.12-slim
+    restart: unless-stopped
+    ports:
+      # API + MCP com token (VM Roberta, Hark). As telas só passam pelo app_proxy (login do Umbrel) na 8590.
+      - "8591:8591"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+      # Video KB só leitura: importa os vídeos prontos e usa as chaves dele (9Router e ElevenLabs)
+      - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
+    environment:
+      REF: main
+      DATA_DIR: /data
+      WEB_DIR: /app/web
+      VKB_DIR: /vkb
+      UI_PORT: "8590"
+      API_PORT: "8591"
+      TOKEN_SHA256: "4e04c56d7286b582a48099c62c496b93cffb17943a217ef6d62c5c200f0427a3"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/boot.py <<'PY'
+        import os, shutil, time, urllib.request
+        B = "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/" + os.environ.get("REF", "main") + "/thainan-anamnese/"
+        F = ["server.py"] + ["web/anamnese-%s.html" % t for t in ("inicio", "gaveta", "indexacao-liquid", "wiki-arvore", "gravar", "tempo", "conexoes-aura", "grafico")]
+        for f in F:
+            dst, cache = "/app/" + f, "/data/cache/" + f
+            os.makedirs(os.path.dirname(dst), exist_ok=True); os.makedirs(os.path.dirname(cache), exist_ok=True)
+            for t in range(20):
+                try:
+                    b = urllib.request.urlopen(B + f + "?t=%d" % time.time(), timeout=90).read()
+                    open(dst, "wb").write(b); open(cache, "wb").write(b); print("baixado", f, len(b), flush=True); break
+                except Exception as e:
+                    if os.path.exists(cache) and t >= 2:
+                        shutil.copyfile(cache, dst); print("usando cache", f, e, flush=True); break
+                    time.sleep(10)
+        PY
+        python -u /tmp/boot.py && exec python -u /app/server.py
