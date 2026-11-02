@@ -127,12 +127,14 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
   addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()=='k'){const i=D.querySelector('.search input');if(i){e.preventDefault();i.focus();i.select()}}})}
  /* lista simples de resultados para telas sem lista própria */
  function lista(r,onPick){const its=(r.lembrancas||[]).map(l=>({t:l.texto,s:`${l.tema} · ${l.fonte_nome||''} · ${dataCurta(l.criado)}`,id:l.id}))
-   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`})));
+   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`,q:t.titulo||''})));
   const ul=D.createElement('ul');ul.className='anlist';ul.innerHTML=its.slice(0,12).map((x,k)=>`<li><button type="button" data-k="${k}"><span>${esc(x.t)}</span><small>${esc(x.s)}</small></button></li>`).join('');
-  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>onPick&&onPick(its[+b.dataset.k]));return ul}
+  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>(onPick||abrir)(its[+b.dataset.k]));return ul}
+ /* abre a lembrança (id) ou o vídeo/áudio do trecho (q) na gaveta */
+ function abrir(x){const h=x&&x.id?'anamnese-gaveta.html?id='+encodeURIComponent(x.id):x&&x.q?'anamnese-gaveta.html?q='+encodeURIComponent(x.q):'anamnese-gaveta.html';window.anTExit?anTExit(h):location.href=h}
  const pronto=f=>D.readyState=='loading'?D.addEventListener('DOMContentLoaded',f):f();
  pronto(()=>{moldura();busca()});
- return {fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
+ return {abrir,fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
 </script><!--/API-->
 </head><body>
 <div class="app">
@@ -231,8 +233,8 @@ function frame(now){const t=(now-t0)/1000;cx.setTransform(DPR,0,0,DPR,0,0);cx.cl
  // glow externo do centro: respira e pisca
  const br=.5+.5*Math.sin(t*1.25),fl=.86+.14*Math.sin(t*23.1)*Math.sin(t*7.7)+(rnd()<.03?-.18:0);
  cx.globalCompositeOperation="lighter";
- let g=cx.createRadialGradient(W/2,H/2,0,W/2,H/2,R*(.62+.1*br));g.addColorStop(0,`rgba(255,255,255,${.16*fl})`);g.addColorStop(.35,`rgba(255,255,255,${.06*fl+.02*br})`);g.addColorStop(1,"rgba(255,255,255,0)");
- cx.fillStyle=g;cx.fillRect(0,0,W,H);
+ const gr=R*(.62+.1*br);let g=cx.createRadialGradient(W/2,H/2,0,W/2,H/2,gr);g.addColorStop(0,`rgba(255,255,255,${.16*fl})`);g.addColorStop(.35,`rgba(255,255,255,${.06*fl+.02*br})`);g.addColorStop(1,"rgba(255,255,255,0)");
+ cx.fillStyle=g;cx.fillRect(W/2-gr,H/2-gr,gr*2,gr*2);
  const dim=act>=0?.45:1;
  drawAtmo(t,dim,fl);cx.globalCompositeOperation="lighter";
  // partículas do centro: acendem do lado que encara a luz (ref r5)
@@ -308,7 +310,7 @@ function render(){let h;
  else{const n=N[sel];h=`<div class="meta"><span>${AN.esc(n[1])}</span><span>${AN.esc(n[2])}</span></div><h2>${AN.esc(n[0])}</h2><p>${AN.esc(n[5])}</p>
   <dl><dt>Data</dt><dd>${n[3]}</dd><dt>Ligações</dt><dd>${nb[sel].length}</dd></dl>
   <div class="sub">Ligada a</div>${nb[sel].length?`<ul class="lk">${nb[sel].map(li).join("")}</ul>`:AN.msg("vazio","Sem ligações ainda")}<button class="cta" type="button">Abrir lembrança</button>`}
- det.innerHTML=h;det.querySelectorAll(".lk button").forEach(b=>{const j=+b.dataset.j;b.onclick=()=>select(j);b.onmouseenter=()=>{focusFromList=j;focus=j;inside=true;mx=nodes[j].sx;my=nodes[j].sy};b.onmouseleave=()=>{focus=-1;inside=false}})}
+ det.innerHTML=h;const cta=det.querySelector(".cta");if(cta)cta.onclick=()=>AN.abrir({id:N[sel][6]});det.querySelectorAll(".lk button").forEach(b=>{const j=+b.dataset.j;b.onclick=()=>select(j);b.onmouseenter=()=>{focusFromList=j;focus=j;inside=true;mx=nodes[j].sx;my=nodes[j].sy};b.onmouseleave=()=>{focus=-1;inside=false}})}
 let focusFromList=-1;
 const lockB=$("lock");function toggleLock(){locked=!locked;vy=0;vp=0;lockB.setAttribute("aria-pressed",locked);lockB.firstChild.textContent=locked?"Giro travado ":"Travar giro "}
 lockB.onclick=toggleLock;

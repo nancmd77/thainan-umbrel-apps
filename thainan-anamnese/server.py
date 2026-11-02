@@ -5,9 +5,9 @@ Só stdlib. Duas portas:
   API_PORT (8591): /api e /mcp com Bearer token (VM Roberta, Hark). Token conferido por sha256 (TOKEN_SHA256).
 IA: 9Router e ElevenLabs lidos da config do Video KB (montada só leitura em /vkb).
 """
-import hashlib, json, math, os, re, sqlite3, threading, time, traceback, unicodedata, uuid
+import hashlib, hmac, json, math, os, re, sqlite3, threading, time, traceback, unicodedata, uuid
 import urllib.request
-from contextlib import closing
+from contextlib import closing, nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -33,7 +33,9 @@ def fold(s):
 
 # ---------- banco ----------
 def q(sql, args=()):
-    with LOCK, closing(sqlite3.connect(DB, timeout=30)) as c:
+    # leitura não pega o LOCK: o WAL deixa vários leitores em paralelo com 1 escritor; só escrita é serializada
+    leitura = sql.lstrip()[:6].upper() in ("SELECT", "PRAGMA")
+    with (nullcontext() if leitura else LOCK), closing(sqlite3.connect(DB, timeout=30)) as c:
         c.row_factory = sqlite3.Row
         cur = c.execute(sql, args)
         rows = [dict(r) for r in cur.fetchall()]
@@ -58,6 +60,10 @@ def init():
         CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
         CREATE INDEX IF NOT EXISTS l_tema ON lembranca(tema, criado);
         CREATE INDEX IF NOT EXISTS b_estado ON bruto(estado);
+        CREATE INDEX IF NOT EXISTS lig_b ON ligacao(b);
+        CREATE INDEX IF NOT EXISTS l_bruto ON lembranca(bruto_id);
+        CREATE INDEX IF NOT EXISTS l_subst ON lembranca(substituida_por);
+        CREATE INDEX IF NOT EXISTS s_bruto ON segmento(bruto_id);
         """)
     cols = {r["name"] for r in q("PRAGMA table_info(lembranca)")}
     for col, tipo in (("reel", "TEXT"), ("t_ini", "REAL"), ("t_fim", "REAL")):
@@ -138,6 +144,7 @@ def transcrever(audio, ctype):
 # Ordem: pplx-decider → jev → microsoft. Abaixo de 85% = incerto. Falhou tudo = None (vale o Gemini).
 DECIDER_MODELOS = ("openrouter/~perplexity/pplx-decider-latest", "openrouter/~typesafe/jev-latest", "openrouter/microsoft/microsoft-decision-1")
 DECIDER_LIMIAR = 0.85
+DECIDER_FORA = {"ate": 0.0}  # os 3 modelos caíram: pula o Decider por 2 min em vez de gastar 3 x 40 s por lembrança
 
 
 def decider_ligado(c=None):
@@ -148,7 +155,7 @@ def decider_ligado(c=None):
 def decidir(nome, state, pergunta):
     """pergunta: {"type": "noul"|"choice", "instructions", "criteria"}. Volta {"valor", "prob", "sim"} ou None (fora do ar/desligado)."""
     c = vkb_cfg()
-    if not decider_ligado(c):
+    if not decider_ligado(c) or time.time() < DECIDER_FORA["ate"]:
         return None
     url = (c.get("llm_url") or "http://thainan-9router_web_1:20128/v1").rstrip("/") + "/systemone"
     h = {"Authorization": "Bearer " + c["llm_key"], "Content-Type": "application/json"}
@@ -171,6 +178,7 @@ def decidir(nome, state, pergunta):
             return out
         except Exception as e:
             log(f"decider {nome} falhou com {m.split('/')[-1]}: {str(e)[:150]}")
+    DECIDER_FORA["ate"] = time.time() + 120
     return None
 
 
@@ -221,6 +229,8 @@ def segmentar(texto, alvo=1400):
 def processar(b):
     bid = b["id"]
     q("UPDATE bruto SET estado='rodando' WHERE id=?", (bid,))
+    q("DELETE FROM segmento_fts WHERE rowid IN (SELECT id FROM segmento WHERE bruto_id=?)", (bid,))  # reprocesso (reinício/erro) não duplica
+    q("DELETE FROM segmento WHERE bruto_id=?", (bid,))
     for i, s in enumerate(segmentar(b["texto"])):
         sid = q("INSERT INTO segmento(bruto_id, ordem, texto) VALUES(?,?,?)", (bid, i, s))[0]["id"]
         q("INSERT INTO segmento_fts(rowid, texto) VALUES(?,?)", (sid, s))
@@ -293,9 +303,27 @@ def limpar_bruto(bid):
 
 def entrar(fonte, ext_id, titulo, texto, criado=None, meta=None):
     """Grava o bruto (idempotente por fonte+ext_id). Texto igual ao já gravado = nada muda."""
-    texto = (texto or "").strip()
+    if not isinstance(texto, str):
+        raise ValueError("texto deve ser string")
+    texto = texto.strip()
     if len(texto) < 20:
         raise ValueError("texto curto demais")
+    if titulo is not None and not isinstance(titulo, str):
+        raise ValueError("titulo deve ser string")
+    if ext_id is not None and (isinstance(ext_id, bool) or not isinstance(ext_id, (str, int))):
+        raise ValueError("ext_id deve ser string ou inteiro")
+    if meta is not None and not isinstance(meta, dict):
+        raise ValueError("meta deve ser objeto")
+    try:
+        criado = float(criado) if criado else time.time()
+    except (TypeError, ValueError):
+        raise ValueError("criado inválido")
+    if not math.isfinite(criado):
+        raise ValueError("criado inválido")
+    if criado > 1e11:  # Date.now() do JS vem em milissegundos
+        criado /= 1000
+    criado = min(criado, time.time()) if criado > 0 else time.time()
+    titulo = (titulo or "")[:200]
     ext_id = str(ext_id or hashlib.sha1(texto.encode()).hexdigest())
     old = q("SELECT id, texto FROM bruto WHERE fonte=? AND ext_id=?", (fonte, ext_id))
     if old and old[0]["texto"] == texto:
@@ -303,11 +331,11 @@ def entrar(fonte, ext_id, titulo, texto, criado=None, meta=None):
     if old:  # texto mudou (sessão continuou): refaz segmentos; lembranças antigas ficam, a IA substitui o que mudou
         q("DELETE FROM segmento_fts WHERE rowid IN (SELECT id FROM segmento WHERE bruto_id=?)", (old[0]["id"],))
         q("DELETE FROM segmento WHERE bruto_id=?", (old[0]["id"],))
-        q("UPDATE bruto SET texto=?, titulo=?, estado='fila' WHERE id=?", (texto, titulo or "", old[0]["id"]))
+        q("UPDATE bruto SET texto=?, titulo=?, estado='fila' WHERE id=?", (texto, titulo, old[0]["id"]))
         WAKE.set()
         return old[0]["id"], True
     bid = q("INSERT INTO bruto(fonte, ext_id, titulo, texto, criado, meta) VALUES(?,?,?,?,?,?)",
-            (fonte, ext_id, (titulo or "")[:200], texto, float(criado or time.time()), json.dumps(meta or {}, ensure_ascii=False)))[0]["id"]
+            (fonte, ext_id, titulo, texto, criado, json.dumps(meta or {}, ensure_ascii=False)))[0]["id"]
     WAKE.set()
     return bid, True
 
@@ -330,79 +358,132 @@ def trecho(meta, t):
     return float(ini), float(max(fim, ini + 1))
 
 
+VKB_SIG = {}
+
+
 def importar_videokb():
     p = os.path.join(VKB, "kb.db")
     if not os.path.exists(p):
         return 0
     desde = float(kv("vkb_desde") or 0)
-    import shutil  # o volume do Video KB é só leitura e o banco é WAL: lê uma cópia
-    os.makedirs("/tmp/vkb", exist_ok=True)
+    sig = tuple((st.st_size, st.st_mtime_ns) if (st := os.stat(p + s) if os.path.exists(p + s) else None) else None for s in ("", "-wal"))
+    if VKB_SIG.get("v") == sig:  # nada mudou desde a última cópia: não regrava o arquivo inteiro a cada 10 min
+        return 0
+    VKB_SIG["v"] = sig
+    import shutil  # o volume do Video KB é só leitura e o banco é WAL: lê uma cópia (na pasta de dados: /tmp/vkb era compartilhado entre instâncias)
+    cp = os.path.join(DATA, "vkb-copia")
+    os.makedirs(cp, exist_ok=True)
     for suf in ("", "-wal"):
         if os.path.exists(p + suf):
-            shutil.copyfile(p + suf, "/tmp/vkb/kb.db" + suf)
-        elif os.path.exists("/tmp/vkb/kb.db" + suf):
-            os.remove("/tmp/vkb/kb.db" + suf)
-    with closing(sqlite3.connect("/tmp/vkb/kb.db", timeout=30)) as c:
+            shutil.copyfile(p + suf, os.path.join(cp, "kb.db" + suf))
+        elif os.path.exists(os.path.join(cp, "kb.db" + suf)):
+            os.remove(os.path.join(cp, "kb.db" + suf))
+    if os.path.exists(os.path.join(cp, "kb.db-shm")):  # índice do WAL antigo não vale para a cópia nova
+        os.remove(os.path.join(cp, "kb.db-shm"))
+    with closing(sqlite3.connect(os.path.join(cp, "kb.db"), timeout=30)) as c:
         c.row_factory = sqlite3.Row
         rows = c.execute("SELECT id, url, data, updated FROM jobs WHERE status='pronto' AND updated>? ORDER BY updated LIMIT 200", (desde,)).fetchall()
     n = 0
     for r in rows:
         try:
-            d = json.loads(r["data"] or "{}")
-        except ValueError:
+            novo = linha_videokb(r)
+        except Exception as e:  # linha ruim não pode travar todas as seguintes a cada ciclo
+            log("video kb: linha", r["id"], "ignorada:", str(e)[:150])
+            novo = 0
+        if novo is None:
             continue
-        a = d.get("analysis") or {}
-        if not a:
-            continue
-        trans = d.get("transcript_t") or d.get("transcript") or ""
-        texto = "\n\n".join(x for x in [a.get("titulo", ""), a.get("resumo", ""), "\n".join("- " + str(p) for p in a.get("pontos_chave") or []),
-                                          "TRANSCRIÇÃO:\n" + trans[:12000] if trans else ""] if x)
-        marcas = [mmss_s(m) for m in re.findall(r"^\[(\d+:\d\d)\]", trans, re.M)]
-        dur = d.get("duration") or d.get("duracao") or (d.get("meta") or {}).get("duration")
-        meta = {"url": r["url"], "reel": str(r["id"]), "tema_vkb": a.get("tema", ""), "marcas": marcas[:400],
-                "dur": float(dur) if isinstance(dur, (int, float)) else None}
-        try:
-            n += entrar("videokb", r["url"], a.get("titulo") or r["url"], texto, r["updated"], meta)[1]
-        except ValueError:
-            pass
+        n += novo
         kv("vkb_desde", r["updated"])
     if n:
         log("video kb:", n, "novos")
     return n
 
 
+def linha_videokb(r):
+    """Volta 1 (novo/mudou), 0 (igual/ruim) ou None (sem análise ainda: não avança o marcador)."""
+    d = json.loads(r["data"] or "{}")
+    if not isinstance(d, dict):
+        return 0
+    a = d.get("analysis")
+    if not a:
+        return None
+    if not isinstance(a, dict):
+        return 0
+    trans = d.get("transcript_t") or d.get("transcript") or ""
+    trans = trans if isinstance(trans, str) else ""
+    pontos = a.get("pontos_chave")
+    pontos = pontos if isinstance(pontos, list) else []
+    titulo = a.get("titulo") if isinstance(a.get("titulo"), str) else ""
+    resumo = a.get("resumo") if isinstance(a.get("resumo"), str) else ""
+    texto = "\n\n".join(x for x in [titulo, resumo, "\n".join("- " + str(p) for p in pontos),
+                                      "TRANSCRIÇÃO:\n" + trans[:12000] if trans else ""] if x)
+    marcas = [mmss_s(m) for m in re.findall(r"^\[(\d+:\d\d)\]", trans, re.M)]
+    dur = d.get("duration") or d.get("duracao") or (d.get("meta") or {}).get("duration")
+    meta = {"url": r["url"], "reel": str(r["id"]), "tema_vkb": str(a.get("tema") or ""), "marcas": marcas[:400],
+            "dur": float(dur) if isinstance(dur, (int, float)) and not isinstance(dur, bool) else None}
+    try:
+        return int(entrar("videokb", r["url"], titulo or r["url"], texto, r["updated"], meta)[1])
+    except ValueError:
+        return 0
+
+
 def worker():
     ultimo_vkb = 0
     while True:
+        WAKE.clear()  # antes de olhar a fila: um set() durante o processamento não se perde
         try:
             if time.time() - ultimo_vkb > 600:
                 ultimo_vkb = time.time()
-                importar_videokb()
+                try:
+                    importar_videokb()
+                except Exception:
+                    traceback.print_exc()
             for b in q("SELECT * FROM bruto WHERE estado='fila' ORDER BY criado DESC LIMIT 3"):
                 try:
                     processar(b)
                 except Exception as e:
                     log("erro", b["id"], e)
                     q("UPDATE bruto SET estado='erro', erro=? WHERE id=?", (str(e)[:400], b["id"]))
+            espera = 1 if q("SELECT 1 FROM bruto WHERE estado='fila' LIMIT 1") else 20
         except Exception:
             traceback.print_exc()
-        WAKE.wait(20 if not q("SELECT 1 FROM bruto WHERE estado='fila' LIMIT 1") else 1)
-        WAKE.clear()
+            espera = 5  # banco travado: não morre nem gira em falso
+        WAKE.wait(espera)
 
 
 # ---------- leitura ----------
+def lembs(rows):
+    """Anexa fonte/origem/url de cada lembrança com UMA consulta (antes: 1 conexão por linha)."""
+    rows = [dict(r) for r in rows]
+    ids = sorted({r["bruto_id"] for r in rows if r.get("bruto_id") is not None})
+    bs = {}
+    if ids:
+        bs = {b["id"]: b for b in q(f"SELECT id, fonte, titulo, CASE WHEN json_valid(meta) THEN json_extract(meta, '$.url') END AS url FROM bruto "
+                                     f"WHERE id IN ({','.join('?' * len(ids))})", tuple(ids))}
+    for r in rows:
+        r["pessoas"] = json.loads(r.get("pessoas") or "[]")
+        b = bs.get(r.get("bruto_id"))
+        if b:
+            r["fonte"], r["fonte_nome"], r["origem"] = b["fonte"], FONTES.get(b["fonte"], b["fonte"]), b["titulo"]
+            r["url"] = b["url"] or ""
+    return rows
+
+
 def lemb(r):
-    r = dict(r)
-    r["pessoas"] = json.loads(r.get("pessoas") or "[]")
-    b = q("SELECT fonte, titulo, meta FROM bruto WHERE id=?", (r["bruto_id"],))
-    if b:
-        r["fonte"], r["fonte_nome"], r["origem"] = b[0]["fonte"], FONTES.get(b[0]["fonte"], b[0]["fonte"]), b[0]["titulo"]
-        r["url"] = json.loads(b[0]["meta"] or "{}").get("url", "")
-    return r
+    return lembs([r])[0]
+
+
+def inteiro(v, padrao, lo, hi):
+    try:
+        n = int(v) if v not in (None, "") else padrao
+    except (TypeError, ValueError):
+        raise ValueError("número inválido: " + str(v)[:20])
+    return max(lo, min(n, hi))
 
 
 def recencia(criado):
-    return 1 + 0.6 * math.exp(-(time.time() - (criado or 0)) / 86400 / 60)
+    idade = max(0.0, time.time() - (criado or 0))  # data futura no banco não pode estourar o exp()
+    return 1 + 0.6 * math.exp(-idade / 86400 / 60)
 
 
 def buscar_lembrancas(texto, n=10, modo=" ", incluir_antigas=False):
@@ -422,7 +503,7 @@ def buscar(texto, n=10):
     segs = q("SELECT s.id, s.bruto_id, snippet(segmento_fts, 0, '«', '»', ' … ', 24) AS trecho, bm25(segmento_fts) AS s, b.titulo, b.fonte, b.criado "
              "FROM segmento_fts JOIN segmento s ON s.id=segmento_fts.rowid JOIN bruto b ON b.id=s.bruto_id "
              "WHERE segmento_fts MATCH ? ORDER BY s LIMIT 6", (fq,)) if fq else []
-    return {"lembrancas": [lemb(r) for r in ls], "trechos": segs}
+    return {"lembrancas": lembs(ls), "trechos": segs}
 
 
 def status():
@@ -451,9 +532,9 @@ def lista(qs):
         w.append("criado>?"); a.append(float(qs["depois"]))
     if qs.get("antigas") != "1":
         w.append("substituida_por IS NULL")
-    n = min(int(qs.get("n") or 50), 500)
+    n = inteiro(qs.get("n"), 50, 1, 500)
     rows = q(f"SELECT * FROM lembranca WHERE {' AND '.join(w)} ORDER BY criado DESC, id DESC LIMIT ?", (*a, n))
-    return {"total": q(f"SELECT COUNT(*) n FROM lembranca WHERE {' AND '.join(w)}", tuple(a))[0]["n"], "itens": [lemb(r) for r in rows]}
+    return {"total": q(f"SELECT COUNT(*) n FROM lembranca WHERE {' AND '.join(w)}", tuple(a))[0]["n"], "itens": lembs(rows)}
 
 
 def uma(lid):
@@ -461,19 +542,21 @@ def uma(lid):
     if not r:
         return None
     x = lemb(r[0])
-    x["ligacoes"] = [{**lemb(o), "motivo": o["motivo"]} for o in q(
-        "SELECT l.*, g.motivo FROM ligacao g JOIN lembranca l ON l.id = CASE WHEN g.a=? THEN g.b ELSE g.a END WHERE g.a=? OR g.b=? LIMIT 20", (lid, lid, lid))]
-    x["substitui"] = [lemb(o) for o in q("SELECT * FROM lembranca WHERE substituida_por=?", (lid,))]
+    lg = q("SELECT l.*, g.motivo FROM ligacao g JOIN lembranca l ON l.id = CASE WHEN g.a=? THEN g.b ELSE g.a END WHERE g.a=? OR g.b=? LIMIT 20", (lid, lid, lid))
+    x["ligacoes"] = lembs(lg)
+    x["substitui"] = lembs(q("SELECT * FROM lembranca WHERE substituida_por=?", (lid,)))
     return x
 
 
 def grafico(n=20):
-    nos = q("SELECT l.*, (SELECT COUNT(*) FROM ligacao g WHERE g.a=l.id OR g.b=l.id) AS grau FROM lembranca l "
-            "WHERE substituida_por IS NULL AND arquivada=0 ORDER BY grau DESC, criado DESC LIMIT ?", (n,))
-    ids = {r["id"] for r in nos}
-    arestas = [r for r in q("SELECT a, b, motivo FROM ligacao") if r["a"] in ids and r["b"] in ids]
+    nos = q("SELECT l.*, COALESCE(g.n, 0) AS grau FROM lembranca l LEFT JOIN "
+            "(SELECT id, COUNT(*) n FROM (SELECT a AS id FROM ligacao UNION ALL SELECT b FROM ligacao) GROUP BY id) g ON g.id=l.id "
+            "WHERE l.substituida_por IS NULL AND l.arquivada=0 ORDER BY grau DESC, l.criado DESC LIMIT ?", (n,))
+    ids = [r["id"] for r in nos]
+    marcas = ",".join("?" * len(ids))
+    arestas = q(f"SELECT a, b, motivo FROM ligacao WHERE a IN ({marcas}) AND b IN ({marcas})", tuple(ids) * 2) if ids else []
     total = q("SELECT COUNT(*) n FROM lembranca WHERE substituida_por IS NULL AND arquivada=0")[0]["n"]
-    return {"total": total, "nos": [{**lemb(r), "grau": r["grau"]} for r in nos], "arestas": arestas}
+    return {"total": total, "nos": lembs(nos), "arestas": arestas}
 
 
 SIS_WIKI = (
@@ -499,7 +582,7 @@ def wiki(tema):
     ate = w[0]["ate"] if w else 0
     novas = q("SELECT COUNT(*) n FROM lembranca WHERE tema=? AND id>? AND substituida_por IS NULL", (tema, ate))[0]["n"]
     pag = json.loads(w[0]["md"]) if w else None
-    riscadas = [lemb(r) for r in q("SELECT * FROM lembranca WHERE tema=? AND substituida_por IS NOT NULL ORDER BY criado DESC LIMIT 20", (tema,))]
+    riscadas = lembs(q("SELECT * FROM lembranca WHERE tema=? AND substituida_por IS NOT NULL ORDER BY criado DESC LIMIT 20", (tema,)))
     return {"tema": tema, "pagina": pag, "compilado": w[0]["compilado"] if w else None, "n": w[0]["n"] if w else 0,
             "novas_para_revisar": novas, "substituidas": riscadas}
 
@@ -516,9 +599,13 @@ FERRAMENTAS = [
 
 
 def mcp(msg):
+    if not isinstance(msg, dict):
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "requisição inválida"}}
     m, i, p = msg.get("method"), msg.get("id"), msg.get("params") or {}
     if i is None:
         return None
+    if not isinstance(p, dict):
+        return {"jsonrpc": "2.0", "id": i, "error": {"code": -32602, "message": "params deve ser objeto"}}
     ok = lambda r: {"jsonrpc": "2.0", "id": i, "result": r}
     if m == "initialize":
         return ok({"protocolVersion": p.get("protocolVersion") or "2025-06-18", "capabilities": {"tools": {}},
@@ -529,9 +616,11 @@ def mcp(msg):
         return ok({"tools": FERRAMENTAS})
     if m == "tools/call":
         a = p.get("arguments") or {}
+        if not isinstance(a, dict):
+            return {"jsonrpc": "2.0", "id": i, "error": {"code": -32602, "message": "arguments deve ser objeto"}}
         try:
             if p.get("name") == "buscar":
-                r = buscar(str(a.get("consulta") or ""), min(int(a.get("n") or 10), 30))
+                r = buscar(str(a.get("consulta") or ""), inteiro(a.get("n"), 10, 1, 30))
             elif p.get("name") == "gravar":
                 fonte = a.get("fonte") if a.get("fonte") in FONTES else "mcp"
                 bid, novo = entrar(fonte, None, a.get("titulo") or "", a.get("texto") or "")
@@ -550,6 +639,7 @@ def mcp(msg):
 def handler(com_token):
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        timeout = float(os.environ.get("HTTP_TIMEOUT", 60))  # conexão keep-alive parada ou corpo que não chega não prende a thread para sempre
 
         def log_message(self, *a):
             pass
@@ -560,6 +650,8 @@ def handler(com_token):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(b)))
             self.send_header("Cache-Control", "no-store")
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(b)
 
@@ -570,15 +662,31 @@ def handler(com_token):
                 return False
             # X-Anamnese-Token (sem prefixo) existe porque o Hark injeta outro Bearer no host do Funnel; basta um bater
             ts = [(self.headers.get("Authorization") or "").removeprefix("Bearer ").strip(), (self.headers.get("X-Anamnese-Token") or "").strip()]
-            return any(t and hashlib.sha256(t.encode()).hexdigest() == TOKEN_SHA for t in ts)
+            return any(t and hmac.compare_digest(hashlib.sha256(t.encode()).hexdigest().encode(), TOKEN_SHA.encode()) for t in ts)
 
         def corpo(self):
-            n = int(self.headers.get("Content-Length") or 0)
-            if n > 60_000_000:
-                raise ValueError("corpo grande demais")
             if self._lido is None:
+                if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                    self.close_connection = True  # não lemos chunked: o resto viraria o próximo pedido
+                    raise ValueError("Transfer-Encoding chunked não é aceito; mande Content-Length")
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    n = -1
+                if n < 0 or n > 60_000_000:
+                    self.close_connection = True
+                    raise ValueError("Content-Length inválido ou corpo grande demais")
                 self._lido = self.rfile.read(n) if n else b""
+                if len(self._lido) < n:
+                    self.close_connection = True
+                    raise ValueError("corpo incompleto")
             return self._lido
+
+        def objeto(self):
+            j = json.loads(self.corpo() or b"{}")
+            if not isinstance(j, dict):
+                raise ValueError("corpo deve ser um objeto JSON")
+            return j
 
         def do_GET(self):
             self.rota("GET")
@@ -617,11 +725,13 @@ def handler(com_token):
                 traceback.print_exc()
                 return self.manda(500, {"erro": str(e)})
             finally:
-                try:  # keep-alive do Funnel: corpo não lido vira lixo no próximo pedido ('{}POST')
-                    if self._lido is None and int(self.headers.get("Content-Length") or 0) <= 60_000_000:
+                try:  # keep-alive do Funnel: corpo pequeno não lido vira lixo no próximo pedido ('{}POST'); corpo grande: fecha, não lê
+                    if self._lido is None and int(self.headers.get("Content-Length") or 0) > 65536:
+                        self.close_connection = True
+                    else:
                         self.corpo()
                 except Exception:
-                    pass
+                    self.close_connection = True
 
         def api(self, metodo, path, qs):
             p = path[5:].strip("/").split("/")
@@ -629,7 +739,7 @@ def handler(com_token):
                 if p == ["status"]:
                     return self.manda(200, status())
                 if p == ["buscar"]:
-                    return self.manda(200, buscar(qs.get("q", ""), min(int(qs.get("n") or 10), 50)))
+                    return self.manda(200, buscar(qs.get("q", ""), inteiro(qs.get("n"), 10, 1, 50)))
                 if p == ["lembrancas"]:
                     return self.manda(200, lista(qs))
                 if p[0] == "lembranca" and len(p) == 2:
@@ -641,15 +751,15 @@ def handler(com_token):
                 if p == ["temas"]:
                     return self.manda(200, temas())
                 if p == ["grafico"]:
-                    return self.manda(200, grafico(min(int(qs.get("n") or 20), 200)))
+                    return self.manda(200, grafico(inteiro(qs.get("n"), 20, 1, 200)))
                 if p[0] == "wiki" and len(p) == 2:
                     return self.manda(200, wiki(p[1]))
                 if p == ["fila"]:
                     return self.manda(200, q("SELECT id, fonte, titulo, estado, erro, criado FROM bruto WHERE estado<>'pronto' ORDER BY criado DESC LIMIT 50"))
             if metodo == "POST":
                 if p == ["gravar"] or p == ["ingest"]:
-                    j = json.loads(self.corpo() or b"{}")
-                    fonte = j.get("fonte") if j.get("fonte") in FONTES else ("manual" if p == ["gravar"] else None)
+                    j = self.objeto()
+                    fonte = j.get("fonte") if isinstance(j.get("fonte"), str) and j.get("fonte") in FONTES else ("manual" if p == ["gravar"] else None)
                     if not fonte:
                         raise ValueError("fonte inválida: " + ", ".join(FONTES))
                     bid, novo = entrar(fonte, j.get("ext_id"), j.get("titulo"), j.get("texto"), j.get("criado"), j.get("meta"))

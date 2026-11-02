@@ -454,12 +454,14 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
   addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()=='k'){const i=D.querySelector('.search input');if(i){e.preventDefault();i.focus();i.select()}}})}
  /* lista simples de resultados para telas sem lista própria */
  function lista(r,onPick){const its=(r.lembrancas||[]).map(l=>({t:l.texto,s:`${l.tema} · ${l.fonte_nome||''} · ${dataCurta(l.criado)}`,id:l.id}))
-   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`})));
+   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`,q:t.titulo||''})));
   const ul=D.createElement('ul');ul.className='anlist';ul.innerHTML=its.slice(0,12).map((x,k)=>`<li><button type="button" data-k="${k}"><span>${esc(x.t)}</span><small>${esc(x.s)}</small></button></li>`).join('');
-  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>onPick&&onPick(its[+b.dataset.k]));return ul}
+  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>(onPick||abrir)(its[+b.dataset.k]));return ul}
+ /* abre a lembrança (id) ou o vídeo/áudio do trecho (q) na gaveta */
+ function abrir(x){const h=x&&x.id?'anamnese-gaveta.html?id='+encodeURIComponent(x.id):x&&x.q?'anamnese-gaveta.html?q='+encodeURIComponent(x.q):'anamnese-gaveta.html';window.anTExit?anTExit(h):location.href=h}
  const pronto=f=>D.readyState=='loading'?D.addEventListener('DOMContentLoaded',f):f();
  pronto(()=>{moldura();busca()});
- return {fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
+ return {abrir,fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
 </script><!--/API-->
 </head><body><div class="app">
  <aside class="nav">
@@ -468,6 +470,7 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
    <a href="anamnese-gaveta.html">Gaveta <span>12.480</span></a>
    <a class="on" href="anamnese-indexacao-liquid.html">Indexação</a>
    <a href="anamnese-wiki-arvore.html">Wiki <span>64</span></a>
+   <a href="anamnese-grafico.html">Gráfico</a>
    <a href="anamnese-gravar.html">Gravar</a>
    <a href="anamnese-tempo.html">Linha do tempo</a>
    <a href="anamnese-conexoes-aura.html">Conexões <span>4</span></a>
@@ -691,7 +694,7 @@ void main() {
   for(const p of puffs){const I=lv[p.e];if(I<.005)continue;const ex=p.e?W*.96:W*.04;
    const x=ex+(p.e?-1:1)*Math.abs(Math.cos(p.a+t*p.s))*p.r*2,y=H/2+Math.sin(p.a*1.3+t*p.s*1.1)*p.r*.6,R=p.R*(1+.06*Math.sin(t*.3+p.ph));
    const al=p.al*(.85+.15*Math.sin(t*.4+p.ph))*I;pulse+=al;
-   const g=c1.createRadialGradient(x,y,0,x,y,R);g.addColorStop(0,`rgba(255,255,255,${al})`);g.addColorStop(.5,`rgba(240,240,240,${al*.4})`);g.addColorStop(1,'rgba(255,255,255,0)');c1.fillStyle=g;c1.fillRect(0,0,W,H)}
+   const g=c1.createRadialGradient(x,y,0,x,y,R);g.addColorStop(0,`rgba(255,255,255,${al})`);g.addColorStop(.5,`rgba(240,240,240,${al*.4})`);g.addColorStop(1,'rgba(255,255,255,0)');c1.fillStyle=g;c1.fillRect(x-R,y-R,R*2,R*2)}
   for(let i=0;i<2;i++){if(lv[i]<.005)continue;const ex=i?W-2:2,g2=c1.createRadialGradient(ex,H/2,0,ex,H/2,H*1.7);const fb=i===flashSide?flash:0;g2.addColorStop(0,`rgba(255,255,255,${.3*lv[i]+.45*fb})`);g2.addColorStop(.4,`rgba(255,255,255,${.1*lv[i]})`);g2.addColorStop(1,'rgba(255,255,255,0)');c1.fillStyle=g2;c1.fillRect(0,0,W,H)}
   c1.globalCompositeOperation='source-over';drawHalo(pulse/14);
   c2.clearRect(0,0,W,H);

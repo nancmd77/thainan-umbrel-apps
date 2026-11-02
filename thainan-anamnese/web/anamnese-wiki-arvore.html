@@ -214,12 +214,14 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
   addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()=='k'){const i=D.querySelector('.search input');if(i){e.preventDefault();i.focus();i.select()}}})}
  /* lista simples de resultados para telas sem lista própria */
  function lista(r,onPick){const its=(r.lembrancas||[]).map(l=>({t:l.texto,s:`${l.tema} · ${l.fonte_nome||''} · ${dataCurta(l.criado)}`,id:l.id}))
-   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`})));
+   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`,q:t.titulo||''})));
   const ul=D.createElement('ul');ul.className='anlist';ul.innerHTML=its.slice(0,12).map((x,k)=>`<li><button type="button" data-k="${k}"><span>${esc(x.t)}</span><small>${esc(x.s)}</small></button></li>`).join('');
-  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>onPick&&onPick(its[+b.dataset.k]));return ul}
+  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>(onPick||abrir)(its[+b.dataset.k]));return ul}
+ /* abre a lembrança (id) ou o vídeo/áudio do trecho (q) na gaveta */
+ function abrir(x){const h=x&&x.id?'anamnese-gaveta.html?id='+encodeURIComponent(x.id):x&&x.q?'anamnese-gaveta.html?q='+encodeURIComponent(x.q):'anamnese-gaveta.html';window.anTExit?anTExit(h):location.href=h}
  const pronto=f=>D.readyState=='loading'?D.addEventListener('DOMContentLoaded',f):f();
  pronto(()=>{moldura();busca()});
- return {fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
+ return {abrir,fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
 </script><!--/API-->
 </head><body>
 <div class="app">
@@ -229,6 +231,7 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
    <a href="anamnese-gaveta.html">Gaveta <span>12.480</span></a>
    <a href="anamnese-indexacao-liquid.html">Indexação</a>
    <a class="on" href="anamnese-wiki-arvore.html" aria-current="page">Wiki <span>64</span></a>
+   <a href="anamnese-grafico.html">Gráfico</a>
    <a href="anamnese-gravar.html">Gravar</a>
    <a href="anamnese-tempo.html">Linha do tempo</a>
    <a href="anamnese-conexoes-aura.html">Conexões <span>4</span></a>

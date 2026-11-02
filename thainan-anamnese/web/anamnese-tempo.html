@@ -131,12 +131,14 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
   addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()=='k'){const i=D.querySelector('.search input');if(i){e.preventDefault();i.focus();i.select()}}})}
  /* lista simples de resultados para telas sem lista própria */
  function lista(r,onPick){const its=(r.lembrancas||[]).map(l=>({t:l.texto,s:`${l.tema} · ${l.fonte_nome||''} · ${dataCurta(l.criado)}`,id:l.id}))
-   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`})));
+   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`,q:t.titulo||''})));
   const ul=D.createElement('ul');ul.className='anlist';ul.innerHTML=its.slice(0,12).map((x,k)=>`<li><button type="button" data-k="${k}"><span>${esc(x.t)}</span><small>${esc(x.s)}</small></button></li>`).join('');
-  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>onPick&&onPick(its[+b.dataset.k]));return ul}
+  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>(onPick||abrir)(its[+b.dataset.k]));return ul}
+ /* abre a lembrança (id) ou o vídeo/áudio do trecho (q) na gaveta */
+ function abrir(x){const h=x&&x.id?'anamnese-gaveta.html?id='+encodeURIComponent(x.id):x&&x.q?'anamnese-gaveta.html?q='+encodeURIComponent(x.q):'anamnese-gaveta.html';window.anTExit?anTExit(h):location.href=h}
  const pronto=f=>D.readyState=='loading'?D.addEventListener('DOMContentLoaded',f):f();
  pronto(()=>{moldura();busca()});
- return {fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
+ return {abrir,fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
 </script><!--/API-->
 </head><body>
 <div class="app">
@@ -146,6 +148,7 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
    <a href="anamnese-gaveta.html">Gaveta <span>12.480</span></a>
    <a href="anamnese-indexacao-liquid.html">Indexação</a>
    <a href="anamnese-wiki-arvore.html">Wiki <span>64</span></a>
+   <a href="anamnese-grafico.html">Gráfico</a>
    <a href="anamnese-gravar.html">Gravar</a>
    <a class="on" href="anamnese-tempo.html" aria-current="page">Linha do tempo</a>
    <a href="anamnese-conexoes-aura.html">Conexões <span>4</span></a>
@@ -184,7 +187,8 @@ async function loadAll(){subs();const now=Date.now()/1000;
  SC[4].sub=all.length?"Desde "+new Date(all[all.length-1].criado*1000).getFullYear():"Tudo"}
 async function older(){const sc=cur;if(!sc||!sc.dias||!sc.ev.length)return;const last=sc.ev[sc.ev.length-1],now=Date.now()/1000;
  const nb=$("nx");if(nb){nb.disabled=true;nb.textContent="Carregando…"}
- try{const r=await AN.get(`/api/lembrancas?n=13&antes=${last.criado}&depois=${now-sc.dias*86400}`);sc.ev=sc.ev.concat(r.itens.map(ev1));sc.more=r.total>r.itens.length;
+ try{const vistos=new Set(sc.ev.map(x=>x.id)),mesmo=sc.ev.filter(x=>x.criado==last.criado).length; /* irmãs com o mesmo criado: antes= é estrito, então pede um pouco além e descarta as já mostradas */
+  const r=await AN.get(`/api/lembrancas?n=${13+mesmo}&antes=${last.criado+.001}&depois=${now-sc.dias*86400}`);sc.ev=sc.ev.concat(r.itens.filter(l=>!vistos.has(l.id)).map(ev1));sc.more=r.total>r.itens.length;
   const a=act;build(SC.indexOf(sc),false);if(sc.ev.length>a+1)go(a+1);else detail()}
  catch(e){if(nb){nb.textContent="Não consegui falar com o Nonve"}}}
 // ---------- curva em S (ref 10): varreduras rasas ligadas por voltas em U ----------
@@ -214,7 +218,7 @@ function build(si,anim){
   const ln=el("line",{x1:p.x,y1:p.y-104,x2:p.x,y2:p.y+56,stroke:"rgba(255,255,255,.2)","stroke-width":1},cv);
   const dot=el("circle",{cx:p.x,cy:p.y,r:3.5,fill:"#000",stroke:"#fff","stroke-width":1.5},cv);
   const b=document.createElement("button");b.type="button";b.className="ev"+(left?" l":"");b.setAttribute("role","listitem");
-  b.style.left=(left?p.x-10-188:p.x+10)+"px";b.style.top=(p.y-14)+"px";b.innerHTML=`<b>${e.t}</b><small>${e.d}</small>`;
+  b.style.left=(left?p.x-10-188:p.x+10)+"px";b.style.top=(p.y-14)+"px";b.innerHTML=`<b>${AN.esc(e.t)}</b><small>${e.d}</small>`;
   b.setAttribute("aria-label",`${e.t}, ${e.d}`);b.onclick=()=>go(i);evs.appendChild(b);
   return {L,y:p.y,ln,dot,b}});
  $("sub").textContent=sc.busca?sc.sub:`${sc.sub} · ${sc.k=="Ano"?n+(n>1?" meses":" mês"):sc.k=="Tudo"?AN.nf(TOTAL)+" lembranças":n+(n>1?" marcos":" marco")}`;
@@ -238,14 +242,15 @@ function sync(){if(!samp.length)return;
   if(i==a)m.b.setAttribute("aria-current","true");else m.b.removeAttribute("aria-current")});
  if(a!=act){act=a;detail()}}
 tl.addEventListener("scroll",()=>requestAnimationFrame(sync),{passive:true});
-function go(i){const m=marks[i];const max=tl.scrollHeight-tl.clientHeight;tl.scrollTo({top:Math.max(0,(m.y+1-Y0)/(Y1-Y0)*max),behavior:RM?"auto":"smooth"})}
+/* +7: a curva é amostrada a cada 6 px; com +1 o marco entre duas amostras nunca acendia e Mais antigo/Mais recente travavam */
+function go(i){const m=marks[i];const max=tl.scrollHeight-tl.clientHeight;tl.scrollTo({top:Math.max(0,(m.y+7-Y0)/(Y1-Y0)*max),behavior:RM?"auto":"smooth"})}
 function detail(){const e=cur.ev[act],D=$("detail"),agg=e.n!=null;
  const fill=()=>{const n=Math.round((e.r||0)*5);
-  D.innerHTML=`<div class="meta"><span>${act+1} de ${cur.ev.length}</span><span>${e.src}</span></div><h2>${e.t}</h2><p>${e.txt}</p>
-  <dl><dt>${agg?"Período":"Data"}</dt><dd>${e.d}</dd>${agg?`<dt>Lembranças</dt><dd>${e.n.toLocaleString("pt-BR")}</dd>`:`<dt>Fonte</dt><dd>${e.src}</dd><dt>Tema</dt><dd>${e.tema||""}</dd>`}</dl>
+  D.innerHTML=`<div class="meta"><span>${act+1} de ${cur.ev.length}</span><span>${AN.esc(e.src)}</span></div><h2>${AN.esc(e.t)}</h2><p>${AN.esc(e.txt)}</p>
+  <dl><dt>${agg?"Período":"Data"}</dt><dd>${e.d}</dd>${agg?`<dt>Lembranças</dt><dd>${e.n.toLocaleString("pt-BR")}</dd>`:`<dt>Fonte</dt><dd>${AN.esc(e.src)}</dd><dt>Tema</dt><dd>${AN.esc(e.tema||"")}</dd>`}</dl>
   <div class="nb"><button type="button" id="pv" ${act==0?"disabled":""}>↑ Mais recente</button><button type="button" id="nx" ${act==cur.ev.length-1&&!cur.more?"disabled":""}>Mais antigo ↓</button></div>
   <button class="cta" type="button">${agg?"Abrir na gaveta":"Abrir lembrança completa"}</button>`;
-  $("pv").onclick=()=>go(act-1);$("nx").onclick=()=>act<cur.ev.length-1?go(act+1):older();D.classList.remove("sw")};
+  $("pv").onclick=()=>go(act-1);D.querySelector(".cta").onclick=()=>AN.abrir(agg?null:{id:e.id});$("nx").onclick=()=>act<cur.ev.length-1?go(act+1):older();D.classList.remove("sw")};
  if(RM||!D.innerHTML){fill();return}D.classList.add("sw");setTimeout(fill,150)}
 // ---------- dial (ref 12): roda com régua; a escala sob o marcador é a escolhida ----------
 const dial=$("dial"),dv=$("dv"),opts=$("opts"),rd=$("rd"),STEP=10,R=520;let th=2,vth=0,dg=null,ob=[];
@@ -293,8 +298,8 @@ dial.addEventListener("pointerup",e=>{if(!dg)return;const d=dg;setTimeout(()=>dg
  vth=d.v;pick(Math.max(0,Math.min(SC.length-1,Math.round(th+d.v*6))))});
 let wt=0;dial.addEventListener("wheel",e=>{e.preventDefault();const now=performance.now();if(now-wt<220)return;wt=now;
  const d=Math.sign(e.deltaY||e.deltaX);pick(Math.max(0,Math.min(SC.length-1,scale+d)))},{passive:false});
-addEventListener("resize",()=>build(scale,false));
-document.fonts.ready.then(()=>{pick(2);stepDial();SC[2].loading=true;build(2,false);loadAll().then(()=>{SC.forEach(x=>x.loading=false);build(scale,true)}).catch(()=>{TERR=true;SC.forEach(x=>x.loading=false);build(scale,false)})});AN.onSearch=(st,r,q)=>{if(st===null){SRCH=null;build(scale,true);return}
+addEventListener("resize",()=>build(SRCH||scale,false));
+document.fonts.ready.then(()=>{pick(2);stepDial();SC[2].loading=true;build(2,false);loadAll().then(()=>{SC.forEach(x=>x.loading=false);build(SRCH||scale,true)}).catch(()=>{TERR=true;SC.forEach(x=>x.loading=false);build(scale,false)})});AN.onSearch=(st,r,q)=>{if(st===null){SRCH=null;build(scale,true);return}
  const sc={k:"Busca",busca:1,ev:[],loading:st=="carregando",sub:st=="carregando"?`Buscando “${q}”…`:""};
  if(st=="erro"){evs.innerHTML=AN.msg("erro");cv.textContent="";$("detail").innerHTML=AN.msg("erro");return}
  if(r){sc.ev=r.lembrancas.slice(0,13).map(ev1);sc.sub=`${sc.ev.length} ${sc.ev.length==1?"resultado":"resultados"} para “${q}”`}

@@ -138,12 +138,14 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
   addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()=='k'){const i=D.querySelector('.search input');if(i){e.preventDefault();i.focus();i.select()}}})}
  /* lista simples de resultados para telas sem lista própria */
  function lista(r,onPick){const its=(r.lembrancas||[]).map(l=>({t:l.texto,s:`${l.tema} · ${l.fonte_nome||''} · ${dataCurta(l.criado)}`,id:l.id}))
-   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`})));
+   .concat((r.trechos||[]).map(t=>({t:(t.trecho||'').replace(/[«»]/g,''),s:`Trecho · ${t.titulo||''} · ${dataCurta(t.criado)}`,q:t.titulo||''})));
   const ul=D.createElement('ul');ul.className='anlist';ul.innerHTML=its.slice(0,12).map((x,k)=>`<li><button type="button" data-k="${k}"><span>${esc(x.t)}</span><small>${esc(x.s)}</small></button></li>`).join('');
-  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>onPick&&onPick(its[+b.dataset.k]));return ul}
+  ul.querySelectorAll('button').forEach(b=>b.onclick=()=>(onPick||abrir)(its[+b.dataset.k]));return ul}
+ /* abre a lembrança (id) ou o vídeo/áudio do trecho (q) na gaveta */
+ function abrir(x){const h=x&&x.id?'anamnese-gaveta.html?id='+encodeURIComponent(x.id):x&&x.q?'anamnese-gaveta.html?q='+encodeURIComponent(x.q):'anamnese-gaveta.html';window.anTExit?anTExit(h):location.href=h}
  const pronto=f=>D.readyState=='loading'?D.addEventListener('DOMContentLoaded',f):f();
  pronto(()=>{moldura();busca()});
- return {fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
+ return {abrir,fonteCurta,get,post,esc,nf,data,dataCurta,rel,relCurto,rotulo,mes,mesAno,dia,short,msg,status,lista,ligadas,onSearch:null}})();
 </script><!--/API-->
 </head><body>
 <div class="app">
@@ -153,6 +155,7 @@ window.AN=(()=>{const TZ='America/Sao_Paulo',D=document;
    <a class="on" href="anamnese-gaveta.html" aria-current="page">Gaveta <span>12.480</span></a>
    <a href="anamnese-indexacao-liquid.html">Indexação</a>
    <a href="anamnese-wiki-arvore.html">Wiki <span>64</span></a>
+   <a href="anamnese-grafico.html">Gráfico</a>
    <a href="anamnese-gravar.html">Gravar</a>
    <a href="anamnese-tempo.html">Linha do tempo</a>
    <a href="anamnese-conexoes-aura.html">Conexões <span>4</span></a>
@@ -378,7 +381,12 @@ document.getElementById("go").onclick=()=>{const c=count(F),all=F.src.length==4&
  setOpen(false);hbtn.focus({preventScroll:true});
  if(!RM)setTimeout(()=>{for(let k=N-1;k>=0;k--)setTimeout(()=>{S[k].vy-=5},(N-1-k)*28)},260)}; // fichas novas: um folhear de baixo pra cima
 buildFilters();
-addEventListener("resize",()=>{geo();FYo=openFY()});geo();anLoad();AN.onSearch=(st,r,q)=>{const sum=document.getElementById("sum"),D=document.getElementById("detail");
+addEventListener("resize",()=>{geo();FYo=openFY()});async function deepLink(){const P=new URLSearchParams(location.search),id=P.get('id'),q=P.get('q');
+ if(q){const i=document.querySelector('.search input');if(i){i.value=q;i.dispatchEvent(new Event('input',{bubbles:true}))}return}
+ if(!id)return;
+ try{const l=await AN.get('/api/lembranca/'+encodeURIComponent(id)),it=[['A',String(l.id).padStart(4,'0'),tabLabel(l.texto),l.id]];items=Array(NSLOT-1).fill(null).concat(it);sel=NSLOT-1;document.getElementById('sum').textContent='Nº '+it[0][1];renderDetail()}
+ catch(e){document.getElementById('detail').innerHTML=AN.msg('erro')}}
+geo();anLoad().then(deepLink);AN.onSearch=(st,r,q)=>{const sum=document.getElementById("sum"),D=document.getElementById("detail");
  if(st===null){BUSCA=null;sum.textContent=`${nf(LTOTAL)} lembranças`;setItems(filtra(F));return}
  if(st=="carregando"){sum.textContent=`Buscando “${q}”…`;return}
  if(st=="erro"){sum.textContent="Não consegui falar com o Nonve";D.innerHTML=AN.msg("erro");return}
