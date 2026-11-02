@@ -34,6 +34,7 @@ services:
                 return False
         ZONES = ['/sys/class/powercap/intel-rapl:0', '/sys/class/powercap/intel-rapl-mmio:0']
         def apply():
+            apply_profile()
             for z in ZONES:
                 if not os.path.isdir(z): continue
                 wr(z + '/enabled', 1)
@@ -63,7 +64,6 @@ services:
                 log('NVIDIA ' + a + (' removida do barramento' if ok else ' ainda presente'))
                 if ok: wr(parent + '/power/control', 'auto')
             BAT['v'] = bat_limit()
-            apply_profile()
         BAT = {'v': 'verificando...'}
 
         PP = '/sys/firmware/acpi/platform_profile'
@@ -88,7 +88,8 @@ services:
                 if n == 'coretemp':
                     out.append('CPU pacote %.0f °C' % (int(rd(h + '/temp1_input', '0')) / 1000))
                 elif n in ('acpitz', 'nvme'):
-                    out.append('%s %.0f °C' % (n, int(rd(h + '/temp1_input', '0')) / 1000))
+                    t = int(rd(h + '/temp1_input', '0')) / 1000
+                    if t > 0: out.append('%s %.0f °C' % (n, t))
             return ', '.join(out)
         def useful():
             return os.path.exists(PP) or bool(acer_fans())
@@ -109,15 +110,37 @@ services:
             log('fans depois: predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4') + ' | platform_profile ' + ('sim: ' + rd(PP + '_choices') if os.path.exists(PP) else 'não') + ' | fans ' + (', '.join(acer_fans()) or 'nenhuma'))
             if useful():
                 FAN['estado'] = 'acer_wmi com predator_v4=1'
+                if os.path.exists(PP): threading.Thread(target=compare_profiles, daemon=True).start()
             else:
                 rc3, o3 = sh('modprobe -r acer_wmi && modprobe acer_wmi')
                 if not os.path.isdir('/sys/module/acer_wmi'): sh('modprobe acer_wmi')
                 log('nada útil com predator_v4=1; voltou ao normal: rc=%d predator_v4=%s %s' % (rc3, rd('/sys/module/acer_wmi/parameters/predator_v4'), o3))
                 FAN['estado'] = 'sem controle de fans por software (predator_v4=1 não expôs platform_profile nem fans)'
+        def rpm():
+            s = 0
+            for h in glob.glob('/sys/class/hwmon/hwmon*'):
+                for f in glob.glob(h + '/fan*_input'):
+                    try: s += int(rd(f, '0'))
+                    except Exception: pass
+            return s
+        def compare_profiles():
+            ch = rd(PP + '_choices', '').split()
+            cand = [q for q in ('low-power', 'quiet') if q in ch]
+            if len(cand) < 2: return
+            res = {}
+            for q in cand:
+                FAN['alvo'] = q; apply()
+                lido = []
+                for i in range(6):
+                    time.sleep(30); lido.append(rpm())
+                res[q] = sum(lido[2:]) / len(lido[2:])
+            FAN['alvo'] = min(cand, key=lambda q: (res[q], q != 'quiet'))
+            apply()
+            log('comparação de perfis (RPM somado, média dos últimos 2 min): ' + ', '.join('%s %.0f' % (q, res[q]) for q in cand) + ' -> ' + FAN['alvo'])
         def apply_profile():
             if not os.path.exists(PP): return
             ch = rd(PP + '_choices', '').split()
-            alvo = next((q for q in QUIET if q in ch), None)
+            alvo = FAN.get('alvo') or next((q for q in QUIET if q in ch), None)
             if alvo and rd(PP) != alvo:
                 ok = wr(PP, alvo); log('perfil ' + alvo + (' aplicado' if ok else ' falhou') + ' (opções: ' + ' '.join(ch) + ')')
         GUID = '79772EC5-04B1-4BFD-843C-61E7F77B6CC9'
