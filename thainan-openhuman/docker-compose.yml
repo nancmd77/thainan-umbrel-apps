@@ -10,7 +10,7 @@ services:
     restart: on-failure
     environment:
       OPENHUMAN_APP_ENV: production
-      OPENHUMAN_CORE_TOKEN: "REMOVIDO-SEGREDO"
+      OPENHUMAN_CORE_TOKEN: "${APP_THAINAN_OPENHUMAN_OPENHUMAN_CORE_TOKEN}"
       BACKEND_URL: "http://${DEVICE_DOMAIN_NAME}:7788"
     volumes:
       - ${APP_DATA_DIR}/data:/home/openhuman/.openhuman
