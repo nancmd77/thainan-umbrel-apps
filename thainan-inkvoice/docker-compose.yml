@@ -9,7 +9,7 @@ services:
     image: ghcr.io/pigontech/inkvoice:latest@sha256:054f9cc69796c3f0b1717357b53dbb7ce958a4dd1b584d5003c7896d416f4d45
     restart: on-failure
     environment:
-      JWT_SECRET: "REMOVIDO-SEGREDO"
+      JWT_SECRET: "${APP_THAINAN_INKVOICE_JWT_SECRET}"
       DATABASE_PATH: /app/data/invoice.db
       PORT: "3000"
       HOST: "0.0.0.0"
