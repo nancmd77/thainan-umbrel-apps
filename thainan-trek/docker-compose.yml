@@ -11,7 +11,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      ENCRYPTION_KEY: "REMOVIDO-SEGREDO"
+      ENCRYPTION_KEY: "${APP_THAINAN_TREK_ENCRYPTION_KEY}"
       TZ: America/Sao_Paulo
       TRUST_PROXY: "1"
       ALLOW_INTERNAL_NETWORK: "true"
