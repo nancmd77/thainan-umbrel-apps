@@ -4,7 +4,7 @@ name: Rakazo
 tagline: Self-hosted AI agents with computer use
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-rakazo/icon.png
 category: AI
-version: "edge"
+version: "edge-r1"
 port: 5173
 description: >-
   Rakazo is a self-hosted agent platform with optional local Docker “computers”.
