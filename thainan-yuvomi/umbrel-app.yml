@@ -4,7 +4,7 @@ name: Yuvomi
 tagline: Self-hosted family planner
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/2d42911019643ccaccd2cf4e6f4934317dd9a715/thainan-yuvomi/icon.png
 category: Productivity
-version: "1.0.7-r2"
+version: "1.0.7-r3"
 port: 3100
 description: >-
   Yuvomi is a self-hosted family planner for tasks, calendar, shopping, meals, and budgets.
