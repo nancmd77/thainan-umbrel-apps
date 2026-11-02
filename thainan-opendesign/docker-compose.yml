@@ -15,7 +15,7 @@ services:
       OD_BIND_HOST: 0.0.0.0
       OD_PORT: "7456"
       OD_WEB_PORT: "7456"
-      OD_API_TOKEN: "REMOVIDO-SEGREDO"
+      OD_API_TOKEN: "${APP_PASSWORD}"
       OD_ALLOWED_ORIGINS: http://${DEVICE_DOMAIN_NAME}:7456,http://${DEVICE_DOMAIN_NAME},https://${DEVICE_DOMAIN_NAME}:7456
     volumes:
       - ${APP_DATA_DIR}/data:/app/.od
