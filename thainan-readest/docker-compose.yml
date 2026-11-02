@@ -32,11 +32,11 @@ services:
       POSTGRES_HOST: /var/run/postgresql
       PGPORT: "5432"
       POSTGRES_PORT: "5432"
-      PGPASSWORD: "REMOVIDO-SEGREDO"
-      POSTGRES_PASSWORD: "REMOVIDO-SEGREDO"
+      PGPASSWORD: "${APP_THAINAN_READEST_PGPASSWORD}"
+      POSTGRES_PASSWORD: "${APP_THAINAN_READEST_PGPASSWORD}"
       PGDATABASE: postgres
       POSTGRES_DB: postgres
-      JWT_SECRET: "thainan-readest-85bfe4df8a7aa395bf3f3824cd55c1791ec57209cff7ad4dfcdbb8b789f35ceb"
+      JWT_SECRET: "${APP_THAINAN_READEST_JWT_SECRET}"
       JWT_EXP: "3600"
     command:
       - postgres
@@ -55,8 +55,8 @@ services:
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      SUPABASE_ANON_KEY: "REMOVIDO-SEGREDO"
-      SUPABASE_SERVICE_KEY: "REMOVIDO-SEGREDO"
+      SUPABASE_ANON_KEY: "${APP_THAINAN_READEST_ANON_KEY}"
+      SUPABASE_SERVICE_KEY: "${APP_THAINAN_READEST_SERVICE_KEY}"
     entrypoint:
       - bash
       - -c
@@ -70,7 +70,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: "http://${DEVICE_DOMAIN_NAME}:3050"
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: "postgres://supabase_auth_admin:REMOVIDO-SEGREDO@db:5432/postgres"
+      GOTRUE_DB_DATABASE_URL: "postgres://supabase_auth_admin:${APP_THAINAN_READEST_PGPASSWORD}@db:5432/postgres"
       GOTRUE_SITE_URL: "http://${DEVICE_DOMAIN_NAME}:3050"
       GOTRUE_URI_ALLOW_LIST: "http://${DEVICE_DOMAIN_NAME}:3050/**"
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -78,7 +78,7 @@ services:
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: "3600"
-      GOTRUE_JWT_SECRET: "thainan-readest-85bfe4df8a7aa395bf3f3824cd55c1791ec57209cff7ad4dfcdbb8b789f35ceb"
+      GOTRUE_JWT_SECRET: "${APP_THAINAN_READEST_JWT_SECRET}"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
       GOTRUE_MAILER_AUTOCONFIRM: "true"
@@ -87,12 +87,12 @@ services:
     image: postgrest/postgrest:v14.3
     restart: on-failure
     environment:
-      PGRST_DB_URI: "postgres://authenticator:REMOVIDO-SEGREDO@db:5432/postgres"
+      PGRST_DB_URI: "postgres://authenticator:${APP_THAINAN_READEST_PGPASSWORD}@db:5432/postgres"
       PGRST_DB_SCHEMAS: public,graphql_public
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: "thainan-readest-85bfe4df8a7aa395bf3f3824cd55c1791ec57209cff7ad4dfcdbb8b789f35ceb"
+      PGRST_JWT_SECRET: "${APP_THAINAN_READEST_JWT_SECRET}"
       PGRST_DB_USE_LEGACY_GUCS: "false"
-      PGRST_APP_SETTINGS_JWT_SECRET: "thainan-readest-85bfe4df8a7aa395bf3f3824cd55c1791ec57209cff7ad4dfcdbb8b789f35ceb"
+      PGRST_APP_SETTINGS_JWT_SECRET: "${APP_THAINAN_READEST_JWT_SECRET}"
       PGRST_APP_SETTINGS_JWT_EXP: "3600"
     command: ["postgrest"]
 
@@ -101,7 +101,7 @@ services:
     restart: on-failure
     environment:
       MINIO_ROOT_USER: readest
-      MINIO_ROOT_PASSWORD: "REMOVIDO-SEGREDO"
+      MINIO_ROOT_PASSWORD: "${APP_THAINAN_READEST_MINIO_ROOT_PASSWORD}"
     command: server --console-address ":9001" /data
     volumes:
       - ${APP_DATA_DIR}/data/minio:/data
@@ -121,7 +121,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - mc alias set myminio http://minio:9000 readest REMOVIDO-SEGREDO && mc mb --ignore-existing myminio/readest-files
+      - mc alias set myminio http://minio:9000 readest ${APP_THAINAN_READEST_MINIO_ROOT_PASSWORD} && mc mb --ignore-existing myminio/readest-files
 
   client:
     image: ghcr.io/readest/readest:latest@sha256:5d6b2e903a349ed20d7bb7535e53aafb417fb0b0eba75ee1f05f7d269cb24f10
@@ -129,15 +129,15 @@ services:
     environment:
       SUPABASE_URL: http://kong:8000
       SUPABASE_PUBLIC_URL: "http://${DEVICE_DOMAIN_NAME}:3050"
-      SUPABASE_ANON_KEY: "REMOVIDO-SEGREDO"
-      SUPABASE_ADMIN_KEY: "REMOVIDO-SEGREDO"
+      SUPABASE_ANON_KEY: "${APP_THAINAN_READEST_ANON_KEY}"
+      SUPABASE_ADMIN_KEY: "${APP_THAINAN_READEST_SERVICE_KEY}"
       API_BASE_URL: "http://${DEVICE_DOMAIN_NAME}:3050"
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: "http://${DEVICE_DOMAIN_NAME}:3050"
       S3_REGION: us-east-1
       S3_BUCKET_NAME: readest-files
       S3_ACCESS_KEY_ID: readest
-      S3_SECRET_ACCESS_KEY: "REMOVIDO-SEGREDO"
+      S3_SECRET_ACCESS_KEY: "${APP_THAINAN_READEST_MINIO_ROOT_PASSWORD}"
       OBJECT_STORAGE_TYPE: s3
       SELF_HOSTED: "true"
       STORAGE_FIXED_QUOTA: "1073741824"
