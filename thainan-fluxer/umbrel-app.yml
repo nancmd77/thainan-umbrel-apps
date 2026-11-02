@@ -4,7 +4,7 @@ name: Fluxer
 tagline: Open-source Discord-style chat for communities
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-fluxer/icon.png
 category: Social
-version: "1.0.0"
+version: "1.0.0-r1"
 port: 3005
 description: >-
   Fluxer is a free open-source instant messaging and VoIP platform for friends, groups, and communities.
