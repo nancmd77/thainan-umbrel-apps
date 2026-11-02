@@ -4,7 +4,7 @@ name: SparkyFitness
 tagline: Self-hosted fitness and nutrition tracker
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-sparkyfitness/icon.png
 category: Productivity
-version: "1.0.0"
+version: "1.0.0-r1"
 port: 3004
 description: >-
   SparkyFitness is a self-hosted fitness tracker with workouts, nutrition, and optional AI integrations.
