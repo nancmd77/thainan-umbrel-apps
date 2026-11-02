@@ -8,9 +8,6 @@ services:
   web:
     image: ghcr.io/ulsklyc/yuvomi:latest@sha256:cc641511604625dec23f962fbdc677f4705b9812f1c889322b5183c70790eeea
     restart: on-failure
-    depends_on:
-      rekey:
-        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       DB_PATH: /data/yuvomi.db
@@ -20,23 +17,6 @@ services:
       SESSION_SECURE: "false"
       TRUST_PROXY: "1"
       TZ: America/Sao_Paulo
-    volumes:
-      - ${APP_DATA_DIR}/data:/data
-      - ${APP_DATA_DIR}/data/backups:/backups
-  # Migração única (2026-11-02): a chave do banco saiu do repo. Este serviço reabre o
-  # banco com a chave antiga e troca pela chave do APP_SEED. Sai na próxima versão.
-  rekey:
-    image: ghcr.io/ulsklyc/yuvomi:latest@sha256:cc641511604625dec23f962fbdc677f4705b9812f1c889322b5183c70790eeea
-    restart: "no"
-    entrypoint: ["node", "-e"]
-    command:
-      - "let D; try { D = require('better-sqlite3-multiple-ciphers'); } catch (e) { console.log('[rekey] imagem sem cifra, nada a fazer'); process.exit(0); }\nconst fs = require('fs');\nconst P = process.env.DB_PATH || '/data/yuvomi.db';\nconst B = process.env.BACKUP_DIR || '/backups';\nconst NEW = process.env.NEW_KEY, OLD = process.env.OLD_KEY;\nconst hex = k => Buffer.from(k, 'utf8').toString('hex');\nfunction open(k) {\n  const db = new D(P);\n  db.pragma(\"cipher = 'sqlcipher'\");\n  db.pragma(`key=\"x'$${hex(k)}'\"`);\n  try { db.prepare('SELECT count(*) FROM sqlite_master').get(); return db; }\n  catch (e) { db.close(); return null; }\n}\nif (!NEW || !OLD) { console.error('[rekey] faltam chaves'); process.exit(1); }\nif (!fs.existsSync(P)) { console.log('[rekey] sem banco, nada a fazer'); process.exit(0); }\nlet db = open(NEW);\nif (db) { db.close(); console.log('[rekey] j\u00e1 est\u00e1 na chave nova'); process.exit(0); }\ndb = open(OLD);\nif (!db) { console.error('[rekey] nenhuma chave abre o banco; n\u00e3o mexi em nada'); process.exit(1); }\nconst [ck] = db.pragma('wal_checkpoint(TRUNCATE)');\nif (ck && ck.busy) { console.error('[rekey] WAL ocupado; n\u00e3o mexi em nada'); process.exit(1); }\ndb.pragma('journal_mode = DELETE');\ndb.close();\nconst ts = new Date().toISOString().replace(/[:.]/g, '-');\nfs.mkdirSync(B, { recursive: true });\nfs.copyFileSync(P, `$${B}/pre-rekey-$${ts}.db`);\ndb = open(OLD);\ndb.pragma(`rekey=\"x'$${hex(NEW)}'\"`);\ndb.close();\ndb = open(NEW);\nif (!db) { console.error('[rekey] verifica\u00e7\u00e3o falhou; restaure ' + `$${B}/pre-rekey-$${ts}.db`); process.exit(1); }\nconst n = db.prepare('SELECT count(*) c FROM sqlite_master').get().c;\ndb.pragma('journal_mode = WAL'); db.close();\nconsole.log(`[rekey] ok, $${n} objetos; c\u00f3pia antiga em $${B}/pre-rekey-$${ts}.db`);\n"
-    environment:
-      NODE_PATH: /app/node_modules
-      DB_PATH: /data/yuvomi.db
-      BACKUP_DIR: /backups
-      NEW_KEY: "${APP_THAINAN_YUVOMI_DB_KEY}"
-      OLD_KEY: "REMOVIDO-SEGREDO"
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/data/backups:/backups
