@@ -96,7 +96,8 @@ services:
         def setup_fans():
             log('fans antes: predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4') + ' | platform_profile ' + ('sim' if os.path.exists(PP) else 'não') + ' | fans ' + (', '.join(acer_fans()) or 'nenhuma'))
             if os.path.exists(PP):
-                FAN['estado'] = 'platform_profile já existe'; return
+                FAN['estado'] = 'platform_profile já existe (predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4') + ')'
+                threading.Thread(target=compare_profiles, daemon=True).start(); return
             if rd('/sys/module/acer_wmi/parameters/predator_v4') == 'Y':
                 FAN['estado'] = 'predator_v4 já ligado e sem platform_profile'; return
             rc, o = sh('command -v kmod >/dev/null || apk add --no-cache kmod', 180)
