@@ -8,15 +8,34 @@ services:
   web:
     image: ghcr.io/ulsklyc/yuvomi:latest@sha256:cc641511604625dec23f962fbdc677f4705b9812f1c889322b5183c70790eeea
     restart: on-failure
+    depends_on:
+      rekey:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       DB_PATH: /data/yuvomi.db
       BACKUP_DIR: /backups
-      SESSION_SECRET: "REMOVIDO-SEGREDO"
-      DB_ENCRYPTION_KEY: "REMOVIDO-SEGREDO"
+      SESSION_SECRET: "${APP_THAINAN_YUVOMI_SESSION_SECRET}"
+      DB_ENCRYPTION_KEY: "${APP_THAINAN_YUVOMI_DB_KEY}"
       SESSION_SECURE: "false"
       TRUST_PROXY: "1"
       TZ: America/Sao_Paulo
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/data/backups:/backups
+  # Migração única (2026-11-02): a chave do banco saiu do repo. Este serviço reabre o
+  # banco com a chave antiga e troca pela chave do APP_SEED. Sai na próxima versão.
+  rekey:
+    image: ghcr.io/ulsklyc/yuvomi:latest@sha256:cc641511604625dec23f962fbdc677f4705b9812f1c889322b5183c70790eeea
+    restart: "no"
+    command: ["node", "/rekey.js"]
+    environment:
+      NODE_PATH: /app/node_modules
+      DB_PATH: /data/yuvomi.db
+      BACKUP_DIR: /backups
+      NEW_KEY: "${APP_THAINAN_YUVOMI_DB_KEY}"
+      OLD_KEY: "REMOVIDO-SEGREDO"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}/data/backups:/backups
+      - ${APP_DATA_DIR}/rekey.js:/rekey.js:ro
