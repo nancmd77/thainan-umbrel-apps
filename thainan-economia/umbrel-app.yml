@@ -7,7 +7,7 @@ category: Developer
 version: "1.0.0"
 port: 8535
 description: >-
-  Modo economia do Nonve: limite total da CPU em 7 W (RAPL PL1 e PL2, MSR e MMIO), turbo desligado, EPP power, ASPM powersupersave (placa de rede preservada) e a RTX removida do barramento PCI. Reaplica a cada 5 minutos e no boot. Página de status com potência medida, limites, RTX e bateria. Parar o app não restaura nada até o próximo reboot.
+  Modo economia do Nonve: limite total da CPU em 7 W (RAPL PL1 e PL2, MSR e MMIO), turbo desligado, EPP power, ASPM powersupersave (placa de rede preservada) e a RTX removida do barramento PCI e tentativa de travar a carga da bateria em 80%. Reaplica a cada 5 minutos e no boot. Página de status com potência medida, limites, RTX e bateria. Parar o app não restaura nada até o próximo reboot.
 developer: Thainan Caldeira
 website: https://github.com/nancmd77/thainan-umbrel-apps
 submitter: Thainan Caldeira
