@@ -4,7 +4,7 @@ name: Chatto
 tagline: Self-hosted team & community chat
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-chatto/icon.png
 category: Social
-version: "1.0.2"
+version: "1.0.2-r1"
 port: 4000
 description: >-
   Chatto is an open-source team and community chat app.
