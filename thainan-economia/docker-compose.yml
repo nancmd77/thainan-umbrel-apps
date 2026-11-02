@@ -63,7 +63,63 @@ services:
                 log('NVIDIA ' + a + (' removida do barramento' if ok else ' ainda presente'))
                 if ok: wr(parent + '/power/control', 'auto')
             BAT['v'] = bat_limit()
+            apply_profile()
         BAT = {'v': 'verificando...'}
+
+        PP = '/sys/firmware/acpi/platform_profile'
+        FAN = {'estado': 'verificando...'}
+        QUIET = ['quiet', 'low-power', 'cool']
+        def sh(cmd, t=90):
+            try:
+                r = subprocess.run(['sh', '-c', cmd], capture_output=True, text=True, timeout=t)
+                return r.returncode, (r.stdout + r.stderr).strip()[-300:]
+            except Exception as x:
+                return 99, str(x)
+        def acer_fans():
+            out = []
+            for h in glob.glob('/sys/class/hwmon/hwmon*'):
+                for f in sorted(glob.glob(h + '/fan*_input')):
+                    out.append('%s %s: %s RPM' % (rd(h + '/name'), os.path.basename(f).split('_')[0], rd(f)))
+            return out
+        def temps():
+            out = []
+            for h in glob.glob('/sys/class/hwmon/hwmon*'):
+                n = rd(h + '/name')
+                if n == 'coretemp':
+                    out.append('CPU pacote %.0f °C' % (int(rd(h + '/temp1_input', '0')) / 1000))
+                elif n in ('acpitz', 'nvme'):
+                    out.append('%s %.0f °C' % (n, int(rd(h + '/temp1_input', '0')) / 1000))
+            return ', '.join(out)
+        def useful():
+            return os.path.exists(PP) or bool(acer_fans())
+        def setup_fans():
+            log('fans antes: predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4') + ' | platform_profile ' + ('sim' if os.path.exists(PP) else 'não') + ' | fans ' + (', '.join(acer_fans()) or 'nenhuma'))
+            if os.path.exists(PP):
+                FAN['estado'] = 'platform_profile já existe'; return
+            if rd('/sys/module/acer_wmi/parameters/predator_v4') == 'Y':
+                FAN['estado'] = 'predator_v4 já ligado e sem platform_profile'; return
+            rc, o = sh('command -v kmod >/dev/null || apk add --no-cache kmod', 180)
+            log('kmod: ' + ('ok' if rc == 0 else 'falhou ' + o))
+            rc, o = sh('modprobe -r acer_wmi && modprobe acer_wmi predator_v4=1')
+            log('reload acer_wmi predator_v4=1: rc=%d %s' % (rc, o))
+            time.sleep(5)
+            if not os.path.isdir('/sys/module/acer_wmi'):
+                rc2, o2 = sh('modprobe acer_wmi'); log('acer_wmi fora; recarregado sem parâmetro: rc=%d %s' % (rc2, o2))
+                FAN['estado'] = 'reload com predator_v4=1 falhou; módulo recarregado como antes'; return
+            log('fans depois: predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4') + ' | platform_profile ' + ('sim: ' + rd(PP + '_choices') if os.path.exists(PP) else 'não') + ' | fans ' + (', '.join(acer_fans()) or 'nenhuma'))
+            if useful():
+                FAN['estado'] = 'acer_wmi com predator_v4=1'
+            else:
+                rc3, o3 = sh('modprobe -r acer_wmi && modprobe acer_wmi')
+                if not os.path.isdir('/sys/module/acer_wmi'): sh('modprobe acer_wmi')
+                log('nada útil com predator_v4=1; voltou ao normal: rc=%d predator_v4=%s %s' % (rc3, rd('/sys/module/acer_wmi/parameters/predator_v4'), o3))
+                FAN['estado'] = 'sem controle de fans por software (predator_v4=1 não expôs platform_profile nem fans)'
+        def apply_profile():
+            if not os.path.exists(PP): return
+            ch = rd(PP + '_choices', '').split()
+            alvo = next((q for q in QUIET if q in ch), None)
+            if alvo and rd(PP) != alvo:
+                ok = wr(PP, alvo); log('perfil ' + alvo + (' aplicado' if ok else ' falhou') + ' (opções: ' + ' '.join(ch) + ')')
         GUID = '79772EC5-04B1-4BFD-843C-61E7F77B6CC9'
         def bat_limit():
             b = '/sys/class/power_supply/BAT1'
@@ -132,13 +188,17 @@ services:
                 ('Bateria', rd(b + '/status') + ', ' + rd(b + '/capacity') + '%' + (', %.1f W' % bw if bw is not None else '')),
                 ('Tomada', 'conectada' if rd('/sys/class/power_supply/ACAD/online') == '1' else 'desconectada'),
                 ('Limite de carga da bateria (80%)', BAT['v']),
+                ('Perfil de plataforma (fans)', (rd(PP) + ' (opções: ' + rd(PP + '_choices') + ')') if os.path.exists(PP) else 'não exposto'),
+                ('Fans', ', '.join(acer_fans()) or 'RPM não exposto'),
+                ('acer_wmi', FAN['estado'] + ' | predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4')),
+                ('Temperaturas', temps()),
                 ('Atualizado', time.strftime('%d/%m %H:%M:%S')),
             ]
             tr = ''.join('<tr><td>%s</td><td><b>%s</b></td></tr>' % (html.escape(a), html.escape(c)) for a, c in rows)
             lg = html.escape('\n'.join(LOG[-12:]))
             return ('<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><meta http-equiv=refresh content=15>'
                     '<title>Economia</title><body style="font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px;color:#18181b">'
-                    '<h1>Economia de energia</h1><p>Limite total da CPU em 7 W, turbo desligado, RTX fora do barramento. Reaplica a cada 5 minutos.</p>'
+                    '<h1>Economia de energia</h1><p>Limite total da CPU em 7 W, turbo desligado, RTX fora do barramento, perfil de fans mais silencioso quando exposto. Reaplica a cada 5 minutos.</p>'
                     '<table style="border-collapse:collapse;width:100%%" cellpadding=8>%s</table>'
                     '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (tr, lg)).encode()
         class H(http.server.BaseHTTPRequestHandler):
@@ -155,7 +215,9 @@ services:
         threading.Thread(target=serve, daemon=True).start()
         threading.Thread(target=meter, daemon=True).start()
         probe()
+        try: setup_fans()
+        except Exception as x: log('setup_fans: ' + str(x))
         while True:
             apply()
-            log('limites: MSR ' + lim(ZONES[0]) + ' | MMIO ' + lim(ZONES[1]) + ' | turbo off=' + rd('/sys/devices/system/cpu/intel_pstate/no_turbo') + ' | ASPM ' + rd('/sys/module/pcie_aspm/parameters/policy') + ' | bateria: ' + BAT['v'])
+            log('limites: MSR ' + lim(ZONES[0]) + ' | MMIO ' + lim(ZONES[1]) + ' | turbo off=' + rd('/sys/devices/system/cpu/intel_pstate/no_turbo') + ' | ASPM ' + rd('/sys/module/pcie_aspm/parameters/policy') + ' | bateria: ' + BAT['v'] + ' | perfil ' + rd(PP, '-') + ' | ' + temps())
             time.sleep(300)
