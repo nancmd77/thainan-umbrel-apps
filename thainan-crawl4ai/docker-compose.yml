@@ -10,4 +10,4 @@ services:
     restart: on-failure
     shm_size: 1gb
     environment:
-      CRAWL4AI_API_TOKEN: "REMOVIDO-SEGREDO"
+      CRAWL4AI_API_TOKEN: "${APP_THAINAN_CRAWL4AI_CRAWL4AI_API_TOKEN}"
