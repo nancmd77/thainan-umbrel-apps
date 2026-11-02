@@ -1,0 +1,131 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: 10.21.0.1
+      APP_PORT: 8536
+  economia:
+    image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      NIC: enp64s0
+      BIND: 10.21.0.1
+    entrypoint: ["python", "-u", "-c"]
+    command:
+      - |
+        import os, glob, time, threading, subprocess, html, http.server, socketserver
+        W = 7000000
+        LOG = []
+        def log(m):
+            m = time.strftime('%H:%M:%S ') + m
+            print(m, flush=True); LOG.append(m); del LOG[:-40]
+        def rd(p, d='?'):
+            try: return open(p).read().strip()
+            except Exception: return d
+        def wr(p, v):
+            try:
+                with open(p, 'w') as f: f.write(str(v))
+                return True
+            except Exception as e:
+                return False
+        ZONES = ['/sys/class/powercap/intel-rapl:0', '/sys/class/powercap/intel-rapl-mmio:0']
+        def apply():
+            for z in ZONES:
+                if not os.path.isdir(z): continue
+                wr(z + '/enabled', 1)
+                for i in (0, 1):
+                    n = rd(z + '/constraint_%d_name' % i, '')
+                    if not n: continue
+                    wr(z + '/constraint_%d_power_limit_uw' % i, W)
+            wr('/sys/devices/system/cpu/intel_pstate/no_turbo', 1)
+            for c in glob.glob('/sys/devices/system/cpu/cpu[0-9]*/cpufreq'):
+                wr(c + '/scaling_governor', 'powersave'); wr(c + '/energy_performance_preference', 'power')
+            wr('/sys/module/pcie_aspm/parameters/policy', 'powersupersave')
+            nic = os.path.realpath('/sys/class/net/' + NIC + '/device')
+            for k in ('l1_aspm', 'l1_1_aspm', 'l1_2_aspm', 'l0s_aspm'):
+                wr(nic + '/link/' + k, 0)
+            wr(nic + '/power/control', 'on')
+            gone = []
+            devs = sorted(glob.glob('/sys/bus/pci/devices/*'), key=lambda d: d.endswith('.0'))
+            for d in devs:
+                if rd(d + '/vendor') != '0x10de': continue
+                a = os.path.basename(d); parent = os.path.dirname(os.path.realpath(d))
+                wr(d + '/power/control', 'auto')
+                try:
+                    subprocess.run(['sh', '-c', 'echo 1 > ' + d + '/remove'], timeout=90)
+                except Exception as e:
+                    log('remover ' + a + ' travou: ' + str(e))
+                ok = not os.path.exists(d)
+                log('NVIDIA ' + a + (' removida do barramento' if ok else ' ainda presente'))
+                if ok: wr(parent + '/power/control', 'auto')
+            for t in ('/sys/class/power_supply/BAT1/charge_control_end_threshold',):
+                if os.path.exists(t):
+                    log('limite de carga 80%: ' + ('ok' if wr(t, 80) else 'falhou'))
+        NIC = os.environ.get('NIC', 'enp64s0')
+        ST = {'w': None}
+        def energy():
+            try: return int(rd(ZONES[0] + '/energy_uj')), int(rd(ZONES[0] + '/max_energy_range_uj', '0'))
+            except Exception: return None, None
+        def meter():
+            e0, mx = energy(); t0 = time.time()
+            while True:
+                time.sleep(15)
+                e1, mx = energy(); t1 = time.time()
+                if e0 is not None and e1 is not None:
+                    d = e1 - e0
+                    if d < 0 and mx: d += mx
+                    ST['w'] = d / 1e6 / (t1 - t0)
+                e0, t0 = e1, t1
+        def lim(z):
+            if not os.path.isdir(z): return 'não existe'
+            out = []
+            for i in (0, 1):
+                n = rd(z + '/constraint_%d_name' % i, '')
+                if n: out.append('%s %.1f W' % (n, int(rd(z + '/constraint_%d_power_limit_uw' % i, '0')) / 1e6))
+            return ', '.join(out) + ' (ativo: ' + rd(z + '/enabled') + ')'
+        def page():
+            b = '/sys/class/power_supply/BAT1'
+            try: bw = int(rd(b + '/current_now')) * int(rd(b + '/voltage_now')) / 1e12
+            except Exception: bw = None
+            nv = [os.path.basename(d) for d in glob.glob('/sys/bus/pci/devices/*') if rd(d + '/vendor') == '0x10de']
+            thr = b + '/charge_control_end_threshold'
+            rows = [
+                ('Potência medida da CPU (pacote)', '%.2f W' % ST['w'] if ST['w'] is not None else 'medindo...'),
+                ('Limite da CPU (MSR)', lim(ZONES[0])),
+                ('Limite da CPU (MMIO)', lim(ZONES[1])),
+                ('Turbo', 'desligado' if rd('/sys/devices/system/cpu/intel_pstate/no_turbo') == '1' else 'ligado'),
+                ('EPP / governor', rd('/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference') + ' / ' + rd('/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor')),
+                ('Frequência atual cpu0', '%d MHz' % (int(rd('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq', '0')) // 1000)),
+                ('ASPM', rd('/sys/module/pcie_aspm/parameters/policy')),
+                ('RTX (NVIDIA)', 'removida do barramento' if not nv else 'presente: ' + ', '.join(nv)),
+                ('Bateria', rd(b + '/status') + ', ' + rd(b + '/capacity') + '%' + (', %.1f W' % bw if bw is not None else '')),
+                ('Tomada', 'conectada' if rd('/sys/class/power_supply/ACAD/online') == '1' else 'desconectada'),
+                ('Limite de carga', rd(thr) + '%' if os.path.exists(thr) else 'não suportado neste kernel/driver'),
+                ('Atualizado', time.strftime('%d/%m %H:%M:%S')),
+            ]
+            tr = ''.join('<tr><td>%s</td><td><b>%s</b></td></tr>' % (html.escape(a), html.escape(c)) for a, c in rows)
+            lg = html.escape('\n'.join(LOG[-12:]))
+            return ('<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><meta http-equiv=refresh content=15>'
+                    '<title>Economia</title><body style="font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px;color:#18181b">'
+                    '<h1>Economia de energia</h1><p>Limite total da CPU em 7 W, turbo desligado, RTX fora do barramento. Reaplica a cada 5 minutos.</p>'
+                    '<table style="border-collapse:collapse;width:100%%" cellpadding=8>%s</table>'
+                    '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (tr, lg)).encode()
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                p = page(); self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers(); self.wfile.write(p)
+            def log_message(self, *a): pass
+        def serve():
+            while True:
+                try:
+                    socketserver.ThreadingTCPServer.allow_reuse_address = True
+                    socketserver.ThreadingTCPServer((os.environ.get('BIND', '10.21.0.1'), 8536), H).serve_forever()
+                except Exception as e:
+                    log('servidor: ' + str(e)); time.sleep(10)
+        threading.Thread(target=serve, daemon=True).start()
+        threading.Thread(target=meter, daemon=True).start()
+        while True:
+            apply()
+            log('limites: MSR ' + lim(ZONES[0]) + ' | MMIO ' + lim(ZONES[1]) + ' | turbo off=' + rd('/sys/devices/system/cpu/intel_pstate/no_turbo') + ' | ASPM ' + rd('/sys/module/pcie_aspm/parameters/policy'))
+            time.sleep(300)
