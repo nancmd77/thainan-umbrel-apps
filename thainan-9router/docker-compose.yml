@@ -12,7 +12,7 @@ services:
       DATA_DIR: /app/data
       PORT: "20128"
       HOSTNAME: "0.0.0.0"
-      INITIAL_PASSWORD: "782fb323d3fc"
-      JWT_SECRET: "REMOVIDO-SEGREDO"
+      INITIAL_PASSWORD: "${APP_PASSWORD}"
+      JWT_SECRET: "${APP_THAINAN_9ROUTER_JWT_SECRET}"
     volumes:
       - ${APP_DATA_DIR}/data:/app/data
