@@ -12,6 +12,8 @@ services:
     environment:
       NIC: enp64s0
       BIND: 10.21.0.1
+    volumes:
+      - /lib/modules:/lib/modules:ro
     entrypoint: ["python", "-u", "-c"]
     command:
       - |
@@ -60,9 +62,36 @@ services:
                 ok = not os.path.exists(d)
                 log('NVIDIA ' + a + (' removida do barramento' if ok else ' ainda presente'))
                 if ok: wr(parent + '/power/control', 'auto')
-            for t in ('/sys/class/power_supply/BAT1/charge_control_end_threshold',):
-                if os.path.exists(t):
-                    log('limite de carga 80%: ' + ('ok' if wr(t, 80) else 'falhou'))
+            BAT['v'] = bat_limit()
+        BAT = {'v': 'verificando...'}
+        GUID = '79772EC5-04B1-4BFD-843C-61E7F77B6CC9'
+        def bat_limit():
+            b = '/sys/class/power_supply/BAT1'
+            e = b + '/charge_control_end_threshold'
+            if os.path.exists(e):
+                st = b + '/charge_control_start_threshold'
+                if os.path.exists(st): wr(st, 75)
+                wr(e, 80)
+                return 'travado em ' + rd(e) + '% (charge_control_end_threshold' + (', recomeça em ' + rd(st) + '%' if os.path.exists(st) else '') + ')'
+            hm = glob.glob('/sys/bus/wmi/drivers/acer-wmi*/*/health_mode') + glob.glob('/sys/devices/platform/acer-wmi*/health_mode') + glob.glob('/sys/bus/wmi/devices/*/health_mode') + glob.glob('/sys/devices/platform/acer-wmi*/*/health_mode')
+            if not hm:
+                mods = glob.glob('/lib/modules/' + os.uname().release + '/**/acer*battery*.ko*', recursive=True)
+                if mods:
+                    subprocess.run(['modprobe', '-q', os.path.basename(mods[0]).split('.ko')[0]], timeout=30)
+                    hm = glob.glob('/sys/bus/wmi/drivers/acer-wmi*/*/health_mode') + glob.glob('/sys/bus/wmi/devices/*/health_mode')
+            if hm:
+                wr(hm[0], 1)
+                return 'battery health ' + ('ligado (para em 80%)' if rd(hm[0]) == '1' else 'falhou: ' + rd(hm[0])) + ' via ' + hm[0]
+            return 'não suportado por este kernel (sem charge_control_end_threshold nem health_mode)'
+        def probe():
+            r = os.uname().release
+            def ex(p): return 'sim' if os.path.exists(p) else 'não'
+            sb = glob.glob('/sys/firmware/efi/efivars/SecureBoot-*')
+            try: sbv = str(open(sb[0], 'rb').read()[-1]) if sb else 'sem efivar'
+            except Exception as x: sbv = str(x)
+            log('diag: kernel ' + r + ' | lockdown ' + rd('/sys/kernel/security/lockdown') + ' | secureboot ' + sbv +
+                ' | /lib/modules ' + ex('/lib/modules/' + r) + ' | headers build ' + ex('/lib/modules/' + r + '/build') +
+                ' | WMI battery GUID ' + ex('/sys/bus/wmi/devices/' + GUID) + ' | acer-wmi params ' + (','.join(os.listdir('/sys/module/acer_wmi/parameters')) if os.path.isdir('/sys/module/acer_wmi/parameters') else 'sem módulo'))
         NIC = os.environ.get('NIC', 'enp64s0')
         ST = {'w': None}
         def energy():
@@ -102,7 +131,7 @@ services:
                 ('RTX (NVIDIA)', 'removida do barramento' if not nv else 'presente: ' + ', '.join(nv)),
                 ('Bateria', rd(b + '/status') + ', ' + rd(b + '/capacity') + '%' + (', %.1f W' % bw if bw is not None else '')),
                 ('Tomada', 'conectada' if rd('/sys/class/power_supply/ACAD/online') == '1' else 'desconectada'),
-                ('Limite de carga', rd(thr) + '%' if os.path.exists(thr) else 'não suportado neste kernel/driver'),
+                ('Limite de carga da bateria (80%)', BAT['v']),
                 ('Atualizado', time.strftime('%d/%m %H:%M:%S')),
             ]
             tr = ''.join('<tr><td>%s</td><td><b>%s</b></td></tr>' % (html.escape(a), html.escape(c)) for a, c in rows)
@@ -125,7 +154,8 @@ services:
                     log('servidor: ' + str(e)); time.sleep(10)
         threading.Thread(target=serve, daemon=True).start()
         threading.Thread(target=meter, daemon=True).start()
+        probe()
         while True:
             apply()
-            log('limites: MSR ' + lim(ZONES[0]) + ' | MMIO ' + lim(ZONES[1]) + ' | turbo off=' + rd('/sys/devices/system/cpu/intel_pstate/no_turbo') + ' | ASPM ' + rd('/sys/module/pcie_aspm/parameters/policy'))
+            log('limites: MSR ' + lim(ZONES[0]) + ' | MMIO ' + lim(ZONES[1]) + ' | turbo off=' + rd('/sys/devices/system/cpu/intel_pstate/no_turbo') + ' | ASPM ' + rd('/sys/module/pcie_aspm/parameters/policy') + ' | bateria: ' + BAT['v'])
             time.sleep(300)
