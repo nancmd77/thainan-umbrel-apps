@@ -4,7 +4,7 @@ name: TREK
 tagline: Self-hosted travel planner
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-trek/icon.png
 category: Productivity
-version: "1.0.5"
+version: "1.0.5-r1"
 port: 3010
 description: >-
   TREK is a self-hosted travel planner for trips, itineraries, and bookings.
