@@ -10,7 +10,7 @@ services:
     restart: on-failure
     environment:
       POSTGRES_USER: bugsinkuser
-      POSTGRES_PASSWORD: "acb91a7d2016fc5b"
+      POSTGRES_PASSWORD: "${APP_THAINAN_BUGSINK_POSTGRES_PASSWORD}"
       POSTGRES_DB: bugsink
     volumes:
       - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
@@ -26,10 +26,10 @@ services:
       db:
         condition: service_healthy
     environment:
-      SECRET_KEY: "REMOVIDO-SEGREDO"
+      SECRET_KEY: "${APP_THAINAN_BUGSINK_SECRET_KEY}"
       CREATE_SUPERUSER: "admin@umbrel.local:changeme-bugsink"
       PORT: "8000"
-      DATABASE_URL: "postgresql://bugsinkuser:acb91a7d2016fc5b@thainan-bugsink_db_1:5432/bugsink"
+      DATABASE_URL: "postgresql://bugsinkuser:${APP_THAINAN_BUGSINK_POSTGRES_PASSWORD}@thainan-bugsink_db_1:5432/bugsink"
       BEHIND_HTTPS_PROXY: "false"
       USE_X_FORWARDED_HOST: "true"
       BASE_URL: "http://${DEVICE_DOMAIN_NAME}:8000"
