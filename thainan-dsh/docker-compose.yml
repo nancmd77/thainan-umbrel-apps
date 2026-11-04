@@ -1,0 +1,42 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-dsh_web_1
+      APP_PORT: 3080
+  web:
+    image: node:22-bookworm
+    restart: unless-stopped
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      DSH_HOME: /data/dsh
+      DSH_TELEMETRY_DISABLED: "1"
+      npm_config_cache: /data/npm
+      NINER_KEY: ""
+      DSH_VERSION: latest
+    working_dir: /data/workspace
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /data/dsh /data/workspace /data/npm
+        (command -v bwrap >/dev/null || (apt-get update -qq && apt-get install -y -qq bubblewrap git >/dev/null 2>&1)) || true
+        cat > /data/router.yml <<'YML'
+        - id: llm-pi-ai
+          config:
+            providers:
+              noverouter:
+                apiKeyEnv: NINER_KEY
+                api: openai-completions
+                baseURL: http://thainan-9router_web_1:20128/v1
+                compat:
+                  supportsDeveloperRole: false
+                  maxTokensField: max_tokens
+                models:
+                  - id: ag/gemini-3.8-flash-high
+                  - id: ag/gemini-4-argon-high
+                  - id: cl/deepseek/deepseek-v4.1-flash-1017
+        YML
+        IP=$$(hostname -i | awk '{print $$1}')
+        echo "dsh em $$IP:3080"
+        exec npx -y @deepseek-ai/dsh@$${DSH_VERSION} web --no-open --host $$IP --port 3080 --patch /data/router.yml --trusted-host 192.168.18.171:8580 nonve.local:8580 umbrel.local:8580 100.72.135.102:8580 nonve:8580
