@@ -29,4 +29,7 @@ jobs:
           git config user.email "appstore-bot@users.noreply.github.com"
           git add -A
           git commit -m "auto-update: ${{ steps.bump.outputs.changed }}"
+          # trava de segredos: se o commit novo tiver segredo, não publica
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar xz -C /tmp gitleaks
+          /tmp/gitleaks git --no-banner --redact --log-opts="-1" . || { echo "Segredo detectado no commit; push cancelado."; exit 1; }
           git push
