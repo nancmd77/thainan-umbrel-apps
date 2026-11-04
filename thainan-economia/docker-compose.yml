@@ -13,6 +13,7 @@ services:
       NIC: enp64s0
       BIND: 10.21.0.1
       CPU_W: fabrica
+      TURBO: "on"
     volumes:
       - /lib/modules:/lib/modules:ro
     entrypoint: ["python", "-u", "-c"]
@@ -61,7 +62,10 @@ services:
                     val, src = get_target_limit(z, i, n)
                     ok = wr(z + '/constraint_%d_power_limit_uw' % i, val)
                     log('limite CPU %s c%d (%s): %.1f W [%s]%s' % (os.path.basename(z), i, n, val / 1e6, src, '' if ok else ' (falhou)'))
-            wr('/sys/devices/system/cpu/intel_pstate/no_turbo', 1)
+            turbo_env = os.environ.get('TURBO', 'on').strip().lower()
+            no_turbo_val = 1 if turbo_env in ('off', '0', 'false', 'nao', 'não', 'no') else 0
+            ok_turbo = wr('/sys/devices/system/cpu/intel_pstate/no_turbo', no_turbo_val)
+            log('turbo %s (no_turbo=%d)%s' % ('ligado' if no_turbo_val == 0 else 'desligado', no_turbo_val, '' if ok_turbo else ' (falhou)'))
             for c in glob.glob('/sys/devices/system/cpu/cpu[0-9]*/cpufreq'):
                 wr(c + '/scaling_governor', 'powersave'); wr(c + '/energy_performance_preference', 'power')
             wr('/sys/module/pcie_aspm/parameters/policy', 'powersupersave')
@@ -227,6 +231,7 @@ services:
             rows = [
                 ('Potência medida da CPU (pacote)', '%.2f W' % ST['w'] if ST['w'] is not None else 'medindo...'),
                 ('Configuração CPU_W', os.environ.get('CPU_W', 'fabrica').strip() or 'fabrica'),
+                ('Configuração TURBO', os.environ.get('TURBO', 'on').strip() or 'on'),
                 ('Limite da CPU (MSR)', lim(ZONES[0])),
                 ('Limite da CPU (MMIO)', lim(ZONES[1])),
                 ('Turbo', 'desligado' if rd('/sys/devices/system/cpu/intel_pstate/no_turbo') == '1' else 'ligado'),
@@ -245,11 +250,12 @@ services:
             ]
             tr = ''.join('<tr><td>%s</td><td><b>%s</b></td></tr>' % (html.escape(a), html.escape(c)) for a, c in rows)
             lg = html.escape('\n'.join(LOG[-12:]))
+            turbo_desc = 'turbo desligado' if rd('/sys/devices/system/cpu/intel_pstate/no_turbo') == '1' else 'turbo ligado'
             return ('<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><meta http-equiv=refresh content=15>'
                     '<title>Economia</title><body style="font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px;color:#18181b">'
-                    '<h1>Economia de energia</h1><p>Limite da CPU: %s, turbo desligado, RTX fora do barramento, perfil de fans mais silencioso quando exposto. Reaplica a cada 5 minutos.</p>'
+                    '<h1>Economia de energia</h1><p>Limite da CPU: %s, %s, RTX fora do barramento, perfil de fans mais silencioso quando exposto. Reaplica a cada 5 minutos.</p>'
                     '<table style="border-collapse:collapse;width:100%%" cellpadding=8>%s</table>'
-                    '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (html.escape(cpu_limit_label()), tr, lg)).encode()
+                    '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (html.escape(cpu_limit_label()), html.escape(turbo_desc), tr, lg)).encode()
         class H(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 p = page(); self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers(); self.wfile.write(p)

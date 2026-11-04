@@ -4,7 +4,7 @@ name: Supermemory Local
 tagline: Motor de memória e continual learning para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-supermemory/icon.png
 category: AI
-version: "1.0.0"
+version: "1.0.1"
 port: 8567
 description: >-
   Supermemory Local (supermemory-server) no hardware do Nonve: memória vetorial e contextual persistida em disco, busca híbrida (BM25 + embeddings vetoriais locais bge-base-en-v1.5) e integração com o 9Router para geração de perfis e reescrita de queries com Gemini.
@@ -20,7 +20,7 @@ repo: https://github.com/supermemoryai/supermemory
 support: https://github.com/supermemoryai/supermemory/issues
 gallery: []
 releaseNotes: >-
-  Versão inicial 1.0.0 do Supermemory Local no Umbrel (supermemory-server v0.0.9 + llmproxy 9Router).
+  Ingestão concorrente de até 4 documentos simultâneos, limite de 2 GB de RAM para embeddings locais e limite de memória do contêiner ampliado para 4 GB.
 dependencies: []
 path: ""
 defaultUsername: ""
