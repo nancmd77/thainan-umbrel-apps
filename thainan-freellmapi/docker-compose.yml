@@ -1,16 +1,162 @@
 version: "3.7"
+
 services:
   app_proxy:
     environment:
       APP_HOST: thainan-freellmapi_web_1
       APP_PORT: 3001
       PROXY_AUTH_ADD: "false"
+
   web:
     image: ghcr.io/tashfeenahmed/freellmapi:v0.16.19
     restart: on-failure
     environment:
       NODE_ENV: production
+      NODE_PATH: /app/node_modules
       PORT: "3001"
-      ENCRYPTION_KEY: "REMOVIDO-SEGREDO"
+      ENCRYPTION_KEY: "${APP_THAINAN_FREELLMAPI_ENCRYPTION_KEY}"
     volumes:
       - ${APP_DATA_DIR}/data:/app/server/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -f /app/server/data/.encryption_key.old ]; then
+          echo "[entrypoint] Arquivo .encryption_key.old encontrado, iniciando recriptografia..."
+          cat <<'REKEY_EOF' > /tmp/rekey.cjs
+        const fs = require('fs');
+        const path = require('path');
+        const Database = require('better-sqlite3');
+        const { rotateSecrets, applyRotation } = require('/app/server/dist/scripts/rotate-encryption-key.js');
+
+        const DATA_DIR = process.env.FREEAPI_DATA_DIR || '/app/server/data';
+        const DB_PATH = process.env.FREEAPI_DB_PATH || path.join(DATA_DIR, 'freeapi.db');
+        const OLD_KEY_FILE = path.join(DATA_DIR, '.encryption_key.old');
+        const REKEY_OK_FILE = path.join(DATA_DIR, '.rekey-ok');
+        const BACKUP_PATH = DB_PATH + '.bak-rekey';
+
+        if (!fs.existsSync(OLD_KEY_FILE)) {
+          process.exit(0);
+        }
+
+        const HEX_RE = /^[0-9a-fA-F]{64}$/;
+
+        let oldKeyRaw;
+        try {
+          oldKeyRaw = fs.readFileSync(OLD_KEY_FILE, 'utf8').trim();
+        } catch (e) {
+          console.error('[rekey] ERRO ao ler ' + OLD_KEY_FILE + ':', e.message);
+          process.exit(1);
+        }
+
+        if (!HEX_RE.test(oldKeyRaw)) {
+          console.error('[rekey] ERRO: Chave antiga em ' + OLD_KEY_FILE + ' é inválida (esperado 64 caracteres hexadecimais).');
+          process.exit(1);
+        }
+
+        const newKeyRaw = (process.env.ENCRYPTION_KEY || '').trim();
+        if (!HEX_RE.test(newKeyRaw)) {
+          console.error('[rekey] ERRO: ENCRYPTION_KEY é inválida (esperado 64 caracteres hexadecimais).');
+          process.exit(1);
+        }
+
+        const oldKey = Buffer.from(oldKeyRaw, 'hex');
+        const newKey = Buffer.from(newKeyRaw, 'hex');
+
+        if (oldKey.equals(newKey)) {
+          console.log('[rekey] Chave antiga e nova são idênticas. Nada a recriptografar.');
+          try { fs.unlinkSync(OLD_KEY_FILE); } catch (_) {}
+          fs.writeFileSync(REKEY_OK_FILE, new Date().toISOString() + '\n', 'utf8');
+          process.exit(0);
+        }
+
+        if (!fs.existsSync(DB_PATH)) {
+          console.log('[rekey] Banco de dados ' + DB_PATH + ' não existe ainda. Nada a recriptografar.');
+          try { fs.unlinkSync(OLD_KEY_FILE); } catch (_) {}
+          fs.writeFileSync(REKEY_OK_FILE, new Date().toISOString() + '\n', 'utf8');
+          process.exit(0);
+        }
+
+        try {
+          const checkDb = new Database(DB_PATH, { readonly: true });
+          const checkRes = rotateSecrets(checkDb, newKey, newKey);
+          checkDb.close();
+          if (!checkRes.error && checkRes.rows.length > 0) {
+            console.log('[rekey] Dados já estão decifráveis com a chave nova. Concluído.');
+            try { fs.unlinkSync(OLD_KEY_FILE); } catch (_) {}
+            fs.writeFileSync(REKEY_OK_FILE, new Date().toISOString() + '\n', 'utf8');
+            process.exit(0);
+          }
+        } catch (_) {}
+
+        try {
+          const prepDb = new Database(DB_PATH);
+          prepDb.pragma('wal_checkpoint(TRUNCATE)');
+          prepDb.close();
+        } catch (e) {
+          console.error('[rekey] ERRO ao executar checkpoint no banco:', e.message);
+          process.exit(1);
+        }
+
+        fs.copyFileSync(DB_PATH, BACKUP_PATH);
+
+        let db;
+        try {
+          db = new Database(DB_PATH);
+          const result = rotateSecrets(db, oldKey, newKey);
+          if (result.error) {
+            console.error('[rekey] ERRO ao decifrar dados com chave antiga:', result.error);
+            db.close();
+            fs.copyFileSync(BACKUP_PATH, DB_PATH);
+            fs.unlinkSync(BACKUP_PATH);
+            process.exit(1);
+          }
+
+          if (result.rows.length === 0) {
+            console.log('[rekey] Nenhum segredo cifrado encontrado no banco.');
+            db.close();
+            fs.unlinkSync(BACKUP_PATH);
+            try { fs.unlinkSync(OLD_KEY_FILE); } catch (_) {}
+            fs.writeFileSync(REKEY_OK_FILE, new Date().toISOString() + '\n', 'utf8');
+            process.exit(0);
+          }
+
+          applyRotation(db, result.rows);
+          db.pragma('wal_checkpoint(TRUNCATE)');
+          db.close();
+
+          const verifyDb = new Database(DB_PATH, { readonly: true });
+          const verifyRes = rotateSecrets(verifyDb, newKey, newKey);
+          verifyDb.close();
+
+          if (verifyRes.error || verifyRes.rows.length !== result.rows.length) {
+            console.error('[rekey] ERRO crítico na verificação pós-recriptografia.');
+            fs.copyFileSync(BACKUP_PATH, DB_PATH);
+            fs.unlinkSync(BACKUP_PATH);
+            process.exit(1);
+          }
+
+          fs.unlinkSync(BACKUP_PATH);
+          try { fs.unlinkSync(OLD_KEY_FILE); } catch (_) {}
+          fs.writeFileSync(REKEY_OK_FILE, new Date().toISOString() + '\n', 'utf8');
+          console.log('[rekey] Sucesso: ' + result.rows.length + ' segredo(s) recriptografado(s).');
+          process.exit(0);
+        } catch (e) {
+          console.error('[rekey] Falha inesperada durante a migração:', e.message);
+          try { if (db) db.close(); } catch (_) {}
+          try {
+            if (fs.existsSync(BACKUP_PATH)) {
+              fs.copyFileSync(BACKUP_PATH, DB_PATH);
+              fs.unlinkSync(BACKUP_PATH);
+            }
+          } catch (_) {}
+          process.exit(1);
+        }
+        REKEY_EOF
+          node /tmp/rekey.cjs || {
+            echo "[entrypoint] ERRO: Recriptografia falhou. Abortando partida." >&2
+            rm -f /tmp/rekey.cjs
+            exit 1
+          }
+          rm -f /tmp/rekey.cjs
+        fi
+        exec /usr/local/bin/docker-entrypoint.sh node server/dist/index.js
