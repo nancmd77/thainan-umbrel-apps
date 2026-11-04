@@ -4,7 +4,7 @@ name: Open Notebook
 tagline: Alternativa self-hosted ao NotebookLM, com busca e chat sobre suas fontes
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opennotebook/icon.png
 category: AI
-version: "1.15.0-2"
+version: "1.15.1"
 port: 8502
 description: >-
   Open Notebook organiza fontes (textos, links, PDFs, transcrições) em cadernos, com busca semântica, chat com citações e notas.
@@ -24,7 +24,7 @@ repo: https://github.com/lfnovo/open-notebook
 support: https://github.com/lfnovo/open-notebook/issues
 gallery: []
 releaseNotes: >-
-  Abre pelo subdomínio notebook.nonve.dpdns.org (API_URL). Senha = senha do Umbrel. Open Notebook 1.15.0, SurrealDB 2.6.5.
+  Atualizado automaticamente para 1.15.1. (2026-11-04)
 dependencies: []
 path: ""
 defaultUsername: ""
