@@ -1,13 +1,13 @@
 manifestVersion: 1
 id: thainan-economia
 name: Economia
-tagline: Nonve limitado a 7 W, sem RTX e sem turbo
+tagline: Nonve com CPU nos limites de fábrica, sem RTX e sem turbo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-desempenho/icon.png
 category: Developer
-version: "1.0.3"
+version: "1.0.4"
 port: 8535
 description: >-
-  Modo economia do Nonve: limite total da CPU em 7 W (RAPL PL1 e PL2, MSR e MMIO), turbo desligado, EPP power, ASPM powersupersave (placa de rede preservada) e a RTX removida do barramento PCI e tentativa de travar a carga da bateria em 80%. Reaplica a cada 5 minutos e no boot. Página de status com potência medida, limites, RTX e bateria. Parar o app não restaura nada até o próximo reboot.
+  Modo economia do Nonve: CPU com limites restaurados de fábrica (ou ajustáveis via variável de ambiente CPU_W), turbo desligado, EPP power, ASPM powersupersave (placa de rede preservada), RTX removida do barramento PCI e tentativa de travar a carga da bateria em 80%. Reaplica a cada 5 minutos e no boot. Página de status com potência medida, limites, RTX e bateria. Parar o app não restaura nada até o próximo reboot.
 developer: Thainan Caldeira
 website: https://github.com/nancmd77/thainan-umbrel-apps
 submitter: Thainan Caldeira
@@ -15,7 +15,7 @@ submission: https://github.com/nancmd77/thainan-umbrel-apps
 repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
-releaseNotes: Perfil de fans aplicado antes dos limites de 7 W (o perfil resetava o limite MMIO); compara low-power e quiet pelo RPM e fica com o mais silencioso.
+releaseNotes: Removido o teto de 7 W da CPU e restaurados os limites de fábrica (configurável via CPU_W). Mantidos perfil silencioso de fans, RTX desativada, ASPM e bateria.
 dependencies: []
 path: ""
 defaultUsername: ""

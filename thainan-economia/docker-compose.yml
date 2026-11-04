@@ -12,13 +12,13 @@ services:
     environment:
       NIC: enp64s0
       BIND: 10.21.0.1
+      CPU_W: fabrica
     volumes:
       - /lib/modules:/lib/modules:ro
     entrypoint: ["python", "-u", "-c"]
     command:
       - |
         import os, glob, time, threading, subprocess, html, http.server, socketserver
-        W = 7000000
         LOG = []
         def log(m):
             m = time.strftime('%H:%M:%S ') + m
@@ -32,6 +32,23 @@ services:
                 return True
             except Exception as e:
                 return False
+        def get_target_limit(z, i, n):
+            env_w = os.environ.get('CPU_W', 'fabrica').strip()
+            if env_w.lower() not in ('', 'fabrica', 'fábrica', 'default', 'factory', 'auto'):
+                try:
+                    return int(float(env_w) * 1e6), 'manual (CPU_W=%sW)' % env_w
+                except Exception:
+                    pass
+            max_p = 0
+            p_file = z + '/constraint_%d_max_power_uw' % i
+            if os.path.exists(p_file):
+                try: max_p = int(rd(p_file, '0'))
+                except Exception: max_p = 0
+            if max_p > 0:
+                return max_p, 'fábrica (max_power)'
+            is_pl2 = ('short' in n.lower()) or (i == 1)
+            fallback_w = 90 if is_pl2 else 45
+            return fallback_w * 1000000, 'fábrica (fallback %dW)' % fallback_w
         ZONES = ['/sys/class/powercap/intel-rapl:0', '/sys/class/powercap/intel-rapl-mmio:0']
         def apply():
             apply_profile()
@@ -41,7 +58,9 @@ services:
                 for i in (0, 1):
                     n = rd(z + '/constraint_%d_name' % i, '')
                     if not n: continue
-                    wr(z + '/constraint_%d_power_limit_uw' % i, W)
+                    val, src = get_target_limit(z, i, n)
+                    ok = wr(z + '/constraint_%d_power_limit_uw' % i, val)
+                    log('limite CPU %s c%d (%s): %.1f W [%s]%s' % (os.path.basename(z), i, n, val / 1e6, src, '' if ok else ' (falhou)'))
             wr('/sys/devices/system/cpu/intel_pstate/no_turbo', 1)
             for c in glob.glob('/sys/devices/system/cpu/cpu[0-9]*/cpufreq'):
                 wr(c + '/scaling_governor', 'powersave'); wr(c + '/energy_performance_preference', 'power')
@@ -194,6 +213,11 @@ services:
                 n = rd(z + '/constraint_%d_name' % i, '')
                 if n: out.append('%s %.1f W' % (n, int(rd(z + '/constraint_%d_power_limit_uw' % i, '0')) / 1e6))
             return ', '.join(out) + ' (ativo: ' + rd(z + '/enabled') + ')'
+        def cpu_limit_label():
+            env_w = os.environ.get('CPU_W', 'fabrica').strip()
+            if env_w.lower() not in ('', 'fabrica', 'fábrica', 'default', 'factory', 'auto'):
+                return env_w + ' W'
+            return 'padrão de fábrica'
         def page():
             b = '/sys/class/power_supply/BAT1'
             try: bw = int(rd(b + '/current_now')) * int(rd(b + '/voltage_now')) / 1e12
@@ -202,6 +226,7 @@ services:
             thr = b + '/charge_control_end_threshold'
             rows = [
                 ('Potência medida da CPU (pacote)', '%.2f W' % ST['w'] if ST['w'] is not None else 'medindo...'),
+                ('Configuração CPU_W', os.environ.get('CPU_W', 'fabrica').strip() or 'fabrica'),
                 ('Limite da CPU (MSR)', lim(ZONES[0])),
                 ('Limite da CPU (MMIO)', lim(ZONES[1])),
                 ('Turbo', 'desligado' if rd('/sys/devices/system/cpu/intel_pstate/no_turbo') == '1' else 'ligado'),
@@ -222,9 +247,9 @@ services:
             lg = html.escape('\n'.join(LOG[-12:]))
             return ('<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><meta http-equiv=refresh content=15>'
                     '<title>Economia</title><body style="font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px;color:#18181b">'
-                    '<h1>Economia de energia</h1><p>Limite total da CPU em 7 W, turbo desligado, RTX fora do barramento, perfil de fans mais silencioso quando exposto. Reaplica a cada 5 minutos.</p>'
+                    '<h1>Economia de energia</h1><p>Limite da CPU: %s, turbo desligado, RTX fora do barramento, perfil de fans mais silencioso quando exposto. Reaplica a cada 5 minutos.</p>'
                     '<table style="border-collapse:collapse;width:100%%" cellpadding=8>%s</table>'
-                    '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (tr, lg)).encode()
+                    '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (html.escape(cpu_limit_label()), tr, lg)).encode()
         class H(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 p = page(); self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers(); self.wfile.write(p)
