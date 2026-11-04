@@ -1,0 +1,23 @@
+manifestVersion: 1
+id: thainan-dsh
+name: DeepSeek Harness
+tagline: Teste do dsh (agente de código da DeepSeek) ligado no 9Router
+icon: https://avatars.githubusercontent.com/u/148330874
+category: developer
+version: "0.1.0"
+port: 8580
+description: >-
+  DeepSeek Harness (dsh, open source, MIT, preview) rodando isolado num container, com modelos via 9Router na rede interna do Umbrel. Pra comparar o modo normal com o PTC (Code Mode). Telemetria desligada. Chave do 9Router só no env custom do app (NINER_KEY). Workspace em app-data/thainan-dsh/data/workspace.
+developer: Thainan Caldeira
+website: https://github.com/deepseek-ai/deepseek-harness
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/deepseek-ai/deepseek-harness
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão de teste.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
