@@ -10,13 +10,15 @@ import sys
 import urllib.request
 
 EXPECTED_SHA256 = "d7987ecbf2b024c6de9d167becbcfcaabce447169b41d6f56db86f87d5187984"
-PATCHED_SHA256 = "f34ef6a99d263a9a11135b3ac2a0da99cc2ded929ab0cbbd2eb73168cbd14271"
+PATCHED_SHA256 = "379d840001ee900fc23686fd0b4cacb3ad5b186fef3bf27f73661667744880fe"
 DOWNLOAD_URL = "https://github.com/supermemoryai/supermemory/releases/download/server-v0.0.9/supermemory-server-linux-x64"
 DEFAULT_BIN_PATH = "/data/bin/supermemory-server"
 
 ORIGINAL_TARGET = b"noSleep:x.boolean().default(!1)"
 PATCHED_TARGET = b"noSleep:x.boolean().default(!0)"
 
+ORIGINAL_CALLER_TARGET = b"noSleep:$.noSleep"
+PATCHED_CALLER_TARGET = b"noSleep:!0       "
 def patch_binary(bin_path: str) -> bool:
     """
     Aplica patch de mesmo tamanho no binário trocando ORIGINAL_TARGET por PATCHED_TARGET (uma vez).
@@ -31,32 +33,42 @@ def patch_binary(bin_path: str) -> bool:
     with open(bin_path, "rb") as f:
         content = f.read()
 
+    modified = False
     if ORIGINAL_TARGET in content:
-        patched_content = content.replace(ORIGINAL_TARGET, PATCHED_TARGET, 1)
-        if len(patched_content) != len(content):
-            raise RuntimeError(f"Tamanho inconsistente após patch: original {len(content)}, patch {len(patched_content)}")
-        tmp_path = bin_path + ".patch.tmp"
-        with open(tmp_path, "wb") as f:
-            f.write(patched_content)
-        os.replace(tmp_path, bin_path)
-        os.chmod(bin_path, 0o755)
+        content = content.replace(ORIGINAL_TARGET, PATCHED_TARGET, 1)
+        modified = True
         print(
-            f"[download_supermemory] Patch aplicado com sucesso em {bin_path}: "
+            f"[download_supermemory] Patch schema aplicado com sucesso em {bin_path}: "
             f"trocado '{ORIGINAL_TARGET.decode('latin1', errors='replace')}' por '{PATCHED_TARGET.decode('latin1', errors='replace')}'.",
             flush=True,
         )
+
+    if ORIGINAL_CALLER_TARGET in content:
+        content = content.replace(ORIGINAL_CALLER_TARGET, PATCHED_CALLER_TARGET, 1)
+        modified = True
+        print(
+            f"[download_supermemory] Patch fábrica de atores aplicado com sucesso em {bin_path}: "
+            f"trocado '{ORIGINAL_CALLER_TARGET.decode('latin1', errors='replace')}' por '{PATCHED_CALLER_TARGET.decode('latin1', errors='replace')}'.",
+            flush=True,
+        )
+
+    if modified:
+        tmp_path = bin_path + ".patch.tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(content)
+        os.replace(tmp_path, bin_path)
+        os.chmod(bin_path, 0o755)
         return True
-    elif PATCHED_TARGET in content:
+    elif (PATCHED_TARGET in content or ORIGINAL_TARGET not in content) and PATCHED_CALLER_TARGET in content:
         os.chmod(bin_path, 0o755)
         print(
-            f"[download_supermemory] Binário em {bin_path} já está com o patch aplicado.",
+            f"[download_supermemory] Binário em {bin_path} já está com os patches aplicados.",
             flush=True,
         )
         return True
     else:
         print(
-            f"[download_supermemory] AVISO: Alvo do patch {ORIGINAL_TARGET!r} não encontrado "
-            f"e versão já patchada {PATCHED_TARGET!r} também não encontrada em {bin_path}!",
+            f"[download_supermemory] AVISO: Alvos de patch não encontrados em {bin_path}!",
             file=sys.stderr,
             flush=True,
         )
@@ -89,7 +101,7 @@ def check_cache_and_patch(bin_path: str) -> bool:
     try:
         with open(bin_path, "rb") as f:
             content = f.read()
-        if ORIGINAL_TARGET in content or PATCHED_TARGET in content:
+        if ORIGINAL_TARGET in content or ORIGINAL_CALLER_TARGET in content or PATCHED_CALLER_TARGET in content:
             print(f"[download_supermemory] Binário supermemory-server detectado em {bin_path}. Verificando patch...", flush=True)
             return patch_binary(bin_path)
     except Exception:
