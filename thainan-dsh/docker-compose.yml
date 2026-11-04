@@ -39,4 +39,4 @@ services:
         YML
         IP=$$(hostname -i | awk '{print $$1}')
         echo "dsh em $$IP:3080"
-        exec npx -y @deepseek-ai/dsh@$${DSH_VERSION} web --no-open --host $$IP --port 3080 --patch /data/router.yml --trusted-host 192.168.18.171:8580 nonve.local:8580 umbrel.local:8580 100.72.135.102:8580 nonve:8580
+        exec npx -y @deepseek-ai/dsh@$${DSH_VERSION} --patch /data/router.yml --profile web --no-open --host $$IP --port 3080 --trusted-host 192.168.18.171:8580 nonve.local:8580 umbrel.local:8580 100.72.135.102:8580 nonve:8580
