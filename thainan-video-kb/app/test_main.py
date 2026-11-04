@@ -1153,3 +1153,297 @@ class TDuplicadas(unittest.TestCase):
         with mock.patch.object(main, "req", fake):
             r = main.da_tela(["00:03: página do GitHub mostra ctresb/leis", "00:04: 2/3 das leis", "00:05: fulano/naoexiste"])
         self.assertEqual([x["url"] for x in r], ["https://github.com/ctresb/leis"])
+
+
+class TestSupermemory(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        main.DATA = self.tmp.name
+        main.init()
+        main.SM_BACKFILL.update(running=False, total=0, done=0, errors=0, msg="")
+        self.calls = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fake_req(self, method, url, headers=None, body=None, timeout=60, raw=False):
+        self.calls.append((method, url, headers, body))
+        return {"status": "ok"}
+
+    def _cria_job_pronto(self, jid=1, url="https://www.instagram.com/reel/C123/"):
+        main.add_job(url)
+        j = main.job(jid)
+        j["status"] = "pronto"
+        j["data"] = {
+            "kind": "video",
+            "meta": {"autor": "Fulano (@fulano)"},
+            "links": [{"nome": "Repo", "url": "https://github.com/a/b", "porque": "código do vídeo"}],
+            "analysis": {
+                "titulo": "Título do Reel",
+                "resumo": "Resumo explicativo.",
+                "pontos_chave": ["Ponto 1", "Ponto 2"],
+                "tags": ["ia", "python"],
+                "tema": "Inteligência Artificial",
+                "transcricao_limpa": "Transcrição completa do vídeo.",
+                "o_que_aparece": ["terminal", "vscode"],
+            },
+        }
+        main.save(j)
+        return main.job(jid)
+
+    def test_monta_corpo_certo(self):
+        main.cfg_save({"supermemory_on": "1", "supermemory_key": "SM-KEY-123", "supermemory_ns": "ns_teste"})
+        j = self._cria_job_pronto(1)
+        with mock.patch.object(main, "req", self.fake_req):
+            ok = main.sm_enviar(j)
+        self.assertTrue(ok)
+        self.assertEqual(len(self.calls), 1)
+        method, url, headers, body = self.calls[0]
+        self.assertEqual(method, "POST")
+        self.assertEqual(url, "https://api.supermemory.ai/ns/ns_teste/document")
+        self.assertEqual(headers.get("Authorization"), "Bearer SM-KEY-123")
+        self.assertEqual(headers.get("Content-Type"), "application/json")
+        self.assertEqual(headers.get("User-Agent"), "supermemory/5.0.1")
+        self.assertEqual(headers.get("X-Fern-Language"), "Python")
+        self.assertTrue(headers.get("X-Fern-Runtime", "").startswith("python/"))
+        self.assertTrue(len(headers.get("X-Fern-Platform", "")) > 0)
+        self.assertEqual(body["id"], "reel-1")
+        self.assertEqual(body["taskType"], "superrag")
+
+        # Metadata plana: somente string/number/bool/list, sem dict aninhado
+        meta = body["metadata"]
+        self.assertEqual(meta["source"], "selah")
+        self.assertEqual(meta["tema"], "Inteligência Artificial")
+        self.assertEqual(meta["link"], "https://www.instagram.com/reel/C123/")
+        self.assertEqual(meta["criador"], "Fulano (@fulano)")
+        self.assertRegex(meta["data"], r"^\d{4}-\d{2}-\d{2}$")
+        for k, v in meta.items():
+            self.assertFalse(isinstance(v, dict), f"metadata['{k}'] não pode ser dicionário aninhado")
+            self.assertTrue(isinstance(v, (str, int, float, bool, list)))
+
+        # Content: markdown com as seções exigidas
+        ct = body["content"]
+        self.assertIn("# Título do Reel", ct)
+        self.assertIn("Fulano (@fulano)", ct)
+        self.assertIn("https://www.instagram.com/reel/C123/", ct)
+        self.assertIn("Resumo e ideias", ct)
+        self.assertIn("Resumo explicativo.", ct)
+        self.assertIn("Ponto 1", ct)
+        self.assertIn("Transcrição completa", ct)
+        self.assertIn("https://github.com/a/b", ct)
+        self.assertIn("terminal", ct)
+
+        # Job atualizado com timestamp de envio
+        j_salvo = main.job(1)
+        self.assertIn("sm_enviado", j_salvo["data"])
+        self.assertNotIn("sm_erro", j_salvo["data"])
+
+    def test_id_sanitizado(self):
+        j = {"id": "123 special!@#_ABC"}
+        sid = main.sm_id(j)
+        self.assertEqual(sid, "reel-123_special____ABC")
+        self.assertRegex(sid, r"^[a-zA-Z0-9_-]+$")
+
+    def test_nao_envia_desligado_ou_sem_chave(self):
+        j = self._cria_job_pronto(1)
+        with mock.patch.object(main, "req", self.fake_req):
+            main.cfg_save({"supermemory_on": "1", "supermemory_key": ""})
+            self.assertFalse(main.sm_enviar(j))
+            self.assertEqual(len(self.calls), 0)
+
+            main.cfg_save({"supermemory_on": "", "supermemory_key": "SM-KEY-12345"})
+            self.assertFalse(main.sm_enviar(j))
+            self.assertEqual(len(self.calls), 0)
+            self.assertEqual(main.scrub("falhou com SM-KEY-12345"), "falhou com ***")
+
+            main.cfg_save({"supermemory_on": "", "supermemory_key": ""})
+            self.assertFalse(main.sm_enviar(j))
+            self.assertEqual(len(self.calls), 0)
+
+    def test_falha_nao_quebra_reel_via_run(self):
+        fake = Fake()
+        main.cfg_save({"elevenlabs_key": "EL-KEY-1234", "llm_key": "OR-KEY-5678", "llm_url": "http://router/v1", "cobalt_url": "http://cobalt",
+                       "karakeep_url": "http://kk", "karakeep_key": "KK-KEY-9999", "notebook_url": "http://nb",
+                       "webhook_token": "tok-secreto", "kk_on": "1",
+                       "supermemory_on": "1", "supermemory_key": "SM-KEY-123"})
+
+        def fake_com_falha_sm(method, url, headers=None, body=None, timeout=60, raw=False):
+            if "api.supermemory.ai" in url:
+                raise RuntimeError("POST api.supermemory.ai -> HTTP 500: Server Error")
+            return fake(method, url, headers, body, timeout, raw)
+
+        main.add_job("https://www.tiktok.com/@x/video/run1")
+        with mock.patch.object(main, "req", fake_com_falha_sm), mock.patch("time.sleep"):
+            main.run(1)
+        j = main.job(1)
+        self.assertEqual(j["status"], "pronto")
+        self.assertEqual(j["stage"], "pronto")
+        self.assertNotIn("sm_enviado", j["data"])
+        self.assertIn("HTTP 500", j["data"].get("sm_erro", ""))
+
+    def test_pipeline_sucesso_via_run(self):
+        fake = Fake()
+        main.cfg_save({"elevenlabs_key": "EL-KEY-1234", "llm_key": "OR-KEY-5678", "llm_url": "http://router/v1", "cobalt_url": "http://cobalt",
+                       "karakeep_url": "http://kk", "karakeep_key": "KK-KEY-9999", "notebook_url": "http://nb",
+                       "webhook_token": "tok-secreto", "kk_on": "1",
+                       "supermemory_on": "1", "supermemory_key": "SM-KEY-123", "supermemory_ns": "ns_run"})
+        sm_calls = []
+
+        def fake_com_sm(method, url, headers=None, body=None, timeout=60, raw=False):
+            if "api.supermemory.ai" in url:
+                sm_calls.append((method, url, headers, body))
+                return {"status": "ok"}
+            return fake(method, url, headers, body, timeout, raw)
+
+        main.add_job("https://www.tiktok.com/@x/video/run2")
+        with mock.patch.object(main, "req", fake_com_sm):
+            main.run(1)
+        j = main.job(1)
+        self.assertEqual(j["status"], "pronto")
+        self.assertEqual(j["stage"], "pronto")
+        self.assertIn("sm_enviado", j["data"])
+        self.assertEqual(len(sm_calls), 1)
+        self.assertEqual(sm_calls[0][1], "https://api.supermemory.ai/ns/ns_run/document")
+        self.assertEqual(sm_calls[0][3]["id"], "reel-1")
+    def test_backfill_pula_ja_enviados(self):
+        main.cfg_save({"supermemory_on": "1", "supermemory_key": "SM-KEY-123"})
+        j1 = self._cria_job_pronto(1, "https://www.instagram.com/reel/1/")
+        j1["data"]["sm_enviado"] = int(time.time())
+        main.save(j1)
+
+        j2 = self._cria_job_pronto(2, "https://www.instagram.com/reel/2/")
+
+        with mock.patch.object(main, "req", self.fake_req), mock.patch("time.sleep"):
+            res = main.sm_backfill(cli=False)
+        self.assertIn("Enviados 1 de 1", res)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0][3]["id"], "reel-2")
+
+        # Idempotente: segunda rodada não envia nada
+        self.calls.clear()
+        with mock.patch.object(main, "req", self.fake_req), mock.patch("time.sleep"):
+            res2 = main.sm_backfill(cli=False)
+        self.assertEqual(len(self.calls), 0)
+        self.assertIn("Enviados 0 de 0", res2)
+
+    def _simula_post(self, path, headers=None, client_ip="127.0.0.1", body=b""):
+        import http.client
+        h = main.H.__new__(main.H)
+        h.client_address = (client_ip, 54321)
+        h.command = "POST"
+        h.path = path
+        h.request_version = "HTTP/1.1"
+        h.requestline = f"POST {path} HTTP/1.1"
+        h.close_connection = True
+
+        msg = http.client.HTTPMessage()
+        for k, v in (headers or {}).items():
+            msg[k] = v
+        if body and "Content-Length" not in msg:
+            msg["Content-Length"] = str(len(body))
+        h.headers = msg
+        h.rfile = io.BytesIO(body)
+        h.wfile = io.BytesIO()
+
+        h.do_POST()
+        h.wfile.seek(0)
+        raw_resp = h.wfile.read()
+
+        lines = raw_resp.split(b"\r\n\r\n", 1)
+        header_lines = lines[0].decode().split("\r\n")
+        status_code = int(header_lines[0].split()[1])
+        resp_body = lines[1] if len(lines) > 1 else b""
+        data = json.loads(resp_body.decode()) if resp_body else {}
+        return status_code, data
+
+    def test_endpoint_chave_lan_aceito(self):
+        ips_lan = ["127.0.0.1", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.50", "::1"]
+        for ip in ips_lan:
+            main.cfg_save({"supermemory_key": "", "supermemory_on": ""})
+            code, data = self._simula_post("/config/supermemory/chave",
+                                            {"Authorization": "Bearer sm_teste_abc"}, client_ip=ip)
+            self.assertEqual(code, 200, f"Falhou para IP LAN {ip}")
+            self.assertTrue(data.get("ok"))
+            self.assertEqual(data.get("ns"), "sm_project_default")
+            self.assertEqual(data.get("prefixo"), "sm_t")
+            self.assertEqual(main.cfg().get("supermemory_key"), "sm_teste_abc")
+            self.assertEqual(main.cfg().get("supermemory_on"), "1")
+            self.assertTrue(main.sm_on())
+            st_mode = os.stat(main.cfg_path()).st_mode & 0o777
+            self.assertEqual(st_mode, 0o600, f"Permissão deve ser 0o600, obteve {oct(st_mode)}")
+
+    def test_endpoint_chave_ip_publico_recusado(self):
+        ips_publicos = ["8.8.8.8", "1.1.1.1", "172.15.0.1", "172.32.0.1", "192.167.1.1", "203.0.113.1"]
+        for ip in ips_publicos:
+            main.cfg_save({"supermemory_key": "original", "supermemory_on": ""})
+            code, data = self._simula_post("/config/supermemory/chave",
+                                            {"Authorization": "Bearer sm_teste_novo"}, client_ip=ip)
+            self.assertEqual(code, 403, f"Deveria recusar IP {ip}")
+            self.assertFalse(data.get("ok"))
+            self.assertEqual(main.cfg().get("supermemory_key"), "original")
+
+    def test_endpoint_chave_xff_publico_recusado(self):
+        main.cfg_save({"supermemory_key": "original", "supermemory_on": ""})
+        code, data = self._simula_post("/config/supermemory/chave",
+                                        {"Authorization": "Bearer sm_teste_novo",
+                                         "X-Forwarded-For": "203.0.113.10"},
+                                        client_ip="127.0.0.1")
+        self.assertEqual(code, 403)
+        self.assertFalse(data.get("ok"))
+        self.assertEqual(main.cfg().get("supermemory_key"), "original")
+
+    def test_endpoint_chave_validacao_header(self):
+        # Sem Authorization
+        code, data = self._simula_post("/config/supermemory/chave", {}, client_ip="127.0.0.1")
+        self.assertEqual(code, 400)
+        self.assertFalse(data.get("ok"))
+
+        # Sem Bearer
+        code, data = self._simula_post("/config/supermemory/chave",
+                                        {"Authorization": "Basic 123"}, client_ip="127.0.0.1")
+        self.assertEqual(code, 400)
+        self.assertFalse(data.get("ok"))
+
+        # Bearer vazio
+        code, data = self._simula_post("/config/supermemory/chave",
+                                        {"Authorization": "Bearer    "}, client_ip="127.0.0.1")
+        self.assertEqual(code, 400)
+        self.assertFalse(data.get("ok"))
+
+    def test_chave_nunca_logada_ou_vazada(self):
+        chave_exemplo = "sm_teste_12345"
+        buf = io.StringIO()
+        with mock.patch("sys.stdout", buf):
+            code, data = self._simula_post("/config/supermemory/chave",
+                                            {"Authorization": f"Bearer {chave_exemplo}"}, client_ip="127.0.0.1")
+        self.assertEqual(code, 200)
+        # Prefixo devolve apenas os 4 primeiros caracteres
+        self.assertEqual(data.get("prefixo"), "sm_t")
+        self.assertNotIn(chave_exemplo, json.dumps(data))
+        # Verifica que a chave não foi impressa em stdout / logs
+        self.assertNotIn(chave_exemplo, buf.getvalue())
+        self.assertEqual(main.scrub(f"erro ao conectar com {chave_exemplo}"), "erro ao conectar com ***")
+
+    def test_is_lan_ip_fronteiras(self):
+        casos = [
+            ("127.0.0.1", True),
+            ("127.255.255.255", True),
+            ("10.0.0.1", True),
+            ("10.255.255.255", True),
+            ("172.16.0.1", True),
+            ("172.31.255.255", True),
+            ("172.15.255.255", False),
+            ("172.32.0.1", False),
+            ("192.168.0.1", True),
+            ("192.168.255.255", True),
+            ("192.167.255.255", False),
+            ("192.169.0.1", False),
+            ("8.8.8.8", False),
+            ("::1", True),
+            ("::ffff:192.168.1.1", True),
+            ("::ffff:8.8.8.8", False),
+            ("", False),
+            ("invalido", False),
+        ]
+        for ip, esperado in casos:
+            self.assertEqual(main.is_lan_ip(ip), esperado, f"Falha para IP {ip}")

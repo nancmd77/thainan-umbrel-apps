@@ -5,9 +5,11 @@ Só stdlib (+ yt-dlp opcional, fallback do Cobalt). Tudo num arquivo de propósi
 import base64
 import glob
 import html
+import ipaddress
 import io
 import json
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -89,6 +91,9 @@ FIELDS = [
     ("sb_reels", "SilverBullet: pasta dos Reels", "text", "Mudar o nome não apaga a pasta antiga.", "Reels"),
     ("sb_temas", "SilverBullet: pasta dos assuntos", "text", "", "Temas"),
     ("sb_pagina", "SilverBullet: página principal", "text", "", "Video KB"),
+    ("supermemory_on", "Enviar reels ao Supermemory", "bool", "Guarda os reels finalizados como documentos no Supermemory.", ""),
+    ("supermemory_key", "Chave do Supermemory", "secret", "Chave da API v5 do Supermemory.", ""),
+    ("supermemory_ns", "Namespace do Supermemory", "text", "Namespace dos documentos (padrão sm_project_default).", "sm_project_default"),
     ("h_mural", "Mural", "h", "Galeria de cards (capa + vídeo) no topo de Video KB e index.", ""),
     ("mural_on", "Gerar o mural", "bool", "", "1"),
     ("h_col", "Coletores e fila", "h", "Cada item novo entra direto na fila (e vira bookmark no Karakeep só se ele estiver ligado).", ""),
@@ -2124,6 +2129,296 @@ def step_notebook(j, c):
     j["data"]["nb"] = s.get("id") or True
 
 
+# ---------- Supermemory (v1.14) ----------
+SM_LOCK = threading.Lock()
+SM_BACKFILL = {"running": False, "total": 0, "done": 0, "errors": 0, "msg": ""}
+
+
+def sm_on(c=None):
+    c = c or cfg()
+    return bool(c.get("supermemory_on") in ("1", "true", "True", True) and c.get("supermemory_key"))
+
+
+def sm_id(j):
+    raw = f"reel-{j['id']}"
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", str(raw))
+
+
+def sm_content(j):
+    d = j.get("data") or {}
+    a = d.get("analysis") or {}
+    meta = d.get("meta") or {}
+    titulo = a.get("titulo") or "Sem título"
+    orig = j.get("orig") or j.get("url") or ""
+    criador = meta.get("autor") or ""
+    ts = j.get("created") or time.time()
+    data_fmt = time.strftime("%Y-%m-%d", time.localtime(ts))
+    tema = a.get("tema") or ""
+    tags = [t.strip().lstrip("#") for t in (a.get("tags") or []) if t.strip()]
+
+    partes = [f"# {titulo}\n"]
+    if criador:
+        partes.append(f"**Criador:** {criador}")
+    if orig:
+        partes.append(f"**Link original:** {orig}")
+    partes.append(f"**Data guardado:** {data_fmt}")
+    if tema:
+        partes.append(f"**Tema:** {tema}")
+    if tags:
+        partes.append(f"**Tags:** {', '.join(tags)}")
+
+    if a.get("resumo"):
+        partes.append(f"\n## Resumo e ideias\n{a['resumo']}")
+
+    pontos = a.get("pontos_chave") or []
+    if pontos:
+        partes.append("\n## Pontos-chave\n" + "\n".join(f"- {p}" for p in pontos))
+
+    video = d.get("kind", "video") == "video"
+    transcricao = (a.get("transcricao_limpa") or d.get("transcript") or "") if video else (d.get("transcript") or "")
+    if transcricao:
+        partes.append(f"\n## Transcrição completa\n{transcricao}")
+
+    links = d.get("links") or []
+    if links:
+        linhas = []
+        for lk in links:
+            nome = lk.get("nome") or lk.get("rotulo") or "Link"
+            url = lk.get("url") or ""
+            pq = lk.get("porque") or ""
+            linhas.append(f"- [{nome}]({url})" + (f": {pq}" if pq else ""))
+        partes.append("\n## Links encontrados\n" + "\n".join(linhas))
+
+    tela = a.get("o_que_aparece") or []
+    if tela:
+        partes.append("\n## Lidos na tela\n" + "\n".join(f"- {x}" for x in tela))
+
+    return "\n\n".join(partes).strip()
+
+
+def sm_payload(j, c=None):
+    d = j.get("data") or {}
+    a = d.get("analysis") or {}
+    meta = d.get("meta") or {}
+    ts = j.get("created") or time.time()
+    metadata = {
+        "source": "selah",
+        "tema": str(a.get("tema") or ""),
+        "link": str(j.get("orig") or j.get("url") or ""),
+        "data": time.strftime("%Y-%m-%d", time.localtime(ts)),
+    }
+    criador = meta.get("autor") or ""
+    if criador:
+        metadata["criador"] = str(criador)
+    clean_meta = {}
+    for k, v in metadata.items():
+        if isinstance(v, bool):
+            clean_meta[k] = v
+        elif isinstance(v, (int, float)):
+            clean_meta[k] = v
+        elif isinstance(v, str):
+            clean_meta[k] = v
+        elif v is not None:
+            clean_meta[k] = str(v)
+    return {
+        "id": sm_id(j),
+        "content": sm_content(j),
+        "metadata": clean_meta,
+        "taskType": "superrag",
+    }
+
+
+def sm_grava_status(jid, key, val):
+    """Atualiza pontualmente o campo data no banco com json_set sem risco de corrida."""
+    try:
+        path = f"$.{key}"
+        if key == "sm_enviado":
+            q("UPDATE jobs SET data=json_remove(json_set(data, ?, ?), '$.sm_erro'), updated=? WHERE id=?",
+              (path, val, time.time(), jid))
+        else:
+            q("UPDATE jobs SET data=json_set(data, ?, ?), updated=? WHERE id=?",
+              (path, val, time.time(), jid))
+    except Exception as e:
+        log(f"job {jid} sm_grava_status falhou: {scrub(e)[:120]}")
+
+
+def sm_enviar(j, c=None):
+    try:
+        c = c or cfg()
+        if not sm_on(c):
+            return False
+        d = j.get("data") or {}
+        if not d.get("analysis"):
+            return False
+        ns = urllib.parse.quote((c.get("supermemory_ns") or "sm_project_default").strip(), safe="")
+        url = f"https://api.supermemory.ai/ns/{ns}/document"
+        headers = {
+            "Authorization": f"Bearer {c.get('supermemory_key', '')}",
+            "Content-Type": "application/json",
+            "User-Agent": "supermemory/5.0.1",
+            "X-Fern-Language": "Python",
+            "X-Fern-Runtime": f"python/{platform.python_version()}",
+            "X-Fern-Platform": f"{platform.system().lower()}/{platform.release()}",
+        }
+        body = sm_payload(j, c)
+        for attempt in range(3):
+            try:
+                req("POST", url, headers=headers, body=body, timeout=60)
+                now = int(time.time())
+                j["data"]["sm_enviado"] = now
+                j["data"].pop("sm_erro", None)
+                sm_grava_status(j["id"], "sm_enviado", now)
+                return True
+            except Exception as e:
+                err_str = str(e)
+                if bool(re.search(r"HTTP (429|5\d\d)", err_str)) and attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                log(f"job {j['id']} supermemory: {scrub(e)[:150]}")
+                err_msg = scrub(e)[:150]
+                j["data"]["sm_erro"] = err_msg
+                sm_grava_status(j["id"], "sm_erro", err_msg)
+                return False
+        return False
+    except Exception as e:
+        log(f"job {j.get('id')} supermemory falhou inesperado: {scrub(e)[:150]}")
+        try:
+            err_msg = scrub(e)[:150]
+            if "data" in j and isinstance(j["data"], dict):
+                j["data"]["sm_erro"] = err_msg
+            if j.get("id"):
+                sm_grava_status(j["id"], "sm_erro", err_msg)
+        except Exception:
+            pass
+        return False
+
+LAN_NETWORKS = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+)
+
+
+def is_lan_ip(ip_str):
+    if not ip_str or not isinstance(ip_str, str):
+        return False
+    try:
+        addr = ipaddress.ip_address(ip_str.strip())
+        if addr.version == 6 and addr.ipv4_mapped:
+            addr = addr.ipv4_mapped
+        return any(addr in net for net in LAN_NETWORKS)
+    except ValueError:
+        return False
+
+
+def handle_supermemory_chave(headers, client_ip):
+    if not is_lan_ip(client_ip):
+        return 403, {"ok": False, "erro": "Acesso permitido apenas pela rede local (LAN)"}
+    xff = (headers or {}).get("X-Forwarded-For")
+    if xff:
+        for part in xff.split(","):
+            part = part.strip()
+            if part and not is_lan_ip(part):
+                return 403, {"ok": False, "erro": "Acesso permitido apenas pela rede local (LAN)"}
+    auth = (headers or {}).get("Authorization") or ""
+    m = re.match(r"^Bearer\s+(.+)$", auth.strip(), re.IGNORECASE)
+    if not m or not m.group(1).strip():
+        return 400, {"ok": False, "erro": "Header Authorization: Bearer <chave> obrigatório"}
+    chave = m.group(1).strip()
+    cfg_save({"supermemory_key": chave, "supermemory_on": "1"})
+    c = cfg()
+    ns = (c.get("supermemory_ns") or "sm_project_default").strip()
+    return 200, {"ok": True, "ns": ns, "prefixo": chave[:4]}
+
+
+def sm_backfill(cli=False):
+    if not SM_LOCK.acquire(blocking=False):
+        msg = "Backfill do Supermemory já está em andamento."
+        if cli:
+            print(msg)
+        return msg
+    c = cfg()
+    if not sm_on(c):
+        SM_LOCK.release()
+        msg = "Supermemory desligado ou sem chave."
+        q("INSERT OR REPLACE INTO kv VALUES(?,?)", ("sm_backfill", json.dumps({"rodando": False, "msg": msg})))
+        if cli:
+            print(msg)
+        return msg
+    try:
+        rows = q("SELECT id FROM jobs WHERE status='pronto' AND data LIKE '%\"analysis\"%' AND data NOT LIKE '%\"sm_enviado\"%' ORDER BY id")
+        total = len(rows)
+        done_cnt, err_cnt = 0, 0
+        q("INSERT OR REPLACE INTO kv VALUES(?,?)",
+          ("sm_backfill", json.dumps({"rodando": True, "total": total, "enviados": 0, "erros": 0, "msg": f"Enviados 0 de {total}, 0 erros"})))
+        if cli:
+            print(f"Iniciando backfill do Supermemory: {total} reels pendentes.")
+        for i, r in enumerate(rows):
+            j = job(r["id"])
+            if not j or not (j.get("data") or {}).get("analysis"):
+                continue
+            ok = sm_enviar(j, c)
+            if ok:
+                done_cnt += 1
+            else:
+                err_cnt += 1
+            q("INSERT OR REPLACE INTO kv VALUES(?,?)",
+              ("sm_backfill", json.dumps({"rodando": True, "total": total, "enviados": done_cnt, "erros": err_cnt, "msg": f"Enviados {done_cnt} de {total}, {err_cnt} erros"})))
+            if cli:
+                print(f"[{i+1}/{total}] Reel {j['id']}: {'OK' if ok else 'ERRO'}")
+            if i < total - 1:
+                time.sleep(1.5)
+        res_msg = f"Enviados {done_cnt} de {total}, {err_cnt} erros"
+        q("INSERT OR REPLACE INTO kv VALUES(?,?)",
+          ("sm_backfill", json.dumps({"rodando": False, "total": total, "enviados": done_cnt, "erros": err_cnt, "msg": res_msg})))
+        if cli:
+            print(f"Backfill concluído: {res_msg}")
+        return res_msg
+    finally:
+        SM_LOCK.release()
+
+
+def sm_iniciar_backfill():
+    if not sm_on():
+        return "Supermemory desligado ou sem chave em Configurações."
+    st = {}
+    r = q("SELECT v FROM kv WHERE k='sm_backfill'")
+    if r:
+        try:
+            st = json.loads(r[0]["v"])
+        except Exception:
+            pass
+    if st.get("rodando"):
+        return "Backfill do Supermemory já está em andamento."
+    threading.Thread(target=sm_backfill, daemon=True).start()
+    return "Backfill do Supermemory iniciado."
+
+
+def sm_status_html():
+    st = {}
+    r = q("SELECT v FROM kv WHERE k='sm_backfill'")
+    if r:
+        try:
+            st = json.loads(r[0]["v"])
+        except Exception:
+            pass
+    if st.get("rodando"):
+        return f'<p class="hint" role="status"><strong>Supermemory:</strong> Enviando {st.get("enviados", 0)} de {st.get("total", 0)}, {st.get("erros", 0)} erros...</p>'
+    if st.get("msg"):
+        return f'<p class="hint"><strong>Supermemory:</strong> {e(st["msg"])}</p>'
+    try:
+        prontos = q("SELECT COUNT(*) as c FROM jobs WHERE status='pronto' AND data LIKE '%\"analysis\"%'")[0]["c"]
+        enviados = q("SELECT COUNT(*) as c FROM jobs WHERE status='pronto' AND data LIKE '%\"sm_enviado\"%'")[0]["c"]
+        erros = q("SELECT COUNT(*) as c FROM jobs WHERE status='pronto' AND data LIKE '%\"sm_erro\"%'")[0]["c"]
+        if prontos > 0:
+            err_txt = f", {erros} erros" if erros else ""
+            return f'<p class="hint">Supermemory: {enviados} de {prontos} reels enviados{err_txt}.</p>'
+    except Exception:
+        pass
+    return ""
+
 STEP_FN = {"tipo": step_tipo, "texto": step_texto, "audio": step_audio, "transcricao": step_transcricao, "visao": step_visao, "resumo": step_resumo,
            "links": step_links, "karakeep": step_karakeep, "notebook": step_notebook, "silverbullet": step_silverbullet}
 
@@ -2181,6 +2476,8 @@ def run(jid):
     j.update(stage="pronto", status="pronto", error="")
     save(j)
     log(f"job {jid} pronto")
+    if sm_on(c):
+        sm_enviar(j, c)
 
 
 def retry(jid):
@@ -2653,6 +2950,9 @@ def config_page(flash=""):
                '<button class="sec" type="submit">Puxar todos os vídeos salvos do Instagram</button></form>'
                '<form method="post" action="/reprocessar/sb" onsubmit="return confirm(\'Refazer no SilverBullet todos os itens (página, vídeo na qualidade atual, quadros, mural)?\')">'
                '<button class="sec" type="submit">Reprocessar só SilverBullet</button></form>'
+               '<form method="post" action="/config/supermemory/backfill">'
+               '<button class="sec" type="submit">Enviar todos os reels ao Supermemory</button></form>'
+               + sm_status_html() +
                '<form method="get" action="/config/export"><button class="sec" type="submit">Exportar configuração (sem segredos)</button></form></div>'
                '<form method="post" action="/config/import"><label for="imp">Importar configuração</label>'
                '<p class="hint" id="h-imp">Cole o JSON exportado. Chaves e cookies não entram; campo inválido fica como está.</p>'
@@ -2850,6 +3150,10 @@ class H(BaseHTTPRequestHandler):
         if path == "/webhook/karakeep":
             code, obj = handle_webhook(self.headers, body)
             return self.send(code, json.dumps(obj), "application/json")
+        if path == "/config/supermemory/chave":
+            client_ip = self.client_address[0] if getattr(self, "client_address", None) else ""
+            code, obj = handle_supermemory_chave(self.headers, client_ip)
+            return self.send(code, json.dumps(obj), "application/json")
         if self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):  # CSRF: outro app/site tentando postar
             return self.send(403, "origem bloqueada", "text/plain")
         form = parse_qs(body.decode("utf-8", "replace"))
@@ -2877,6 +3181,9 @@ class H(BaseHTTPRequestHandler):
         elif path == "/coletar/instagram-todos":
             threading.Thread(target=ig_todos, daemon=True).start()
             self.go("Puxando todos os vídeos salvos do Instagram. Os novos entram na fila aos poucos.")
+        elif path == "/config/supermemory/backfill":
+            msg = sm_iniciar_backfill()
+            self.send(303, "", extra=[("Location", "/config?m=" + urllib.parse.quote(msg))])
         elif m := re.fullmatch(r"/remover/(\d+)", path):
             j = job(int(m[1]))
             pag = j and (j["data"].get("sb") or {}).get("page")
@@ -2894,6 +3201,9 @@ class H(BaseHTTPRequestHandler):
 
 
 def main():
+    if "--sm-backfill" in sys.argv:
+        sm_backfill(cli=True)
+        return
     init()
     threading.Thread(target=links_teste, daemon=True).start()  # v1.9: teste dos links nos 3 reels
     sb_refila()  # v1.3.3+: não depende do nan clicar Salvar
