@@ -4,7 +4,7 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs viram resumo, tags e página no Selah
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.14.0"
+version: "1.15.0"
 port: 8519
 description: >-
   Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página guardada no seu servidor, que o Selah mostra e, se ligado, fonte no Open Notebook.
@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Reels guardados vão para o Supermemory (opcional).
+  URL base configurável e reenvio de reels (backfill) para o Supermemory.
 dependencies: []
 path: ""
 defaultUsername: ""

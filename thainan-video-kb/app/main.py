@@ -94,6 +94,7 @@ FIELDS = [
     ("supermemory_on", "Enviar reels ao Supermemory", "bool", "Guarda os reels finalizados como documentos no Supermemory.", ""),
     ("supermemory_key", "Chave do Supermemory", "secret", "Chave da API v5 do Supermemory.", ""),
     ("supermemory_ns", "Namespace do Supermemory", "text", "Namespace dos documentos (padrão sm_project_default).", "sm_project_default"),
+    ("supermemory_base", "URL base do Supermemory", "text", "URL base da API (padrão https://api.supermemory.ai).", "https://api.supermemory.ai"),
     ("h_mural", "Mural", "h", "Galeria de cards (capa + vídeo) no topo de Video KB e index.", ""),
     ("mural_on", "Gerar o mural", "bool", "", "1"),
     ("h_col", "Coletores e fila", "h", "Cada item novo entra direto na fila (e vira bookmark no Karakeep só se ele estiver ligado).", ""),
@@ -120,6 +121,7 @@ FIELDS = [
     ("h_tela", "Tela", "h", "", ""),
     ("ui_tema", "Tema da tela", "choice", "Automático segue o sistema (claro/escuro).", "auto"),
 ]
+CFG_FIELDS = FIELDS
 NUM = {"resumo_frases": (2, 10), "pontos_max": (3, 15), "tags_max": (3, 20), "curto_min": (1, 60), "curto_mb": (5, 2000), "longo_mb": (10, 4000),
        "tl_quadros": (1, 60), "tl_largura": (120, 1920), "max_frames": (9, 200), "max_min": (1, 600),
        "col_min": (5, 1440), "first_run": (1, 200), "crawl_tries": (0, 20), "crawl_wait": (30, 3600), "poll_secs": (60, 3600)}
@@ -2250,8 +2252,9 @@ def sm_enviar(j, c=None):
         d = j.get("data") or {}
         if not d.get("analysis"):
             return False
+        base = (c.get("supermemory_base") or "https://api.supermemory.ai").strip().rstrip("/")
         ns = urllib.parse.quote((c.get("supermemory_ns") or "sm_project_default").strip(), safe="")
-        url = f"https://api.supermemory.ai/ns/{ns}/document"
+        url = f"{base}/ns/{ns}/document"
         headers = {
             "Authorization": f"Bearer {c.get('supermemory_key', '')}",
             "Content-Type": "application/json",
@@ -2333,7 +2336,50 @@ def handle_supermemory_chave(headers, client_ip):
     return 200, {"ok": True, "ns": ns, "prefixo": chave[:4]}
 
 
-def sm_backfill(cli=False):
+def handle_supermemory_base(headers, body, client_ip, query_str=""):
+    if not is_lan_ip(client_ip):
+        return 403, {"ok": False, "erro": "Acesso permitido apenas pela rede local (LAN)"}
+    xff = (headers or {}).get("X-Forwarded-For")
+    if xff:
+        for part in xff.split(","):
+            part = part.strip()
+            if part and not is_lan_ip(part):
+                return 403, {"ok": False, "erro": "Acesso permitido apenas pela rede local (LAN)"}
+    base = ""
+    if body:
+        try:
+            b_data = json.loads(body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else body)
+            if isinstance(b_data, dict):
+                base = b_data.get("base") or b_data.get("supermemory_base") or b_data.get("url") or ""
+            elif isinstance(b_data, str):
+                base = b_data
+        except Exception:
+            pass
+        if not base:
+            try:
+                b_form = parse_qs(body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else str(body))
+                base = (b_form.get("base") or b_form.get("supermemory_base") or b_form.get("url") or [""])[0]
+            except Exception:
+                pass
+        if not base:
+            raw_text = (body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else str(body)).strip()
+            if raw_text.startswith("http://") or raw_text.startswith("https://"):
+                base = raw_text
+    if not base and query_str:
+        try:
+            qs = parse_qs(query_str)
+            base = (qs.get("base") or qs.get("supermemory_base") or qs.get("url") or [""])[0]
+        except Exception:
+            pass
+    base = str(base).strip().rstrip("/")
+    u = urlsplit(base)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return 400, {"ok": False, "erro": "URL base inválida ou não informada"}
+    cfg_save({"supermemory_base": base})
+    return 200, {"ok": True, "base": base}
+
+
+def sm_backfill(cli=False, reenviar_todos=False):
     if not SM_LOCK.acquire(blocking=False):
         msg = "Backfill do Supermemory já está em andamento."
         if cli:
@@ -2348,7 +2394,8 @@ def sm_backfill(cli=False):
             print(msg)
         return msg
     try:
-        rows = q("SELECT id FROM jobs WHERE status='pronto' AND data LIKE '%\"analysis\"%' AND data NOT LIKE '%\"sm_enviado\"%' ORDER BY id")
+        filtro_enviado = "" if reenviar_todos in (True, 1, "1", "true", "True") else " AND data NOT LIKE '%\"sm_enviado\"%'"
+        rows = q(f"SELECT id FROM jobs WHERE status='pronto' AND data LIKE '%\"analysis\"%'{filtro_enviado} ORDER BY id")
         total = len(rows)
         done_cnt, err_cnt = 0, 0
         q("INSERT OR REPLACE INTO kv VALUES(?,?)",
@@ -2380,7 +2427,7 @@ def sm_backfill(cli=False):
         SM_LOCK.release()
 
 
-def sm_iniciar_backfill():
+def sm_iniciar_backfill(reenviar_todos=False):
     if not sm_on():
         return "Supermemory desligado ou sem chave em Configurações."
     st = {}
@@ -2392,7 +2439,7 @@ def sm_iniciar_backfill():
             pass
     if st.get("rodando"):
         return "Backfill do Supermemory já está em andamento."
-    threading.Thread(target=sm_backfill, daemon=True).start()
+    threading.Thread(target=sm_backfill, args=(False, reenviar_todos), daemon=True).start()
     return "Backfill do Supermemory iniciado."
 
 
@@ -3154,6 +3201,11 @@ class H(BaseHTTPRequestHandler):
             client_ip = self.client_address[0] if getattr(self, "client_address", None) else ""
             code, obj = handle_supermemory_chave(self.headers, client_ip)
             return self.send(code, json.dumps(obj), "application/json")
+        if path == "/config/supermemory/base":
+            client_ip = self.client_address[0] if getattr(self, "client_address", None) else ""
+            query_str = self.path.split("?", 1)[1] if "?" in self.path else ""
+            code, obj = handle_supermemory_base(self.headers, body, client_ip, query_str)
+            return self.send(code, json.dumps(obj), "application/json")
         if self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):  # CSRF: outro app/site tentando postar
             return self.send(403, "origem bloqueada", "text/plain")
         form = parse_qs(body.decode("utf-8", "replace"))
@@ -3182,7 +3234,33 @@ class H(BaseHTTPRequestHandler):
             threading.Thread(target=ig_todos, daemon=True).start()
             self.go("Puxando todos os vídeos salvos do Instagram. Os novos entram na fila aos poucos.")
         elif path == "/config/supermemory/backfill":
-            msg = sm_iniciar_backfill()
+            reenviar_todos = False
+            if "?" in self.path:
+                qs = parse_qs(self.path.split("?", 1)[1])
+                if (qs.get("reenviar_todos") or [""])[0] in ("1", "true", "True", True):
+                    reenviar_todos = True
+            if body:
+                try:
+                    b_json = json.loads(body.decode("utf-8", "replace"))
+                    if isinstance(b_json, dict) and b_json.get("reenviar_todos") in (1, "1", "true", "True", True):
+                        reenviar_todos = True
+                except Exception:
+                    pass
+                if not reenviar_todos:
+                    try:
+                        b_form = parse_qs(body.decode("utf-8", "replace"))
+                        if (b_form.get("reenviar_todos") or [""])[0] in ("1", "true", "True", True):
+                            reenviar_todos = True
+                    except Exception:
+                        pass
+            msg = sm_iniciar_backfill(reenviar_todos=reenviar_todos)
+            is_json = (
+                self.headers.get("Accept") == "application/json"
+                or "application/json" in (self.headers.get("Content-Type") or "")
+                or (body and body.strip().startswith(b"{"))
+            )
+            if is_json or (reenviar_todos and "text/html" not in (self.headers.get("Accept") or "")):
+                return self.send(200, json.dumps({"ok": True, "msg": msg}), "application/json")
             self.send(303, "", extra=[("Location", "/config?m=" + urllib.parse.quote(msg))])
         elif m := re.fullmatch(r"/remover/(\d+)", path):
             j = job(int(m[1]))
@@ -3202,7 +3280,8 @@ class H(BaseHTTPRequestHandler):
 
 def main():
     if "--sm-backfill" in sys.argv:
-        sm_backfill(cli=True)
+        todos = "--reenviar-todos" in sys.argv or "--todos" in sys.argv or "--all" in sys.argv
+        sm_backfill(cli=True, reenviar_todos=todos)
         return
     init()
     threading.Thread(target=links_teste, daemon=True).start()  # v1.9: teste dos links nos 3 reels

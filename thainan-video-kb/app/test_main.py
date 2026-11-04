@@ -1447,3 +1447,156 @@ class TestSupermemory(unittest.TestCase):
         ]
         for ip, esperado in casos:
             self.assertEqual(main.is_lan_ip(ip), esperado, f"Falha para IP {ip}")
+
+    def test_cfg_fields_contem_supermemory_base(self):
+        self.assertTrue(hasattr(main, "CFG_FIELDS"))
+        nomes = [k for k, _, _, _, _ in main.CFG_FIELDS]
+        self.assertIn("supermemory_base", nomes)
+        self.assertEqual(main.DEFAULTS.get("supermemory_base"), "https://api.supermemory.ai")
+
+    def test_sm_enviar_usa_supermemory_base_padrao_e_customizada(self):
+        j = self._cria_job_pronto(1)
+        # 1. Padrão: https://api.supermemory.ai
+        main.cfg_save({"supermemory_on": "1", "supermemory_key": "SM-KEY-123", "supermemory_ns": "ns_base", "supermemory_base": ""})
+        with mock.patch.object(main, "req", self.fake_req):
+            self.assertTrue(main.sm_enviar(j))
+        self.assertEqual(self.calls[0][1], "https://api.supermemory.ai/ns/ns_base/document")
+
+        # 2. Customizada com barra no final: rstrip("/") deve remover a barra
+        self.calls.clear()
+        main.cfg_save({"supermemory_base": "http://192.168.18.171:8080/"})
+        with mock.patch.object(main, "req", self.fake_req):
+            self.assertTrue(main.sm_enviar(j))
+        self.assertEqual(self.calls[0][1], "http://192.168.18.171:8080/ns/ns_base/document")
+
+    def test_backfill_reenviar_todos_ignora_sm_enviado(self):
+        main.cfg_save({"supermemory_on": "1", "supermemory_key": "SM-KEY-123"})
+        j1 = self._cria_job_pronto(1, "https://www.instagram.com/reel/1/")
+        j1["data"]["sm_enviado"] = int(time.time())
+        main.save(j1)
+
+        j2 = self._cria_job_pronto(2, "https://www.instagram.com/reel/2/")
+        j2["data"]["sm_enviado"] = int(time.time())
+        main.save(j2)
+
+        # Sem reenviar_todos: pula ambos
+        with mock.patch.object(main, "req", self.fake_req), mock.patch("time.sleep"):
+            res = main.sm_backfill(cli=False, reenviar_todos=False)
+        self.assertIn("Enviados 0 de 0", res)
+        self.assertEqual(len(self.calls), 0)
+
+        # Com reenviar_todos=True: reenvia ambos e usa id reel-<id> (idempotente)
+        with mock.patch.object(main, "req", self.fake_req), mock.patch("time.sleep"):
+            res = main.sm_backfill(cli=False, reenviar_todos=True)
+        self.assertIn("Enviados 2 de 2", res)
+        self.assertEqual(len(self.calls), 2)
+        ids_enviados = {c[3]["id"] for c in self.calls}
+        self.assertEqual(ids_enviados, {"reel-1", "reel-2"})
+
+    def test_backfill_endpoint_reenviar_todos_variantes(self):
+        main.cfg_save({"supermemory_on": "1", "supermemory_key": "SM-KEY-123"})
+        # 1. Query reenviar_todos=1
+        with mock.patch.object(main, "sm_iniciar_backfill") as mock_bf:
+            mock_bf.return_value = "Backfill iniciado."
+            code, data = self._simula_post("/config/supermemory/backfill?reenviar_todos=1")
+            self.assertEqual(code, 200)
+            self.assertTrue(data.get("ok"))
+            mock_bf.assert_called_with(reenviar_todos=True)
+
+        # 2. Form reenviar_todos=1
+        with mock.patch.object(main, "sm_iniciar_backfill") as mock_bf:
+            mock_bf.return_value = "Backfill iniciado."
+            code, data = self._simula_post("/config/supermemory/backfill",
+                                            headers={"Content-Type": "application/x-www-form-urlencoded"},
+                                            body=b"reenviar_todos=1")
+            self.assertEqual(code, 200)
+            self.assertTrue(data.get("ok"))
+            mock_bf.assert_called_with(reenviar_todos=True)
+
+        # 3. JSON reenviar_todos=1
+        with mock.patch.object(main, "sm_iniciar_backfill") as mock_bf:
+            mock_bf.return_value = "Backfill iniciado."
+            code, data = self._simula_post("/config/supermemory/backfill",
+                                            headers={"Content-Type": "application/json"},
+                                            body=b'{"reenviar_todos": 1}')
+            self.assertEqual(code, 200)
+            self.assertTrue(data.get("ok"))
+            mock_bf.assert_called_with(reenviar_todos=True)
+
+        # 4. Sem reenviar_todos: navegador com Accept text/html deve redirecionar (303)
+        with mock.patch.object(main, "sm_iniciar_backfill") as mock_bf:
+            mock_bf.return_value = "Backfill iniciado."
+            code, data = self._simula_post("/config/supermemory/backfill",
+                                            headers={"Accept": "text/html,application/xhtml+xml"})
+            self.assertEqual(code, 303)
+            mock_bf.assert_called_with(reenviar_todos=False)
+
+    def test_endpoint_base_lan_aceito_variantes(self):
+        # 1. JSON
+        main.cfg_save({"supermemory_base": "https://api.supermemory.ai"})
+        code, data = self._simula_post("/config/supermemory/base",
+                                        headers={"Content-Type": "application/json"},
+                                        body=b'{"base": "http://192.168.18.171:8080/"}',
+                                        client_ip="192.168.18.50")
+        self.assertEqual(code, 200)
+        self.assertTrue(data.get("ok"))
+        self.assertEqual(data.get("base"), "http://192.168.18.171:8080")
+        self.assertEqual(main.cfg().get("supermemory_base"), "http://192.168.18.171:8080")
+
+        # 2. Form
+        code, data = self._simula_post("/config/supermemory/base",
+                                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                                        body=b"base=https%3A%2F%2Fapi.sm-proxy.local%2F",
+                                        client_ip="127.0.0.1")
+        self.assertEqual(code, 200)
+        self.assertEqual(data.get("base"), "https://api.sm-proxy.local")
+        self.assertEqual(main.cfg().get("supermemory_base"), "https://api.sm-proxy.local")
+
+        # 3. Query string
+        code, data = self._simula_post("/config/supermemory/base?base=http://10.0.0.5:9000",
+                                        client_ip="10.0.0.1")
+        self.assertEqual(code, 200)
+        self.assertEqual(data.get("base"), "http://10.0.0.5:9000")
+        self.assertEqual(main.cfg().get("supermemory_base"), "http://10.0.0.5:9000")
+
+        # 4. Raw text
+        code, data = self._simula_post("/config/supermemory/base",
+                                        body=b"http://172.16.0.2:8000/",
+                                        client_ip="172.16.0.1")
+        self.assertEqual(code, 200)
+        self.assertEqual(data.get("base"), "http://172.16.0.2:8000")
+        self.assertEqual(main.cfg().get("supermemory_base"), "http://172.16.0.2:8000")
+
+    def test_endpoint_base_restricoes_ip_e_validacao(self):
+        main.cfg_save({"supermemory_base": "http://base-original.local"})
+        # IP público recusado
+        code, data = self._simula_post("/config/supermemory/base",
+                                        body=b'{"base": "http://novo.local"}',
+                                        client_ip="8.8.8.8")
+        self.assertEqual(code, 403)
+        self.assertFalse(data.get("ok"))
+        self.assertEqual(main.cfg().get("supermemory_base"), "http://base-original.local")
+
+        # XFF público recusado
+        code, data = self._simula_post("/config/supermemory/base",
+                                        headers={"X-Forwarded-For": "203.0.113.195"},
+                                        body=b'{"base": "http://novo.local"}',
+                                        client_ip="127.0.0.1")
+        self.assertEqual(code, 403)
+        self.assertFalse(data.get("ok"))
+        self.assertEqual(main.cfg().get("supermemory_base"), "http://base-original.local")
+
+        # URL inválida
+        code, data = self._simula_post("/config/supermemory/base",
+                                        body=b'{"base": "ftp://nao-suportado"}',
+                                        client_ip="127.0.0.1")
+        self.assertEqual(code, 400)
+        self.assertFalse(data.get("ok"))
+        self.assertEqual(main.cfg().get("supermemory_base"), "http://base-original.local")
+
+        # Base vazia
+        code, data = self._simula_post("/config/supermemory/base",
+                                        body=b'{"base": ""}',
+                                        client_ip="127.0.0.1")
+        self.assertEqual(code, 400)
+        self.assertFalse(data.get("ok"))
