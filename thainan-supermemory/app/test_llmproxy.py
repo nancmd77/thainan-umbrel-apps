@@ -72,6 +72,18 @@ data: [DONE]
         self.assertEqual(len(res["choices"]), 1)
         self.assertEqual(res["choices"][0]["message"]["content"], "")
 
+    def test_aggregate_cerebras_quasi_sse_with_done(self):
+        # Caso real observado no 9Router para cerebras/gpt-oss-120b: corpo JSON seguido por data: [DONE]
+        cerebras_body = '{"id":"chatcmpl-cf621f87","choices":[{"finish_reason":"stop","index":0,"message":{"content":"OK","reasoning":"Thinking...","role":"assistant"}}],"model":"gpt-oss-120b"}data: [DONE]\n\n'
+        res = aggregate_sse_chunks(cerebras_body)
+        self.assertEqual(res["id"], "chatcmpl-cf621f87")
+        self.assertEqual(res["model"], "gpt-oss-120b")
+        self.assertEqual(len(res["choices"]), 1)
+        choice = res["choices"][0]
+        self.assertEqual(choice["message"]["content"], "OK")
+        self.assertNotIn("reasoning", choice["message"])
+        self.assertNotIn("reasoning_content", choice["message"])
+
 
 class TestJSONExtractionAndRepair(unittest.TestCase):
     def setUp(self):
@@ -332,5 +344,24 @@ class TestJSONExtractionAndRepair(unittest.TestCase):
         body_cmd_json = {"messages": [{"role": "user", "content": "Please output as JSON object."}]}
         wants_json, _ = inspect_request_for_json(body_cmd_json)
         self.assertTrue(wants_json)
+
+    def test_repair_completion_response_strips_reasoning(self):
+        raw = {
+            "id": "chatcmpl-test",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"ok\": true}",
+                    "reasoning": "thought process...",
+                    "reasoning_content": "extra thinking..."
+                }
+            }]
+        }
+        repaired = repair_completion_response(raw)
+        msg = repaired["choices"][0]["message"]
+        self.assertNotIn("reasoning", msg)
+        self.assertNotIn("reasoning_content", msg)
+        self.assertEqual(msg["content"], '{"ok": true}')
 if __name__ == "__main__":
     unittest.main()

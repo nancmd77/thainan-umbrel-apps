@@ -32,6 +32,21 @@ def aggregate_sse_chunks(sse_text: str) -> dict:
     Agrega chunks SSE (data: {...}) num objeto chat.completion padrão da OpenAI.
     Ignora reasoning/reasoning_content e preserva content, finish_reason, usage, tool_calls.
     """
+    stripped = sse_text.strip()
+    clean_text = stripped.replace("data: [DONE]", "").strip() if "data: [DONE]" in stripped else stripped
+    if clean_text.startswith("{"):
+        try:
+            parsed = json.loads(clean_text)
+            if isinstance(parsed, dict) and "choices" in parsed:
+                for choice in parsed.get("choices", []):
+                    msg = choice.get("message")
+                    if isinstance(msg, dict):
+                        msg.pop("reasoning", None)
+                        msg.pop("reasoning_content", None)
+                return parsed
+        except Exception:
+            pass
+
     first_id = None
     first_created = None
     first_model = None
@@ -42,9 +57,14 @@ def aggregate_sse_chunks(sse_text: str) -> dict:
 
     for raw_line in sse_text.splitlines():
         line = raw_line.strip()
-        if not line or not line.startswith("data:"):
+        if not line:
             continue
-        payload_str = line[5:].strip()
+        if line.startswith("data:"):
+            payload_str = line[5:].strip()
+        elif line.startswith("{"):
+            payload_str = line
+        else:
+            continue
         if not payload_str or payload_str == "[DONE]":
             continue
         try:
@@ -630,10 +650,12 @@ def repair_completion_response(resp_dict: dict, schema: Optional[dict] = None, i
         return resp_dict
     for choice in resp_dict.get("choices", []):
         msg = choice.get("message")
-        if isinstance(msg, dict) and "content" in msg and isinstance(msg["content"], str):
-            msg["content"] = repair_json_content(msg["content"], schema, is_query_rewrite=is_query_rewrite)
+        if isinstance(msg, dict):
+            msg.pop("reasoning", None)
+            msg.pop("reasoning_content", None)
+            if "content" in msg and isinstance(msg["content"], str):
+                msg["content"] = repair_json_content(msg["content"], schema, is_query_rewrite=is_query_rewrite)
     return resp_dict
-
 
 class LLMProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -700,12 +722,21 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
                     )
                     sys.stderr.flush()
 
+                    modified = False
+                    model_str = str(body_json.get("model", "")).lower()
+                    if "gpt-oss" in model_str and "reasoning_effort" not in body_json:
+                        body_json["reasoning_effort"] = "high"
+                        modified = True
+
                     if body_json.get("stream") is True:
                         client_wants_stream = True
                     else:
                         if wants_json:
                             body_json = add_system_json_instruction(body_json, schema_obj)
-                            body_bytes = json.dumps(body_json, ensure_ascii=False).encode("utf-8")
+                            modified = True
+
+                    if modified:
+                        body_bytes = json.dumps(body_json, ensure_ascii=False).encode("utf-8")
             except Exception as e:
                 sys.stderr.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [llmproxy] Error inspecting request: {e}\n")
                 sys.stderr.flush()
@@ -796,7 +827,37 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
         # 5. Cliente NÃO pediu stream: lê resposta inteira
         resp_body = resp.read()
         content_type = resp.headers.get("Content-Type", "")
-        is_sse = ("text/event-stream" in content_type.lower()) or resp_body.strip().startswith(b"data:")
+        resp_body_stripped = resp_body.strip()
+        resp_clean = resp_body_stripped.replace(b"data: [DONE]", b"").strip()
+
+        # Se o corpo for diretamente um objeto JSON chat.completion (comum mesmo com header text/event-stream)
+        parsed_direct_json = None
+        if resp_clean.startswith(b"{"):
+            try:
+                candidate = json.loads(resp_clean.decode("utf-8"))
+                if isinstance(candidate, dict) and "choices" in candidate:
+                    parsed_direct_json = candidate
+            except Exception:
+                pass
+
+        if parsed_direct_json is not None:
+            for choice in parsed_direct_json.get("choices", []):
+                msg = choice.get("message")
+                if isinstance(msg, dict):
+                    msg.pop("reasoning", None)
+                    msg.pop("reasoning_content", None)
+            if wants_json:
+                parsed_direct_json = repair_completion_response(parsed_direct_json, schema_obj, is_query_rewrite=is_query_rewrite_req)
+            out_bytes = json.dumps(parsed_direct_json, ensure_ascii=False).encode("utf-8")
+
+            self.send_response(200 if resp.code in (200, 201) else resp.code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(out_bytes)))
+            self.end_headers()
+            self.wfile.write(out_bytes)
+            return
+
+        is_sse = ("text/event-stream" in content_type.lower()) or resp_body_stripped.startswith(b"data:")
 
         if is_sse:
             sse_text = resp_body.decode("utf-8", errors="replace")
@@ -811,15 +872,20 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(out_bytes)
         else:
-            # Resposta não-SSE: se pediu JSON, higieniza e repara
-            if wants_json:
-                try:
-                    parsed_resp = json.loads(resp_body.decode("utf-8"))
-                    repaired = repair_completion_response(parsed_resp, schema_obj, is_query_rewrite=is_query_rewrite_req)
-                    resp_body = json.dumps(repaired, ensure_ascii=False).encode("utf-8")
-                except Exception:
-                    pass
-
+            # Resposta não-SSE: remove reasoning de message e se pediu JSON, higieniza e repara
+            try:
+                parsed_resp = json.loads(resp_body.decode("utf-8"))
+                if isinstance(parsed_resp, dict) and "choices" in parsed_resp:
+                    for choice in parsed_resp.get("choices", []):
+                        msg = choice.get("message")
+                        if isinstance(msg, dict):
+                            msg.pop("reasoning", None)
+                            msg.pop("reasoning_content", None)
+                    if wants_json:
+                        parsed_resp = repair_completion_response(parsed_resp, schema_obj, is_query_rewrite=is_query_rewrite_req)
+                    resp_body = json.dumps(parsed_resp, ensure_ascii=False).encode("utf-8")
+            except Exception:
+                pass
             self.send_response(resp.code)
             for header, value in resp.headers.items():
                 if header.lower() not in ("connection", "content-length", "transfer-encoding"):

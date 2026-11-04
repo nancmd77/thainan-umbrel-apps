@@ -36,7 +36,9 @@ services:
       SUPERMEMORY_INGEST_CONCURRENCY: "4"
       SUPERMEMORY_EMBEDDING_RAM_LIMIT: "2gb"
       OPENAI_BASE_URL: "http://127.0.0.1:20129/v1"
-      OPENAI_MODEL: "ag/gemini-3.8-flash-high"
+      OPENAI_MODEL: "cc/claude-haiku-5-5"
+      OPENAI_TEXT_MODEL: "cc/claude-haiku-5-5"
+      OPENAI_FAST_MODEL: "cerebras/gpt-oss-120b"
       TARGET_BASE_URL: "${TARGET_BASE_URL:-http://192.168.18.171:20128}"
     entrypoint: ["/bin/sh", "-c"]
     command:
