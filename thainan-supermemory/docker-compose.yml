@@ -1,0 +1,86 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-supermemory_web_1
+      APP_PORT: 6767
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    image: python:3.12-slim
+    restart: unless-stopped
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s = socket.create_connection(('127.0.0.1', 6767), timeout=5); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 300s
+    volumes:
+      - ${APP_DATA_DIR}/app:/app:ro
+      - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
+    environment:
+      REF: thainan-supermemory-v1.0.0
+      DATA_DIR: /data
+      APP_DIR: /data/app
+      SUPERMEMORY_DATA_DIR: /data
+      SUPERMEMORY_DISABLE_TELEMETRY: "1"
+      SUPERMEMORY_NO_UPDATE_CHECK: "1"
+      NO_UPDATE_CHECK: "1"
+      SUPERMEMORY_NO_OPEN: "1"
+      NO_OPEN: "1"
+      SUPERMEMORY_HOST: "0.0.0.0"
+      HOST: "0.0.0.0"
+      PORT: "6767"
+      OPENAI_BASE_URL: "http://127.0.0.1:20129/v1"
+      OPENAI_MODEL: "ag/gemini-3.8-flash-high"
+      TARGET_BASE_URL: "${TARGET_BASE_URL:-http://192.168.18.171:20128}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        D=/data/app
+        mkdir -p "$$D"
+        python -c "
+        import os, urllib.request, shutil
+
+        ref = os.environ.get('REF', 'main')
+        base_url = f'https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/{ref}/thainan-supermemory/app/'
+        files = ['llmproxy.py', 'filter_stream.py', 'download_supermemory.py', 'read_key.sh', 'entrypoint.sh']
+        for f in files:
+            dst = os.path.join('/data/app', f)
+            url = base_url + f
+            downloaded = False
+            for attempt in range(5):
+                try:
+                    data = urllib.request.urlopen(url, timeout=30).read()
+                    with open(dst + '.tmp', 'wb') as out:
+                        out.write(data)
+                    os.replace(dst + '.tmp', dst)
+                    os.chmod(dst, 0o755)
+                    downloaded = True
+                    break
+                except Exception:
+                    pass
+            if not downloaded:
+                src_fb = os.path.join('/app', f)
+                if os.path.exists(src_fb) and not os.path.exists(dst):
+                    shutil.copy2(src_fb, dst)
+                    os.chmod(dst, 0o755)
+                    print(f'[boot] Usando versao local de /app para {f}.')
+                elif not os.path.exists(dst):
+                    print(f'[boot] Aviso: nao foi possivel baixar {f} e nao ha versao em cache.')
+        " || true
+
+        if [ -x "$$D/entrypoint.sh" ]; then
+            exec bash "$$D/entrypoint.sh"
+        elif [ -f "$$D/entrypoint.sh" ]; then
+            chmod +x "$$D/entrypoint.sh"
+            exec bash "$$D/entrypoint.sh"
+        elif [ -f "/app/entrypoint.sh" ]; then
+            exec bash "/app/entrypoint.sh"
+        else
+            echo "[boot] ERRO: entrypoint.sh nao encontrado em $$D nem em /app." >&2
+            exit 1
+        fi

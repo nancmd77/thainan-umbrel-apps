@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.log
+*.tmp
+local_key
+niner_key
+openai_api_key
