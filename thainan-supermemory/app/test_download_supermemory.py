@@ -13,6 +13,8 @@ from unittest.mock import patch
 from download_supermemory import (
     ORIGINAL_TARGET,
     PATCHED_TARGET,
+    ORIGINAL_CALLER_TARGET,
+    PATCHED_CALLER_TARGET,
     check_cache_and_patch,
     patch_binary,
 )
@@ -27,7 +29,7 @@ class TestSupermemoryPatch(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_patch_fake_file_target_to_patched_same_size(self):
-        initial_data = b"HEAD_BINARY_DATA\x00\xff" + ORIGINAL_TARGET + b"\x01\x02TAIL_BINARY_DATA"
+        initial_data = b"HEAD_" + ORIGINAL_TARGET + b"_MID_" + ORIGINAL_CALLER_TARGET + b"_TAIL"
         with open(self.fake_bin, "wb") as f:
             f.write(initial_data)
 
@@ -42,14 +44,16 @@ class TestSupermemoryPatch(unittest.TestCase):
 
         size_after = os.path.getsize(self.fake_bin)
         self.assertEqual(size_before, size_after, "O tamanho do binário deve ser rigorosamente igual após o patch")
-        self.assertNotIn(ORIGINAL_TARGET, patched_data, "Target original não deve mais existir no arquivo")
-        self.assertIn(PATCHED_TARGET, patched_data, "Target patchado deve estar presente no arquivo")
+        self.assertNotIn(ORIGINAL_TARGET, patched_data)
+        self.assertIn(PATCHED_TARGET, patched_data)
+        self.assertNotIn(ORIGINAL_CALLER_TARGET, patched_data)
+        self.assertIn(PATCHED_CALLER_TARGET, patched_data)
 
         mode = stat.S_IMODE(os.stat(self.fake_bin).st_mode)
         self.assertEqual(mode, 0o755, "Permissão do arquivo deve ser mantida como 0755")
 
     def test_patch_idempotent(self):
-        initial_data = b"HEAD_" + ORIGINAL_TARGET + b"_TAIL"
+        initial_data = b"HEAD_" + ORIGINAL_TARGET + b"_MID_" + ORIGINAL_CALLER_TARGET + b"_TAIL"
         with open(self.fake_bin, "wb") as f:
             f.write(initial_data)
 
@@ -67,6 +71,7 @@ class TestSupermemoryPatch(unittest.TestCase):
 
         self.assertEqual(data_after_first, data_after_second, "Patch subsequente deve ser idempotente")
         self.assertIn(PATCHED_TARGET, data_after_second)
+        self.assertIn(PATCHED_CALLER_TARGET, data_after_second)
 
     def test_patch_missing_target_logs_warning_and_returns_false(self):
         initial_data = b"BINARY_WITHOUT_TARGETS\x00\x01\x02"
@@ -102,7 +107,7 @@ class TestSupermemoryPatch(unittest.TestCase):
 
         # 3. Arquivo com o alvo não patchado -> aplica patch e retorna True
         with open(self.fake_bin, "wb") as f:
-            f.write(b"ABC_" + ORIGINAL_TARGET + b"_XYZ")
+            f.write(b"ABC_" + ORIGINAL_TARGET + b"_MID_" + ORIGINAL_CALLER_TARGET + b"_XYZ")
         self.assertTrue(check_cache_and_patch(self.fake_bin))
         with open(self.fake_bin, "rb") as f:
             content = f.read()
@@ -111,6 +116,16 @@ class TestSupermemoryPatch(unittest.TestCase):
         # 4. Arquivo já patchado em cache -> retorna True
         self.assertTrue(check_cache_and_patch(self.fake_bin))
 
+    def test_patch_partially_patched_v1_0_3_state(self):
+        # Conteúdo já com PATCHED_TARGET mas com ORIGINAL_CALLER_TARGET ainda presente
+        with open(self.fake_bin, "wb") as f:
+            f.write(b"ABC_" + PATCHED_TARGET + b"_MID_" + ORIGINAL_CALLER_TARGET + b"_XYZ")
+        self.assertTrue(check_cache_and_patch(self.fake_bin))
+        with open(self.fake_bin, "rb") as f:
+            content = f.read()
+        self.assertIn(PATCHED_TARGET, content)
+        self.assertIn(PATCHED_CALLER_TARGET, content)
+        self.assertNotIn(ORIGINAL_CALLER_TARGET, content)
 
 if __name__ == "__main__":
     unittest.main()
