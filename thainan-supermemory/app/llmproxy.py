@@ -657,6 +657,34 @@ def repair_completion_response(resp_dict: dict, schema: Optional[dict] = None, i
                 msg["content"] = repair_json_content(msg["content"], schema, is_query_rewrite=is_query_rewrite)
     return resp_dict
 
+def should_inject_reasoning_effort(body_json: dict) -> bool:
+    """
+    Determina se reasoning_effort='high' deve ser injetado.
+    Injeta somente se:
+    1. O corpo não trouxer reasoning_effort.
+    2. O modelo for cc/claude-haiku* ou gpt-oss*.
+    """
+    if not isinstance(body_json, dict):
+        return False
+    if "reasoning_effort" in body_json:
+        return False
+    model_str = str(body_json.get("model", "")).lower()
+    return model_str.startswith("cc/claude-haiku") or "gpt-oss" in model_str
+
+
+def inject_reasoning_effort(body_json: dict) -> Tuple[dict, bool]:
+    """
+    Injeta reasoning_effort='high' quando aplicável, sem alterar se o corpo já trouxer o campo.
+    Retorna (body_json, foi_injetado).
+    """
+    if not isinstance(body_json, dict):
+        return body_json, False
+    if should_inject_reasoning_effort(body_json):
+        body_json["reasoning_effort"] = "high"
+        return body_json, True
+    return body_json, False
+
+
 class LLMProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [llmproxy] {fmt % args}\n")
@@ -723,9 +751,8 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
                     sys.stderr.flush()
 
                     modified = False
-                    model_str = str(body_json.get("model", "")).lower()
-                    if "gpt-oss" in model_str and "reasoning_effort" not in body_json:
-                        body_json["reasoning_effort"] = "high"
+                    body_json, injected = inject_reasoning_effort(body_json)
+                    if injected:
                         modified = True
 
                     if body_json.get("stream") is True:

@@ -16,6 +16,8 @@ from llmproxy import (
     add_system_json_instruction,
     repair_completion_response,
     conform_object_to_schema,
+    should_inject_reasoning_effort,
+    inject_reasoning_effort,
 )
 class TestSSEAggregator(unittest.TestCase):
     def test_aggregate_content_and_ignore_reasoning(self):
@@ -363,5 +365,53 @@ class TestJSONExtractionAndRepair(unittest.TestCase):
         self.assertNotIn("reasoning", msg)
         self.assertNotIn("reasoning_content", msg)
         self.assertEqual(msg["content"], '{"ok": true}')
+
+
+class TestReasoningEffortInjection(unittest.TestCase):
+    def test_should_inject_for_claude_haiku(self):
+        body = {"model": "cc/claude-haiku-5-5", "messages": [{"role": "user", "content": "olá"}]}
+        self.assertTrue(should_inject_reasoning_effort(body))
+        updated, injected = inject_reasoning_effort(body)
+        self.assertTrue(injected)
+        self.assertEqual(updated["reasoning_effort"], "high")
+
+    def test_should_inject_for_claude_haiku_variants(self):
+        for model in ["cc/claude-haiku", "cc/claude-haiku-5-5", "CC/CLAUDE-HAIKU-FAST"]:
+            body = {"model": model}
+            self.assertTrue(should_inject_reasoning_effort(body))
+
+    def test_should_inject_for_gpt_oss(self):
+        body = {"model": "cerebras/gpt-oss-120b"}
+        self.assertTrue(should_inject_reasoning_effort(body))
+        updated, injected = inject_reasoning_effort(body)
+        self.assertTrue(injected)
+        self.assertEqual(updated["reasoning_effort"], "high")
+
+    def test_should_not_inject_if_reasoning_effort_already_present(self):
+        for effort in ["low", "medium", "high", "none"]:
+            body = {"model": "cc/claude-haiku-5-5", "reasoning_effort": effort}
+            self.assertFalse(should_inject_reasoning_effort(body))
+            updated, injected = inject_reasoning_effort(body)
+            self.assertFalse(injected)
+            self.assertEqual(updated["reasoning_effort"], effort)
+
+    def test_should_not_inject_for_other_models(self):
+        for model in ["ag/gemini-3.8-flash-high", "openai/gpt-4o", "cc/claude-sonnet-5-5"]:
+            body = {"model": model}
+            self.assertFalse(should_inject_reasoning_effort(body))
+            updated, injected = inject_reasoning_effort(body)
+            self.assertFalse(injected)
+            self.assertNotIn("reasoning_effort", updated)
+
+    def test_inject_preserves_structured_output_fields(self):
+        body = {
+            "model": "cc/claude-haiku-5-5",
+            "messages": [{"role": "user", "content": "Retorne JSON"}],
+            "response_format": {"type": "json_object"}
+        }
+        updated, injected = inject_reasoning_effort(body)
+        self.assertTrue(injected)
+        self.assertEqual(updated["reasoning_effort"], "high")
+        self.assertEqual(updated["response_format"], {"type": "json_object"})
 if __name__ == "__main__":
     unittest.main()
