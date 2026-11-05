@@ -20,7 +20,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.61.0-r4: ativa barramento de acessibilidade AT-SPI para o display dos agentes (:1) sem rebuild da imagem (pacote at-spi2-core 2.52.0-1build1 amd64 com sha256 fixado via volume /data/a11y); inicializa dbus-daemon (accessibility.conf) e at-spi2-registryd no display :1; preserva perfil seccomp, user 1000, no-new-privileges e apparmor=unconfined. Pendência para etapa 2: interceptar NO_AT_BRIDGE injetado internamente pelo app upstream nos agentes.
+  Versão 0.61.0-r4: imagem derivada enxuta baseada na upstream oficial fixada por digest; inclui sudo (NOPASSWD para UID 1000), at-spi2-core nativo, gerenciador de janelas Openbox no display dos agentes (:1) e mitigação preventiva de NO_AT_BRIDGE para shells dos agentes via BASH_ENV e profile.d; inicializa dbus-daemon (accessibility.conf) e at-spi2-registryd no display :1; preserva perfil seccomp, UID 1000 e apparmor=unconfined; remove no-new-privileges para viabilizar sudo. Pendência técnica: unificação do split de barramento AT-SPI entre registryd e cua-driver.
 dependencies: []
 path: ""
 defaultUsername: ""

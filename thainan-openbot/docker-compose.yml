@@ -768,15 +768,15 @@ services:
         exec python3 -u /tmp/server.py
 
   openbot:
-    image: ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42
+    image: ghcr.io/nancmd77/thainan-openbot:0.61.0-r4
     restart: unless-stopped
+    user: "1000:1000"
     depends_on:
       init:
         condition: service_completed_successfully
     security_opt:
       - seccomp=${APP_DATA_DIR}/seccomp.json
       - apparmor=unconfined
-      - no-new-privileges:true
     shm_size: 1g
     stop_grace_period: 60s
     volumes:
@@ -793,19 +793,10 @@ services:
       - -c
       - |
         [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
-        if [ ! -x /data/a11y/usr/libexec/at-spi2-registryd ]; then
-          mkdir -p /data/a11y /tmp/a11y
-          curl -fsSL "http://archive.ubuntu.com/ubuntu/pool/main/a/at-spi2-core/at-spi2-core_2.52.0-1build1_amd64.deb" -o /tmp/a11y/at-spi2-core.deb
-          echo "ea2d24a3219ba639f72dadf92b896fe31dd2ffd8659432e0cee2362726b63ff4  /tmp/a11y/at-spi2-core.deb" | sha256sum -c - || { echo "Checksum error at-spi2-core" >&2; exit 1; }
-          dpkg-deb -x /tmp/a11y/at-spi2-core.deb /data/a11y
-          rm -rf /tmp/a11y
-        fi
         unset NO_AT_BRIDGE
         export ACCESSIBILITY_ENABLED=1
         export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
-        export PATH="/data/a11y/usr/libexec:/data/a11y/usr/bin:$$PATH"
-        export XDG_DATA_DIRS="/data/a11y/usr/share:$${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-        export AT_SPI_BUS_ADDRESS=$$(dbus-daemon --config-file=/data/a11y/usr/share/defaults/at-spi2/accessibility.conf --fork --print-address)
+        export AT_SPI_BUS_ADDRESS=$$(dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --fork --print-address)
         (
           for _ in $$(seq 1 100); do
             DISPLAY=:1 xdpyinfo >/dev/null 2>&1 && break
@@ -814,7 +805,13 @@ services:
           export DISPLAY=:1
           (
             while true; do
-              /data/a11y/usr/libexec/at-spi2-registryd || true
+              openbox || true
+              sleep 1
+            done
+          ) &
+          (
+            while true; do
+              /usr/libexec/at-spi2-registryd || true
               sleep 1
             done
           ) &
