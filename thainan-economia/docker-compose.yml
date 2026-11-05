@@ -8,19 +8,22 @@ services:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
     restart: unless-stopped
     privileged: true
+    pid: host
     network_mode: host
     environment:
       NIC: enp64s0
       BIND: 10.21.0.1
       CPU_W: fabrica
       TURBO: "on"
+      RTX: "on"
     volumes:
       - /lib/modules:/lib/modules:ro
     entrypoint: ["python", "-u", "-c"]
     command:
       - |
-        import os, glob, time, threading, subprocess, html, http.server, socketserver
+        import os, glob, time, threading, subprocess, html, http.server, socketserver, json, urllib.parse
         LOG = []
+        RESCAN = {'done': False}
         def log(m):
             m = time.strftime('%H:%M:%S ') + m
             print(m, flush=True); LOG.append(m); del LOG[:-40]
@@ -73,19 +76,35 @@ services:
             for k in ('l1_aspm', 'l1_1_aspm', 'l1_2_aspm', 'l0s_aspm'):
                 wr(nic + '/link/' + k, 0)
             wr(nic + '/power/control', 'on')
-            gone = []
-            devs = sorted(glob.glob('/sys/bus/pci/devices/*'), key=lambda d: d.endswith('.0'))
-            for d in devs:
-                if rd(d + '/vendor') != '0x10de': continue
-                a = os.path.basename(d); parent = os.path.dirname(os.path.realpath(d))
-                wr(d + '/power/control', 'auto')
-                try:
-                    subprocess.run(['sh', '-c', 'echo 1 > ' + d + '/remove'], timeout=90)
-                except Exception as e:
-                    log('remover ' + a + ' travou: ' + str(e))
-                ok = not os.path.exists(d)
-                log('NVIDIA ' + a + (' removida do barramento' if ok else ' ainda presente'))
-                if ok: wr(parent + '/power/control', 'auto')
+            rtx_env = os.environ.get('RTX', 'on').strip().lower()
+            rtx_on = rtx_env not in ('off', '0', 'false', 'nao', 'não', 'no')
+            if rtx_on:
+                rtx_devs = [os.path.basename(d) for d in glob.glob('/sys/bus/pci/devices/*') if d.endswith('01:00.0') or d.endswith('01:00.1') or rd(d + '/vendor') == '0x10de']
+                if not rtx_devs:
+                    if not RESCAN.get('done'):
+                        log('RTX (01:00.x) ausente do barramento; acionando /sys/bus/pci/rescan uma vez...')
+                        wr('/sys/bus/pci/rescan', 1)
+                        RESCAN['done'] = True
+                        time.sleep(2)
+                        rtx_devs_after = [os.path.basename(d) for d in glob.glob('/sys/bus/pci/devices/*') if d.endswith('01:00.0') or d.endswith('01:00.1') or rd(d + '/vendor') == '0x10de']
+                        log('após rescan PCI: ' + (', '.join(rtx_devs_after) if rtx_devs_after else 'RTX ainda ausente'))
+                    else:
+                        log('RTX ausente do barramento (rescan PCI já executado)')
+                else:
+                    log('RTX mantida no barramento (RTX=on): ' + ', '.join(rtx_devs))
+            else:
+                devs = sorted(glob.glob('/sys/bus/pci/devices/*'), key=lambda d: d.endswith('.0'))
+                for d in devs:
+                    if rd(d + '/vendor') != '0x10de': continue
+                    a = os.path.basename(d); parent = os.path.dirname(os.path.realpath(d))
+                    wr(d + '/power/control', 'auto')
+                    try:
+                        subprocess.run(['sh', '-c', 'echo 1 > ' + d + '/remove'], timeout=90)
+                    except Exception as e:
+                        log('remover ' + a + ' travou: ' + str(e))
+                    ok = not os.path.exists(d)
+                    log('NVIDIA ' + a + (' removida do barramento' if ok else ' ainda presente'))
+                    if ok: wr(parent + '/power/control', 'auto')
             BAT['v'] = bat_limit()
         BAT = {'v': 'verificando...'}
 
@@ -95,6 +114,12 @@ services:
         def sh(cmd, t=90):
             try:
                 r = subprocess.run(['sh', '-c', cmd], capture_output=True, text=True, timeout=t)
+                return r.returncode, (r.stdout + r.stderr).strip()[-300:]
+            except Exception as x:
+                return 99, str(x)
+        def host_sh(cmd, t=10):
+            try:
+                r = subprocess.run(['nsenter', '-t', '1', '-m', 'sh', '-c', cmd], capture_output=True, text=True, timeout=t)
                 return r.returncode, (r.stdout + r.stderr).strip()[-300:]
             except Exception as x:
                 return 99, str(x)
@@ -222,43 +247,189 @@ services:
             if env_w.lower() not in ('', 'fabrica', 'fábrica', 'default', 'factory', 'auto'):
                 return env_w + ' W'
             return 'padrão de fábrica'
-        def page():
+        def probe_gpu():
+            pci_devs = []
+            for d in sorted(glob.glob('/sys/bus/pci/devices/*01:00.*')):
+                slot = os.path.basename(d)
+                v = rd(d + '/vendor', '')
+                dev_id = rd(d + '/device', '')
+                driver = os.path.basename(os.path.realpath(d + '/driver')) if os.path.exists(d + '/driver') else 'nenhum'
+                pci_devs.append({'slot': slot, 'vendor': v, 'device': dev_id, 'driver': driver})
+            lspci_text = ''
+            rc, out = host_sh('lspci -nn -s 01:00 2>/dev/null || lspci -s 01:00 2>/dev/null', t=5)
+            if rc == 0 and out:
+                lspci_text = out
+            else:
+                rc2, out2 = sh('lspci -nn -s 01:00 2>/dev/null || lspci -s 01:00 2>/dev/null', t=5)
+                if rc2 == 0 and out2:
+                    lspci_text = out2
+                elif pci_devs:
+                    lspci_text = '; '.join('%s [%s:%s] driver: %s' % (x['slot'], x['vendor'], x['device'], x['driver']) for x in pci_devs)
+                else:
+                    lspci_text = 'nenhum dispositivo 01:00.x encontrado'
+            nv_modules = []
+            try:
+                for line in open('/proc/modules'):
+                    parts = line.split()
+                    if parts and parts[0].startswith('nvidia'):
+                        nv_modules.append(parts[0])
+            except Exception:
+                pass
+            nv_devs = sorted(glob.glob('/dev/nvidia*'))
+            driver_version = rd('/proc/driver/nvidia/version', 'não encontrado')
+            if driver_version != 'não encontrado':
+                driver_version = driver_version.splitlines()[0]
+            rc_smi, out_smi = host_sh('command -v nvidia-smi || which nvidia-smi', t=5)
+            if rc_smi == 0 and out_smi:
+                nvidia_smi = 'presente (%s)' % out_smi
+            elif rc_smi != 99 and rc_smi != 127:
+                nvidia_smi = 'não encontrado no host'
+            else:
+                rc_local, out_local = sh('command -v nvidia-smi || which nvidia-smi', t=5)
+                if rc_local == 0 and out_local:
+                    nvidia_smi = 'presente no container (%s)' % out_local
+                else:
+                    nvidia_smi = 'não verificado (sem acesso nsenter/pid host ao host)'
+            daemon_json_status = 'não acessível'
+            has_nvidia_runtime = False
+            rc_daemon, out_daemon = host_sh('cat /etc/docker/daemon.json', t=5)
+            if rc_daemon == 0 and out_daemon:
+                try:
+                    dj = json.loads(out_daemon)
+                    runtimes = dj.get('runtimes', {})
+                    def_rt = dj.get('default-runtime', '')
+                    has_nvidia_runtime = ('nvidia' in runtimes) or (def_rt == 'nvidia')
+                    daemon_json_status = 'presente (runtime nvidia: %s)' % ('configurado' if has_nvidia_runtime else 'não configurado')
+                except Exception:
+                    has_nvidia_runtime = 'nvidia' in out_daemon
+                    daemon_json_status = 'presente (runtime nvidia: %s)' % ('detectado' if has_nvidia_runtime else 'não detectado')
+            elif rc_daemon != 99 and 'no such file' in out_daemon.lower():
+                daemon_json_status = '/etc/docker/daemon.json inexistente no host'
+            else:
+                if os.path.exists('/etc/docker/daemon.json'):
+                    daemon_json_status = 'presente no container'
+                    has_nvidia_runtime = 'nvidia' in rd('/etc/docker/daemon.json')
+                else:
+                    daemon_json_status = 'não acessível (sem nsenter/pid host)'
+            rc_ncr, out_ncr = host_sh('command -v nvidia-container-runtime || which nvidia-container-runtime', t=5)
+            if rc_ncr == 0 and out_ncr:
+                ncr_status = 'presente (%s)' % out_ncr
+            elif rc_ncr != 99 and rc_ncr != 127:
+                ncr_status = 'não encontrado no PATH do host'
+            else:
+                rc_ncr_loc, out_ncr_loc = sh('command -v nvidia-container-runtime || which nvidia-container-runtime', t=5)
+                if rc_ncr_loc == 0 and out_ncr_loc:
+                    ncr_status = 'presente no container (%s)' % out_ncr_loc
+                else:
+                    ncr_status = 'não verificado (sem acesso nsenter/pid host)'
+            return {
+                'lspci_01_00': lspci_text,
+                'pci_devices': pci_devs,
+                'lsmod_nvidia': nv_modules,
+                'dev_nvidia': nv_devs,
+                'driver_version': driver_version,
+                'nvidia_smi': nvidia_smi,
+                'docker_daemon_json': daemon_json_status,
+                'docker_has_nvidia_runtime': has_nvidia_runtime,
+                'nvidia_container_runtime': ncr_status,
+            }
+        def status_data():
             b = '/sys/class/power_supply/BAT1'
             try: bw = int(rd(b + '/current_now')) * int(rd(b + '/voltage_now')) / 1e12
             except Exception: bw = None
             nv = [os.path.basename(d) for d in glob.glob('/sys/bus/pci/devices/*') if rd(d + '/vendor') == '0x10de']
-            thr = b + '/charge_control_end_threshold'
+            g = probe_gpu()
+            rtx_cfg = os.environ.get('RTX', 'on').strip().lower()
+            if rtx_cfg in ('off', '0', 'false', 'nao', 'não', 'no'):
+                rtx_status = 'removida do barramento' if not nv else 'em remoção'
+            else:
+                rtx_status = ('presente: ' + ', '.join(nv)) if nv else 'ausente (rescan executado)'
+            return {
+                'cpu_potencia_w': ST['w'],
+                'cpu_w_config': os.environ.get('CPU_W', 'fabrica').strip() or 'fabrica',
+                'turbo_config': os.environ.get('TURBO', 'on').strip() or 'on',
+                'rtx_config': os.environ.get('RTX', 'on').strip() or 'on',
+                'limite_msr': lim(ZONES[0]),
+                'limite_mmio': lim(ZONES[1]),
+                'turbo': 'desligado' if rd('/sys/devices/system/cpu/intel_pstate/no_turbo') == '1' else 'ligado',
+                'epp_governor': rd('/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference') + ' / ' + rd('/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'),
+                'freq_cpu0_mhz': int(rd('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq', '0')) // 1000,
+                'aspm': rd('/sys/module/pcie_aspm/parameters/policy'),
+                'rtx_status': rtx_status,
+                'bateria': rd(b + '/status') + ', ' + rd(b + '/capacity') + '%' + (', %.1f W' % bw if bw is not None else ''),
+                'tomada': 'conectada' if rd('/sys/class/power_supply/ACAD/online') == '1' else 'desconectada',
+                'limite_bateria': BAT['v'],
+                'platform_profile': (rd(PP) + ' (opções: ' + rd(PP + '_choices') + ')') if os.path.exists(PP) else 'não exposto',
+                'fans': ', '.join(acer_fans()) or 'RPM não exposto',
+                'acer_wmi': FAN['estado'] + ' | predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4'),
+                'temperaturas': temps(),
+                'atualizado': time.strftime('%d/%m %H:%M:%S'),
+                'gpu': g,
+            }
+        def page(data=None):
+            if data is None: data = status_data()
+            g = data['gpu']
             rows = [
-                ('Potência medida da CPU (pacote)', '%.2f W' % ST['w'] if ST['w'] is not None else 'medindo...'),
-                ('Configuração CPU_W', os.environ.get('CPU_W', 'fabrica').strip() or 'fabrica'),
-                ('Configuração TURBO', os.environ.get('TURBO', 'on').strip() or 'on'),
-                ('Limite da CPU (MSR)', lim(ZONES[0])),
-                ('Limite da CPU (MMIO)', lim(ZONES[1])),
-                ('Turbo', 'desligado' if rd('/sys/devices/system/cpu/intel_pstate/no_turbo') == '1' else 'ligado'),
-                ('EPP / governor', rd('/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference') + ' / ' + rd('/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor')),
-                ('Frequência atual cpu0', '%d MHz' % (int(rd('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq', '0')) // 1000)),
-                ('ASPM', rd('/sys/module/pcie_aspm/parameters/policy')),
-                ('RTX (NVIDIA)', 'removida do barramento' if not nv else 'presente: ' + ', '.join(nv)),
-                ('Bateria', rd(b + '/status') + ', ' + rd(b + '/capacity') + '%' + (', %.1f W' % bw if bw is not None else '')),
-                ('Tomada', 'conectada' if rd('/sys/class/power_supply/ACAD/online') == '1' else 'desconectada'),
-                ('Limite de carga da bateria (80%)', BAT['v']),
-                ('Perfil de plataforma (fans)', (rd(PP) + ' (opções: ' + rd(PP + '_choices') + ')') if os.path.exists(PP) else 'não exposto'),
-                ('Fans', ', '.join(acer_fans()) or 'RPM não exposto'),
-                ('acer_wmi', FAN['estado'] + ' | predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4')),
-                ('Temperaturas', temps()),
-                ('Atualizado', time.strftime('%d/%m %H:%M:%S')),
+                ('Potência medida da CPU (pacote)', '%.2f W' % data['cpu_potencia_w'] if data['cpu_potencia_w'] is not None else 'medindo...'),
+                ('Configuração CPU_W', data['cpu_w_config']),
+                ('Configuração TURBO', data['turbo_config']),
+                ('Configuração RTX', data['rtx_config']),
+                ('Limite da CPU (MSR)', data['limite_msr']),
+                ('Limite da CPU (MMIO)', data['limite_mmio']),
+                ('Turbo', data['turbo']),
+                ('EPP / governor', data['epp_governor']),
+                ('Frequência atual cpu0', '%d MHz' % data['freq_cpu0_mhz']),
+                ('ASPM', data['aspm']),
+                ('RTX (NVIDIA)', data['rtx_status']),
+                ('GPU - lspci 01:00.x', g['lspci_01_00']),
+                ('GPU - Módulos NVIDIA (lsmod)', ', '.join(g['lsmod_nvidia']) if g['lsmod_nvidia'] else 'nenhum carregado'),
+                ('GPU - Nós /dev/nvidia*', ', '.join(g['dev_nvidia']) if g['dev_nvidia'] else 'nenhum nó encontrado'),
+                ('GPU - Versão do driver (/proc)', g['driver_version']),
+                ('GPU - nvidia-smi no host', g['nvidia_smi']),
+                ('GPU - Docker runtime NVIDIA', g['docker_daemon_json'] + ' | binário: ' + g['nvidia_container_runtime']),
+                ('Bateria', data['bateria']),
+                ('Tomada', data['tomada']),
+                ('Limite de carga da bateria (80%)', data['limite_bateria']),
+                ('Perfil de plataforma (fans)', data['platform_profile']),
+                ('Fans', data['fans']),
+                ('acer_wmi', data['acer_wmi']),
+                ('Temperaturas', data['temperaturas']),
+                ('Atualizado', data['atualizado']),
             ]
-            tr = ''.join('<tr><td>%s</td><td><b>%s</b></td></tr>' % (html.escape(a), html.escape(c)) for a, c in rows)
+            tr = ''.join('<tr><td style="border-bottom:1px solid #e4e4e7">%s</td><td style="border-bottom:1px solid #e4e4e7"><b>%s</b></td></tr>' % (html.escape(a), html.escape(str(c))) for a, c in rows)
             lg = html.escape('\n'.join(LOG[-12:]))
-            turbo_desc = 'turbo desligado' if rd('/sys/devices/system/cpu/intel_pstate/no_turbo') == '1' else 'turbo ligado'
+            turbo_desc = 'turbo desligado' if data['turbo'] == 'desligado' else 'turbo ligado'
+            rtx_desc = 'RTX ativa no barramento' if data['rtx_config'].lower() not in ('off', '0', 'false', 'nao', 'não', 'no') else 'RTX desativada'
             return ('<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><meta http-equiv=refresh content=15>'
                     '<title>Economia</title><body style="font-family:system-ui;max-width:760px;margin:40px auto;padding:0 16px;color:#18181b">'
-                    '<h1>Economia de energia</h1><p>Limite da CPU: %s, %s, RTX fora do barramento, perfil de fans mais silencioso quando exposto. Reaplica a cada 5 minutos.</p>'
+                    '<h1>Economia de energia</h1><p>Limite da CPU: %s, %s, %s, perfil de fans mais silencioso quando exposto. Reaplica a cada 5 minutos.</p>'
+                    '<p><a href="/status.json" style="color:#2563eb;text-decoration:none">Ver status em JSON</a></p>'
                     '<table style="border-collapse:collapse;width:100%%" cellpadding=8>%s</table>'
-                    '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (html.escape(cpu_limit_label()), html.escape(turbo_desc), tr, lg)).encode()
+                    '<h2>Registro</h2><pre style="background:#f4f4f5;padding:12px;white-space:pre-wrap">%s</pre>' % (
+                        html.escape(cpu_limit_label()), html.escape(turbo_desc), html.escape(rtx_desc), tr, lg)).encode('utf-8')
         class H(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                p = page(); self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers(); self.wfile.write(p)
+                parsed = urllib.parse.urlparse(self.path)
+                qs = urllib.parse.parse_qs(parsed.query)
+                accept = self.headers.get('Accept', '')
+                want_json = (parsed.path in ('/status.json', '/api/status', '/api', '/json') or
+                             qs.get('format', [''])[0].lower() == 'json' or
+                             'application/json' in accept)
+                data = status_data()
+                if want_json:
+                    body = json.dumps(data, indent=2, ensure_ascii=False).encode('utf-8')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json; charset=utf-8')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    body = page(data)
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html; charset=utf-8')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
             def log_message(self, *a): pass
         def serve():
             while True:
