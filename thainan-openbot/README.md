@@ -8,6 +8,11 @@ Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando 
   - `apparmor=unconfined`: contorna a restrição de criação de user namespace (`CLONE_NEWUSER`) imposta pelo perfil `docker-default` do AppArmor em kernels modernos. **Documentação de risco**: com `apparmor=unconfined`, perde-se o confinamento de regras do perfil AppArmor `docker-default`; continuam ativos o perfil seccomp do upstream, `no-new-privileges: true`, execução como usuário não-root (UID 1000) e o isolamento interno do próprio Electron sandbox. Alternativas descartadas: `--no-sandbox` (inseguro e proibido pelo upstream, que aborta o container) e `cap_add: SYS_ADMIN` (testado; não resolve o bloqueio do AppArmor).
   - `no-new-privileges: true`, `shm_size: 1g`, `stop_grace_period: 60s`.
 - **Interface web**: O servidor expõe uma interface web mínima na porta 8592 (serviço sidecar leve conectado ao `/run/openbot/control.sock`). Permite verificar o status da conexão, solicitar código de acesso por e-mail para `thainancaldeira75@gmail.com`, confirmar o código numérico recebido e exibir o código QR para pareamento com o aplicativo móvel (Mobile Connect). O acesso após login também funciona pelo app desktop (macOS/Windows/Linux) ou em [https://openbot.run/app](https://openbot.run/app).
+- **Acessibilidade e AT-SPI**:
+  - A imagem upstream oficial não embute os binários de acessibilidade (`at-spi2-core`), mantendo apenas as bibliotecas clientes.
+  - Na versão `0.61.0-r4`, o entrypoint do serviço `openbot` extrai o pacote oficial fixado `at-spi2-core_2.52.0-1build1_amd64.deb` em `/data/a11y` validando o checksum SHA256 (`ea2d24a3219ba639f72dadf92b896fe31dd2ffd8659432e0cee2362726b63ff4`).
+  - Inicia o barramento D-Bus de acessibilidade com `accessibility.conf`, exporta `AT_SPI_BUS_ADDRESS`, propaga `AT_SPI_BUS` nas telas X11 (`:1` e `:0`) e roda o `at-spi2-registryd` em background conectado ao display dos agentes (`:1`, `OPENBOT_AGENT_DISPLAY`).
+  - **Limitação e pendência**: O `NO_AT_BRIDGE=1` não está no ambiente do container nem no entrypoint; provavelmente é injetado pelo app (não está no ENV, no entrypoint nem nas camadas 0-4/6; camada 5 não inspecionada). A remoção/interceptação desse flag nos agentes fica como pendência da Etapa 2.
 
 ---
 

@@ -784,6 +784,8 @@ services:
       - ${APP_DATA_DIR}/run:/run/openbot
     environment:
       OPENBOT_9ROUTER_KEY: ${OPENBOT_9ROUTER_KEY:-}
+      ACCESSIBILITY_ENABLED: "1"
+      QT_LINUX_ACCESSIBILITY_ALWAYS_ON: "1"
     entrypoint:
       - /usr/bin/tini
       - --
@@ -791,4 +793,30 @@ services:
       - -c
       - |
         [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
+        if [ ! -x /data/a11y/usr/libexec/at-spi2-registryd ]; then
+          mkdir -p /data/a11y /tmp/a11y
+          curl -fsSL "http://archive.ubuntu.com/ubuntu/pool/main/a/at-spi2-core/at-spi2-core_2.52.0-1build1_amd64.deb" -o /tmp/a11y/at-spi2-core.deb
+          echo "ea2d24a3219ba639f72dadf92b896fe31dd2ffd8659432e0cee2362726b63ff4  /tmp/a11y/at-spi2-core.deb" | sha256sum -c - || { echo "Checksum error at-spi2-core" >&2; exit 1; }
+          dpkg-deb -x /tmp/a11y/at-spi2-core.deb /data/a11y
+          rm -rf /tmp/a11y
+        fi
+        unset NO_AT_BRIDGE
+        export ACCESSIBILITY_ENABLED=1
+        export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+        export PATH="/data/a11y/usr/libexec:/data/a11y/usr/bin:$$PATH"
+        export XDG_DATA_DIRS="/data/a11y/usr/share:$${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+        export AT_SPI_BUS_ADDRESS=$$(dbus-daemon --config-file=/data/a11y/usr/share/defaults/at-spi2/accessibility.conf --fork --print-address)
+        (
+          for _ in $$(seq 1 100); do
+            DISPLAY=:1 xdpyinfo >/dev/null 2>&1 && break
+            sleep 0.1
+          done
+          export DISPLAY=:1
+          xprop -root -display :1 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS" 2>/dev/null || true
+          xprop -root -display :0 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS" 2>/dev/null || true
+          while true; do
+            /data/a11y/usr/libexec/at-spi2-registryd || true
+            sleep 1
+          done
+        ) &
         exec /opt/OpenBot/app/resources/hosting/openbot-container
