@@ -768,15 +768,15 @@ services:
         exec python3 -u /tmp/server.py
 
   openbot:
-    image: ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42
+    image: ghcr.io/nancmd77/thainan-openbot:0.61.0-r4
     restart: unless-stopped
+    user: "1000:1000"
     depends_on:
       init:
         condition: service_completed_successfully
     security_opt:
       - seccomp=${APP_DATA_DIR}/seccomp.json
       - apparmor=unconfined
-      - no-new-privileges:true
     shm_size: 1g
     stop_grace_period: 60s
     volumes:
@@ -784,6 +784,8 @@ services:
       - ${APP_DATA_DIR}/run:/run/openbot
     environment:
       OPENBOT_9ROUTER_KEY: ${OPENBOT_9ROUTER_KEY:-}
+      ACCESSIBILITY_ENABLED: "1"
+      QT_LINUX_ACCESSIBILITY_ALWAYS_ON: "1"
     entrypoint:
       - /usr/bin/tini
       - --
@@ -791,4 +793,34 @@ services:
       - -c
       - |
         [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
+        unset NO_AT_BRIDGE
+        export ACCESSIBILITY_ENABLED=1
+        export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+        export AT_SPI_BUS_ADDRESS=$$(dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --fork --print-address)
+        (
+          for _ in $$(seq 1 100); do
+            DISPLAY=:1 xdpyinfo >/dev/null 2>&1 && break
+            sleep 0.1
+          done
+          export DISPLAY=:1
+          (
+            while true; do
+              openbox || true
+              sleep 1
+            done
+          ) &
+          (
+            while true; do
+              /usr/libexec/at-spi2-registryd || true
+              sleep 1
+            done
+          ) &
+          for _ in $$(seq 1 120); do
+            pgrep -f '^/opt/OpenBot/app/openbot --type=gpu' >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+          sleep 1
+          xprop -root -display :1 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS"
+          xprop -root -display :0 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS"
+        ) &
         exec /opt/OpenBot/app/resources/hosting/openbot-container

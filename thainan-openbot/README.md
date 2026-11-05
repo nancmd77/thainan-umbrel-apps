@@ -2,13 +2,20 @@
 
 Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando no hardware do Nonve (Umbrel, amd64).
 
-- **Imagem oficial**: `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`
-- **Segurança e Isolamento**:
+- **Imagem**: `ghcr.io/nancmd77/thainan-openbot:0.61.0-r4` (imagem derivada enxuta baseada na upstream oficial `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`, com build definido em `thainan-openbot/image/Dockerfile`).
+- **Segurança e Privilégios**:
   - `seccomp=${APP_DATA_DIR}/seccomp.json`: perfil seccomp dedicado do upstream oficial permitindo `clone` e `unshare` para o sandbox do Electron.
-  - `apparmor=unconfined`: contorna a restrição de criação de user namespace (`CLONE_NEWUSER`) imposta pelo perfil `docker-default` do AppArmor em kernels modernos. **Documentação de risco**: com `apparmor=unconfined`, perde-se o confinamento de regras do perfil AppArmor `docker-default`; continuam ativos o perfil seccomp do upstream, `no-new-privileges: true`, execução como usuário não-root (UID 1000) e o isolamento interno do próprio Electron sandbox. Alternativas descartadas: `--no-sandbox` (inseguro e proibido pelo upstream, que aborta o container) e `cap_add: SYS_ADMIN` (testado; não resolve o bloqueio do AppArmor).
-  - `no-new-privileges: true`, `shm_size: 1g`, `stop_grace_period: 60s`.
+  - `apparmor=unconfined`: contorna a restrição de criação de user namespace (`CLONE_NEWUSER`) imposta pelo perfil `docker-default` do AppArmor em kernels modernos. **Documentação de risco**: com `apparmor=unconfined`, perde-se o confinamento de regras do perfil AppArmor `docker-default`; continuam ativos o perfil seccomp do upstream, execução como usuário UID 1000 e o isolamento interno do próprio Electron sandbox.
+  - `sudo` sem senha: o usuário `openbot` (UID 1000) possui permissão NOPASSWD configurada em `/etc/sudoers.d/openbot` (permissão `0440`). Para viabilizar a transição de privilégios do binário setuid do sudo, o atributo `no-new-privileges` foi removido.
+  - `shm_size: 1g`, `stop_grace_period: 60s`.
+- **Gerenciador de Janelas (WM)**:
+  - O gerenciador leve `openbox` é iniciado automaticamente em loop de supervisão no display dos agentes (`:1`, `OPENBOT_AGENT_DISPLAY`) assim que o Xvfb correspondente entra em operação, garantindo suporte a manipulação e posicionamento de janelas pelos agentes CUA.
+- **Acessibilidade e AT-SPI**:
+  - A imagem embute o pacote oficial `at-spi2-core` nativamente via apt.
+  - O entrypoint inicializa o barramento D-Bus de acessibilidade com `/usr/share/defaults/at-spi2/accessibility.conf`, exporta `AT_SPI_BUS_ADDRESS`, propaga a propriedade X11 `AT_SPI_BUS` nas telas `:1` e `:0` via `xprop` e executa o `at-spi2-registryd` no display dos agentes (`:1`).
+  - Mitigação preventiva para `NO_AT_BRIDGE`: configurado `ENV BASH_ENV=/etc/profile.d/a11y.sh` e inclusão em `/etc/bash.bashrc` (`unset NO_AT_BRIDGE`, `ACCESSIBILITY_ENABLED=1`, `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`). Em runtime, processos vivos inspecionados (`cua-driver`) não apresentaram a variável e processos Chromium usam `PR_SET_DUMPABLE=0`, restando confirmação em turno real.
+  - **Pendência técnica (Split de barramento AT-SPI)**: com `at-spi2-core` em `/usr`, o session bus ativa `org.a11y.Bus` via `at-spi-bus-launcher` gerando um segundo barramento em `unix:path=/run/openbot/at-spi/bus` (ao qual o `cua-driver` se conecta), enquanto `at-spi2-registryd` roda no barramento manual (`/tmp/dbus-...` via `xprop AT_SPI_BUS`). A unificação dos dois barramentos fica mapeada para a próxima etapa.
 - **Interface web**: O servidor expõe uma interface web mínima na porta 8592 (serviço sidecar leve conectado ao `/run/openbot/control.sock`). Permite verificar o status da conexão, solicitar código de acesso por e-mail para `thainancaldeira75@gmail.com`, confirmar o código numérico recebido e exibir o código QR para pareamento com o aplicativo móvel (Mobile Connect). O acesso após login também funciona pelo app desktop (macOS/Windows/Linux) ou em [https://openbot.run/app](https://openbot.run/app).
-
 ---
 
 ## 1. Login e Vinculação da Conta
@@ -109,4 +116,35 @@ docker logs -f thainan-openbot_openbot_1
 
 # Desconectar conta
 docker exec -it thainan-openbot_openbot_1 openbot logout
+```
+
+---
+
+## 4. Publicação da Imagem (GitHub Actions)
+
+A imagem personalizada com `sudo`, `at-spi2-core`, `openbox` e neutralização do `NO_AT_BRIDGE` é compilada a partir de `thainan-openbot/image/Dockerfile`.
+
+### Publicando pelo GitHub Actions
+
+O repositório possui o workflow `.github/workflows/thainan-openbot.yml` que compila e publica automaticamente a imagem no GitHub Container Registry (GHCR):
+1. Acesse a aba **Actions** no repositório GitHub e selecione o workflow **Build and Publish thainan-openbot Image**.
+2. Clique em **Run workflow** (ou faça merge na branch `main` com alterações em `thainan-openbot/image/**`).
+3. A action publicará a tag `ghcr.io/nancmd77/thainan-openbot:0.61.0-r4`.
+4. Ao concluir, pegue o digest gerado na saída da action (ou via `docker pull ghcr.io/nancmd77/thainan-openbot:0.61.0-r4 && docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/nancmd77/thainan-openbot:0.61.0-r4`).
+5. Atualize o campo `image` em `thainan-openbot/docker-compose.yml` para fixar pelo digest:
+   ```yaml
+   image: ghcr.io/nancmd77/thainan-openbot:0.61.0-r4@sha256:<DIGEST>
+   ```
+
+### Build e Teste Local
+
+Para construir e validar a imagem localmente antes da publicação:
+```bash
+# Build local:
+sudo -n docker build -t thainan-openbot:r4-teste thainan-openbot/image
+
+# Override para teste local no docker-compose.override.yml:
+# services:
+#   openbot:
+#     image: thainan-openbot:r4-teste
 ```
