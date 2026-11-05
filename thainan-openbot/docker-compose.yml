@@ -3,7 +3,7 @@ version: "3.7"
 services:
   app_proxy:
     environment:
-      APP_HOST: thainan-openbot_openbot_1
+      APP_HOST: thainan-openbot_web_1
       APP_PORT: 8592
       PROXY_AUTH_ADD: "false"
 
@@ -14,10 +14,14 @@ services:
     network_mode: none
     volumes:
       - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}/run:/run/openbot
+      - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         mkdir -p /data/.config/opencode
+        mkdir -p /run/openbot
+        rm -f /run/openbot/control.sock
         if [ ! -f /data/.config/opencode/opencode.json ]; then
           cat <<'EOF' > /data/.config/opencode/opencode.json
         {
@@ -46,9 +50,31 @@ services:
         }
         EOF
         fi
+        if [ ! -s /data/9router_key ] && [ -s /vkb/config.json ]; then
+          key=$$(sed -n 's/.*"llm_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /vkb/config.json | tr -d '\r\n ')
+          if [ -n "$$key" ]; then
+            printf '%s' "$$key" > /data/9router_key
+            chmod 600 /data/9router_key
+          fi
+        fi
         find /data -xdev \! -uid 1000 -exec chown 1000:1000 {} +
         chmod 700 /data
+        [ -f /data/9router_key ] && chmod 600 /data/9router_key
+        chown 1000:1000 /run/openbot
+        chmod 700 /run/openbot
 
+  web:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    user: "1000:1000"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - ./web:/app:ro
+      - ${APP_DATA_DIR}/run:/run/openbot
+    working_dir: /app
+    entrypoint: ["python3", "-u", "/app/server.py"]
   openbot:
     image: ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42
     restart: unless-stopped
@@ -62,6 +88,8 @@ services:
     stop_grace_period: 60s
     volumes:
       - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}/run:/run/openbot
+      - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
     environment:
       OPENBOT_9ROUTER_KEY: ${OPENBOT_9ROUTER_KEY:-}
     entrypoint:
@@ -70,5 +98,12 @@ services:
       - /bin/bash
       - -c
       - |
+        if [ ! -s /data/9router_key ] && [ -s /vkb/config.json ]; then
+          key=$$(sed -n 's/.*"llm_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /vkb/config.json | tr -d '\r\n ')
+          if [ -n "$$key" ]; then
+            printf '%s' "$$key" > /data/9router_key
+            chmod 600 /data/9router_key
+          fi
+        fi
         [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
         exec /opt/OpenBot/app/resources/hosting/openbot-container

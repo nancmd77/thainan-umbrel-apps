@@ -4,7 +4,7 @@ Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando 
 
 - **Imagem oficial**: `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`
 - **Segurança**: perfil seccomp dedicado (`seccomp.json`), `no-new-privileges: true`, `shm_size: 1g`, `stop_grace_period: 60s`.
-- **Interface web**: O servidor é headless e não expõe interface web própria. O acesso e controle são feitos pelo app desktop (macOS/Windows/Linux), pelo aplicativo de iPhone ou via navegador em [https://openbot.run/app](https://openbot.run/app) após o login.
+- **Interface web**: O servidor expõe uma interface web mínima na porta 8592 (serviço sidecar leve conectado ao `/run/openbot/control.sock`). Permite verificar o status da conexão, solicitar código de acesso por e-mail para `thainancaldeira75@gmail.com`, confirmar o código numérico recebido e exibir o código QR para pareamento com o aplicativo móvel (Mobile Connect). O acesso após login também funciona pelo app desktop (macOS/Windows/Linux) ou em [https://openbot.run/app](https://openbot.run/app).
 
 ---
 
@@ -12,12 +12,19 @@ Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando 
 
 Após iniciar o container no Umbrel, conecte o servidor à sua conta OpenBot.
 
-### Login Interativo (Recomendado)
-Execute no terminal do Nonve:
+### Login pela Web (Recomendado)
+Acesse a interface do OpenBot na porta 8592 (pelo painel do Umbrel ou diretamente pelo navegador):
+1. Clique em **Enviar código** para receber o código de verificação no e-mail `thainancaldeira75@gmail.com`.
+2. Digite o código recebido no campo **Código de verificação** e clique em **Entrar**.
+3. O status mudará para **Conectado** e o servidor aparecerá na sua conta no app desktop e em [openbot.run/app](https://openbot.run/app).
+4. Para conectar o aplicativo móvel (iPhone), clique em **Conectar celular (código QR)** na página web e aponte a câmera do aplicativo.
+
+### Login pelo Terminal
+Se preferir autenticar via terminal no Nonve:
 ```bash
 docker exec -it thainan-openbot_openbot_1 openbot login thainancaldeira75@gmail.com
 ```
-O OpenBot enviará um código de verificação para o seu e-mail e solicitará a digitação do código no terminal (`Code: `). Ao confirmar, o servidor ficará online e aparecerá na lista de servidores da sua conta em [openbot.run/app](https://openbot.run/app) e no app desktop.
+O OpenBot enviará um código de verificação para o seu e-mail e solicitará a digitação do código no terminal (`Code: `).
 
 ### Conectar o Aplicativo de iPhone (Mobile Connect)
 Para parear o app do iPhone sem precisar digitar senha:
@@ -50,19 +57,19 @@ O comando `openbot login` exige um terminal (`[ -t 0 ]`). Para fluxos não inter
 
 O 9Router do Nonve roda em `http://192.168.18.171:20128/v1`.
 
-### Opção A: Headless via arquivo / data (Pronto no app)
-O container cria automaticamente em `${APP_DATA_DIR}/data/.config/opencode/opencode.json` a configuração do provedor OpenAI-compatível apontando para o 9Router com interpolação de chave `{env:OPENBOT_9ROUTER_KEY}`.
+### Opção A: Importação Automática do Video KB (Padrão)
+O app monta automaticamente a pasta de dados do Video KB (`${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro`) e extrai a chave `llm_key` de `/vkb/config.json`, gravando em `${APP_DATA_DIR}/data/9router_key` com permissão 600 e uid 1000 se o arquivo ainda não existir.
 
-1. Salve a chave da API no arquivo `9router_key` no Nonve:
-   ```bash
-   printf '%s' '<SUA_CHAVE_9ROUTER>' > ~/umbrel/app-data/thainan-openbot/data/9router_key
-   chmod 600 ~/umbrel/app-data/thainan-openbot/data/9router_key
-   ```
-2. Reinicie o container para carregar a chave:
-   ```bash
-   docker restart thainan-openbot_openbot_1
-   ```
-   O entrypoint do container lê `/data/9router_key` no início da execução e exporta como `OPENBOT_9ROUTER_KEY`.
+O arquivo `${APP_DATA_DIR}/data/.config/opencode/opencode.json` é gerado automaticamente apontando para `http://192.168.18.171:20128/v1` com `{env:OPENBOT_9ROUTER_KEY}`.
+
+### Opção B: Manual via arquivo 9router_key
+Caso queira definir manualmente uma chave diferente:
+```bash
+printf '%s' '<SUA_CHAVE_9ROUTER>' > ~/umbrel/app-data/thainan-openbot/data/9router_key
+chmod 600 ~/umbrel/app-data/thainan-openbot/data/9router_key
+chown 1000:1000 ~/umbrel/app-data/thainan-openbot/data/9router_key
+```
+O entrypoint do container lê `/data/9router_key` no início da execução e exporta como `OPENBOT_9ROUTER_KEY`.
 3. No app OpenBot (desktop ou web), abra **Configurações do servidor** > **Provedores**, localize a linha **OpenCode** e clique em **Download** para baixar o runtime do OpenCode, que carregará o `opencode.json` com os modelos do 9Router.
 
 Modelos pré-configurados:
