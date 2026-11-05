@@ -1,0 +1,74 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-openbot_openbot_1
+      APP_PORT: 8592
+      PROXY_AUTH_ADD: "false"
+
+  init:
+    image: alpine:3.21
+    restart: "no"
+    user: root
+    network_mode: none
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /data/.config/opencode
+        if [ ! -f /data/.config/opencode/opencode.json ]; then
+          cat <<'EOF' > /data/.config/opencode/opencode.json
+        {
+          "$$schema": "https://opencode.ai/config.json",
+          "provider": {
+            "9router": {
+              "npm": "@ai-sdk/openai-compatible",
+              "name": "9Router",
+              "options": {
+                "baseURL": "http://192.168.18.171:20128/v1",
+                "apiKey": "{env:OPENBOT_9ROUTER_KEY}"
+              },
+              "models": {
+                "ag/gemini-3.8-flash-high": {
+                  "name": "Gemini 3.8 Flash High"
+                },
+                "ag/gemini-4-argon-high": {
+                  "name": "Gemini 4 Argon High"
+                },
+                "cl/deepseek/deepseek-v4.1-flash-1017": {
+                  "name": "DeepSeek v4.1 Flash"
+                }
+              }
+            }
+          }
+        }
+        EOF
+        fi
+        find /data -xdev \! -uid 1000 -exec chown 1000:1000 {} +
+        chmod 700 /data
+
+  openbot:
+    image: ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    security_opt:
+      - seccomp=${APP_DATA_DIR}/seccomp.json
+      - no-new-privileges:true
+    shm_size: 1g
+    stop_grace_period: 60s
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      OPENBOT_9ROUTER_KEY: ${OPENBOT_9ROUTER_KEY:-}
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - /bin/bash
+      - -c
+      - |
+        [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
+        exec /opt/OpenBot/app/resources/hosting/openbot-container

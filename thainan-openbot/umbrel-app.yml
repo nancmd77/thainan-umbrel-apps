@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-openbot
+name: OpenBot
+tagline: Servidor headless do OpenBot para agentes de IA
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
+category: AI
+version: "0.61.0"
+port: 8592
+description: >-
+  OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
+
+  Este servidor não expõe interface web própria. O acesso e controle são feitos exclusivamente pelo app desktop (macOS/Windows/Linux), aplicativo de iPhone ou via navegador em https://openbot.run/app após a autenticação inicial com `openbot login`.
+
+  Pré-configurado para consumir modelos do 9Router local (http://192.168.18.171:20128/v1) através do OpenCode em modo endpoint OpenAI-compatível.
+developer: nightly-labs
+website: https://openbot.run
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nightly-labs/openbot
+support: https://github.com/nightly-labs/openbot/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão na loja (OpenBot v0.61.0) headless no Nonve, com seccomp profile dedicado, no-new-privileges, shm_size 1g, stop_grace_period 60s e integração pré-configurada para o 9Router.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
