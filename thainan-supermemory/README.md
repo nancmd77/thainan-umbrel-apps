@@ -3,7 +3,7 @@
 Motor de memória de longo prazo e *continual learning* para agentes de IA rodando no host Nonve (Umbrel).
 
 - **appId:** `thainan-supermemory`
-- **Versão:** `1.0.0`
+- **Versão:** `1.0.6`
 - **Porta:** `8567` (mapeada para `6767` no container via `app_proxy`)
 - **Acesso:** `http://10.203.0.1:8567`, LAN ou NetBird
 

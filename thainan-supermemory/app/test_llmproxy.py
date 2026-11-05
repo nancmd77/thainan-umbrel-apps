@@ -72,10 +72,10 @@ data: [DONE]
         self.assertEqual(len(res["choices"]), 1)
         self.assertEqual(res["choices"][0]["message"]["content"], "")
 
-    def test_aggregate_cerebras_quasi_sse_with_done(self):
-        # Caso real observado no 9Router para cerebras/gpt-oss-120b: corpo JSON seguido por data: [DONE]
-        cerebras_body = '{"id":"chatcmpl-cf621f87","choices":[{"finish_reason":"stop","index":0,"message":{"content":"OK","reasoning":"Thinking...","role":"assistant"}}],"model":"gpt-oss-120b"}data: [DONE]\n\n'
-        res = aggregate_sse_chunks(cerebras_body)
+    def test_aggregate_quasi_sse_with_done(self):
+        # Caso real observado no 9Router: corpo JSON seguido por data: [DONE]
+        raw_body = '{"id":"chatcmpl-cf621f87","choices":[{"finish_reason":"stop","index":0,"message":{"content":"OK","reasoning":"Thinking...","role":"assistant"}}],"model":"gpt-oss-120b"}data: [DONE]\n\n'
+        res = aggregate_sse_chunks(raw_body)
         self.assertEqual(res["id"], "chatcmpl-cf621f87")
         self.assertEqual(res["model"], "gpt-oss-120b")
         self.assertEqual(len(res["choices"]), 1)
