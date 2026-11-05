@@ -58,6 +58,7 @@ export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:20129/v1}"
 export OPENAI_MODEL="${OPENAI_MODEL:-ag/gemini-3.8-flash-high}"
 export TARGET_BASE_URL="${TARGET_BASE_URL:-http://192.168.18.171:20128}"
 export SUPERMEMORY_KEY_FILE="$DATA_DIR/local_key"
+export RIVET__PEGBOARD__ENVOY_LOST_THRESHOLD="${RIVET__PEGBOARD__ENVOY_LOST_THRESHOLD:-300000}"
 
 # 4. Inicia llmproxy em background
 echo "[entrypoint] Iniciando llmproxy (porta 20129)..."
