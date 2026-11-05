@@ -7,12 +7,15 @@ services:
       PROXY_AUTH_ADD: "false"
   web:
     image: ghcr.io/nancmd77/9router:0.5.112
-    restart: on-failure
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
     environment:
       DATA_DIR: /app/data
       PORT: "20128"
       HOSTNAME: "0.0.0.0"
       INITIAL_PASSWORD: "${APP_PASSWORD}"
       JWT_SECRET: "${APP_THAINAN_9ROUTER_JWT_SECRET}"
+      NODE_OPTIONS: "--max-old-space-size=768"
     volumes:
       - ${APP_DATA_DIR}/data:/app/data
