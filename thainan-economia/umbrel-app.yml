@@ -1,13 +1,13 @@
 manifestVersion: 1
 id: thainan-economia
 name: Economia
-tagline: Nonve com CPU nos limites de fábrica, sem RTX e turbo ativado
+tagline: Nonve com CPU nos limites de fábrica, RTX ativa no barramento e turbo ativado
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-desempenho/icon.png
 category: Developer
-version: "1.0.5"
+version: "1.0.6"
 port: 8535
 description: >-
-  Modo economia do Nonve: CPU com limites restaurados de fábrica (ou ajustáveis via variável de ambiente CPU_W), turbo ativado por padrão (ajustável via TURBO), EPP power, ASPM powersupersave (placa de rede preservada), RTX removida do barramento PCI e tentativa de travar a carga da bateria em 80%. Reaplica a cada 5 minutos e no boot. Página de status com potência medida, limites, RTX e bateria. Parar o app não restaura nada até o próximo reboot.
+  Modo economia do Nonve: CPU com limites restaurados de fábrica (ou ajustáveis via variável de ambiente CPU_W), turbo ativado por padrão (ajustável via TURBO), EPP power, ASPM powersupersave (placa de rede preservada), RTX mantida no barramento PCI por padrão (configurável via RTX: "on" ou "off", com rescan PCI automático se ausente) e tentativa de travar a carga da bateria em 80%. Reaplica a cada 5 minutos e no boot. Página de status JSON e HTML na porta 8535 com potência medida, limites, RTX, diagnóstico completo de GPU e bateria. Parar o app não restaura nada até o próximo reboot.
 developer: Thainan Caldeira
 website: https://github.com/nancmd77/thainan-umbrel-apps
 submitter: Thainan Caldeira
@@ -16,7 +16,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Turbo da CPU ativado por padrão (configurável via variável de ambiente TURBO: "on" ou "off"). Mantidos limites de fábrica da CPU, perfil silencioso de fans, RTX desativada, ASPM e bateria.
+  Versão 1.0.6: RTX mantida no barramento por padrão (configurável via variável RTX: "on" ou "off", com acionamento único de rescan PCI caso ausente); diagnóstico de GPU adicionado ao status JSON/HTML na porta 8535 (lspci 01:00.x, módulos nvidia carregados, nós /dev/nvidia*, versão do driver, presença de nvidia-smi no host e runtime nvidia no docker do host). Mantidos limites de fábrica da CPU, turbo, EPP, ASPM e perfil de fans quiet.
 dependencies: []
 path: ""
 defaultUsername: ""
