@@ -3,7 +3,10 @@
 Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando no hardware do Nonve (Umbrel, amd64).
 
 - **Imagem oficial**: `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`
-- **Segurança**: perfil seccomp dedicado (`seccomp.json`), `no-new-privileges: true`, `shm_size: 1g`, `stop_grace_period: 60s`.
+- **Segurança e Isolamento**:
+  - `seccomp=${APP_DATA_DIR}/seccomp.json`: perfil seccomp dedicado do upstream oficial permitindo `clone` e `unshare` para o sandbox do Electron.
+  - `apparmor=unconfined`: contorna a restrição de criação de user namespace (`CLONE_NEWUSER`) imposta pelo perfil `docker-default` do AppArmor em kernels modernos. **Documentação de risco**: com `apparmor=unconfined`, perde-se o confinamento de regras do perfil AppArmor `docker-default`; continuam ativos o perfil seccomp do upstream, `no-new-privileges: true`, execução como usuário não-root (UID 1000) e o isolamento interno do próprio Electron sandbox. Alternativas descartadas: `--no-sandbox` (inseguro e proibido pelo upstream, que aborta o container) e `cap_add: SYS_ADMIN` (testado; não resolve o bloqueio do AppArmor).
+  - `no-new-privileges: true`, `shm_size: 1g`, `stop_grace_period: 60s`.
 - **Interface web**: O servidor expõe uma interface web mínima na porta 8592 (serviço sidecar leve conectado ao `/run/openbot/control.sock`). Permite verificar o status da conexão, solicitar código de acesso por e-mail para `thainancaldeira75@gmail.com`, confirmar o código numérico recebido e exibir o código QR para pareamento com o aplicativo móvel (Mobile Connect). O acesso após login também funciona pelo app desktop (macOS/Windows/Linux) ou em [https://openbot.run/app](https://openbot.run/app).
 
 ---
