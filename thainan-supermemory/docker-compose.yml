@@ -21,7 +21,7 @@ services:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
     environment:
-      REF: thainan-supermemory-v1.0.3
+      REF: thainan-supermemory-v1.0.4
       DATA_DIR: /data
       APP_DIR: /data/app
       SUPERMEMORY_DATA_DIR: /data
