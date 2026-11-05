@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.61.0-r1"
+version: "0.61.0-r2"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -20,7 +20,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.61.0-r1: adiciona interface web sidecar leve na porta 8592 com status do servidor via control.sock, envio e confirmação de código de login por e-mail e exibição de código QR para Mobile Connect; inclui importação automática da chave do 9Router a partir de /vkb/config.json com gravação em /data/9router_key (modo 600, uid 1000).
+  Versão 0.61.0-r2: corrige permissões de /data com chown recursivo e chmod 700 no init (sem find); importa chave 9Router exclusivamente no init (root) gravando /data/9router_key (modo 600, uid 1000); remove montagem de /vkb do serviço openbot; embute server.py do sidecar web inline no docker-compose para funcionar em updates do Umbrel.
 dependencies: []
 path: ""
 defaultUsername: ""
