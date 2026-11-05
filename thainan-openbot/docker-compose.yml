@@ -775,6 +775,7 @@ services:
         condition: service_completed_successfully
     security_opt:
       - seccomp=${APP_DATA_DIR}/seccomp.json
+      - apparmor=unconfined
       - no-new-privileges:true
     shm_size: 1g
     stop_grace_period: 60s
