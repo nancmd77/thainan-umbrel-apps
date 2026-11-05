@@ -812,11 +812,18 @@ services:
             sleep 0.1
           done
           export DISPLAY=:1
-          xprop -root -display :1 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS" 2>/dev/null || true
-          xprop -root -display :0 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS" 2>/dev/null || true
-          while true; do
-            /data/a11y/usr/libexec/at-spi2-registryd || true
-            sleep 1
+          (
+            while true; do
+              /data/a11y/usr/libexec/at-spi2-registryd || true
+              sleep 1
+            done
+          ) &
+          for _ in $$(seq 1 120); do
+            pgrep -f 'openbot --type=gpu' >/dev/null 2>&1 && break
+            sleep 0.5
           done
+          sleep 1
+          xprop -root -display :1 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS"
+          xprop -root -display :0 -f AT_SPI_BUS 8s -set AT_SPI_BUS "$$AT_SPI_BUS_ADDRESS"
         ) &
         exec /opt/OpenBot/app/resources/hosting/openbot-container
