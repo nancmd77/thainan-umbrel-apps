@@ -3,7 +3,7 @@
 Motor de memória de longo prazo e *continual learning* para agentes de IA rodando no host Nonve (Umbrel).
 
 - **appId:** `thainan-supermemory`
-- **Versão:** `1.0.6`
+- **Versão:** `1.0.7`
 - **Porta:** `8567` (mapeada para `6767` no container via `app_proxy`)
 - **Acesso:** `http://10.203.0.1:8567`, LAN ou NetBird
 
@@ -20,7 +20,7 @@ Motor de memória de longo prazo e *continual learning* para agentes de IA rodan
 
 2. **llmproxy (127.0.0.1:20129):**
    - Proxy local OpenAI-compatível entre o `supermemory-server` e o 9Router (`http://thainan-9router_web_1:20128/v1` ou `http://192.168.18.171:20128/v1`).
-   - Modelo: `ag/gemini-3.8-flash-high`.
+   - Modelo: `cc/claude-haiku-5-5` (com injeção de `reasoning_effort` `high` no proxy).
    - Agrega chunks SSE em respostas JSON estruturadas exigidas para reescrita de buscas e perfil do usuário.
 
 3. **filter_stream & Segurança da Chave:**

@@ -4,12 +4,12 @@ name: Supermemory Local
 tagline: Motor de memória e continual learning para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-supermemory/icon.png
 category: AI
-version: "1.0.6"
+version: "1.0.7"
 port: 8567
 description: >-
   Supermemory Local (supermemory-server) no hardware do Nonve: memória vetorial e contextual persistida em disco, busca híbrida (BM25 + embeddings vetoriais locais bge-base-en-v1.5) e integração com o 9Router para geração de perfis e reescrita de queries com Gemini.
 
-  O llmproxy local (127.0.0.1:20129) traduz chamadas de chat completion para o 9Router (ag/gemini-3.8-flash-high).
+  O llmproxy local (127.0.0.1:20129) traduz chamadas de chat completion para o 9Router (cc/claude-haiku-5-5 com injeção de reasoning_effort high).
 
   A chave sm_ gerada no primeiro boot é gravada em app-data/data/local_key (modo 600) e redigida dos logs para máxima segurança.
 developer: supermemory
@@ -20,7 +20,7 @@ repo: https://github.com/supermemoryai/supermemory
 support: https://github.com/supermemoryai/supermemory/issues
 gallery: []
 releaseNotes: >-
-  Migra OPENAI_FAST_MODEL para ag/gemini-3.8-flash-high (9Router), removendo Cerebras da stack.
+  Define Claude Haiku 5.5 (cc/claude-haiku-5-5) como modelo rápido (OPENAI_FAST_MODEL) e injeta reasoning_effort high no proxy para cc/claude-haiku*, unificando agente e tarefas rápidas.
 dependencies: []
 path: ""
 defaultUsername: ""
