@@ -30,6 +30,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read image revision
+        id: revision
+        run: echo "tag=$(tr -d '[:space:]' < thainan-openbot/image/VERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push OpenBot image
         id: docker_build
         uses: docker/build-push-action@v5
@@ -38,10 +42,26 @@ jobs:
           file: thainan-openbot/image/Dockerfile
           push: true
           tags: |
-            ghcr.io/nancmd77/thainan-openbot:0.62.0-r2
+            ghcr.io/nancmd77/thainan-openbot:${{ steps.revision.outputs.tag }}
             ghcr.io/nancmd77/thainan-openbot:latest
+
+      - name: Smoke test da imagem publicada
+        run: |
+          IMAGE="ghcr.io/nancmd77/thainan-openbot@${{ steps.docker_build.outputs.digest }}"
+          docker run --rm --entrypoint /bin/bash "$IMAGE" -c '
+            set -e
+            test "$(id -u)" = 1000
+            test -x /opt/OpenBot/app/resources/hosting/openbot-container
+            test -x /usr/bin/tini
+            test -x /usr/local/bin/md
+            test -x /usr/local/bin/decide
+            command -v openbox xdotool scrot >/dev/null
+            sudo -n true
+            test -z "${NO_AT_BRIDGE+x}"
+          '
+
       - name: Output image digest
         run: |
           echo "Imagem publicada com sucesso."
           echo "Digest: ${{ steps.docker_build.outputs.digest }}"
-          echo "Atualize thainan-openbot/docker-compose.yml com: ghcr.io/nancmd77/thainan-openbot:0.62.0-r2@${{ steps.docker_build.outputs.digest }}"
+          echo "Atualize thainan-openbot/docker-compose.yml com: ghcr.io/nancmd77/thainan-openbot:${{ steps.revision.outputs.tag }}@${{ steps.docker_build.outputs.digest }}"
