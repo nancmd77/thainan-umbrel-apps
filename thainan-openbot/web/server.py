@@ -18,6 +18,23 @@ import urllib.parse
 SOCKET_PATH = os.environ.get("OPENBOT_SOCKET_PATH", "/run/openbot/control.sock")
 SERVER_PORT = int(os.environ.get("OPENBOT_WEB_PORT", "8592"))
 DEFAULT_EMAIL = "thainancaldeira75@gmail.com"
+MOONDREAM_KEY_PATH = os.environ.get("CONFIG_KEY_PATH", "/config/moondream.key")
+
+
+def get_moondream_status():
+    env_key = os.environ.get("MOONDREAM_API_KEY", "").strip()
+    if env_key:
+        return True, env_key[-4:] if len(env_key) >= 4 else env_key
+    if os.path.isfile(MOONDREAM_KEY_PATH):
+        try:
+            with open(MOONDREAM_KEY_PATH, "r", encoding="utf-8") as f:
+                c = f.read().strip()
+                if c:
+                    return True, c[-4:] if len(c) >= 4 else c
+        except Exception:
+            pass
+    return False, ""
+
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -203,6 +220,31 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
           </div>
         </div>
         """
+    has_md, md_last4 = get_moondream_status()
+    if has_md:
+        md_badge = f'<span class="badge" style="background-color:#16a34a">salva (termina em {html.escape(md_last4)})</span>'
+    else:
+        md_badge = '<span class="badge" style="background-color:#d97706">chave ausente</span>'
+
+    moondream_section = f"""
+    <div class="card">
+      <div class="status-row">
+        <h2>Mira Visual Moondream</h2>
+        {md_badge}
+      </div>
+      <p class="subtitle">Chave de API do Moondream Cloud para mira visual e computer use de agentes.</p>
+      <form id="form-moondream" method="POST" action="/moondream/save">
+        <div class="field">
+          <label for="moondream-key">Chave Moondream</label>
+          <input type="password" id="moondream-key" name="key" placeholder="Cole sua chave aqui..." autocomplete="off" required />
+        </div>
+        <div class="actions">
+          <button type="submit" id="btn-moondream" class="btn btn-secondary">Salvar</button>
+        </div>
+      </form>
+    </div>
+    """
+
 
     page = f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -435,6 +477,7 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
     {qr_section}
     {login_section}
     {actions_section}
+    {moondream_section}
 
     <footer>
       <p>OpenBot rodando no Nonve via Umbrel</p>
@@ -561,6 +604,10 @@ class OpenBotWebHandler(http.server.BaseHTTPRequestHandler):
         if path == "/":
             content = render_html_page()
             self._reply_html(200, content)
+        elif path == "/moondream":
+            content = render_html_page()
+            self._reply_html(200, content)
+
         elif path == "/api/status":
             info = query_control_socket("GET", "/v1/status")
             self._reply_json(200 if info.get("_ok") else 503, {
@@ -669,6 +716,37 @@ class OpenBotWebHandler(http.server.BaseHTTPRequestHandler):
                 page = render_html_page(notice="Desconectado com sucesso.")
                 self._reply_html(200, page)
 
+        # API: Moondream Key
+        elif path in ("/moondream/save", "/api/moondream/save"):
+            data = self._read_form_or_json()
+            key = data.get("key", "").strip()
+            if not key:
+                if path.startswith("/api/"):
+                    self._reply_json(400, {"ok": False, "message": "A chave nao pode estar vazia."})
+                else:
+                    page = render_html_page(error_msg="A chave nao pode estar vazia.")
+                    self._reply_html(400, page)
+                return
+
+            try:
+                os.makedirs(os.path.dirname(MOONDREAM_KEY_PATH), exist_ok=True)
+                with open(MOONDREAM_KEY_PATH, "w", encoding="utf-8") as f:
+                    f.write(key)
+                os.chmod(MOONDREAM_KEY_PATH, 0o600)
+                last4 = key[-4:] if len(key) >= 4 else key
+                msg = f"salva (termina em {last4})"
+                if path.startswith("/api/"):
+                    self._reply_json(200, {"ok": True, "message": msg, "last4": last4})
+                else:
+                    page = render_html_page(notice=msg)
+                    self._reply_html(200, page)
+            except Exception as exc:
+                if path.startswith("/api/"):
+                    self._reply_json(500, {"ok": False, "message": str(exc)})
+                else:
+                    page = render_html_page(error_msg=f"Erro ao salvar: {exc}")
+                    self._reply_html(500, page)
+
         else:
             self.send_response(404)
             self.end_headers()
@@ -678,6 +756,12 @@ def run():
     server_address = ("0.0.0.0", SERVER_PORT)
     httpd = http.server.ThreadingHTTPServer(server_address, OpenBotWebHandler)
     sys.stderr.write(f"[web] Servidor de login OpenBot iniciado na porta {SERVER_PORT}...\n")
+    has_md, _ = get_moondream_status()
+    if has_md:
+        sys.stderr.write("moondream: chave presente\n")
+    else:
+        sys.stderr.write("moondream: chave ausente\n")
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

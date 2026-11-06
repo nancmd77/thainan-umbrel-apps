@@ -15,11 +15,15 @@ services:
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/run:/run/openbot
+      - ${APP_DATA_DIR}/config:/config
       - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        mkdir -p /data/.config/opencode
+        mkdir -p /data/.config/opencode/skills
+        mkdir -p /data/skills
+        mkdir -p /data/bin
+        mkdir -p /config
         mkdir -p /run/openbot
         rm -f /run/openbot/control.sock
         if [ ! -f /data/.config/opencode/opencode.json ]; then
@@ -49,7 +53,551 @@ services:
           }
         }
         EOF
+
         fi
+        if [ ! -f /data/AGENTS.md ]; then
+          cat <<'EOF' > /data/AGENTS.md
+        # Diretrizes para Agentes OpenBot (Computer Use)
+
+        ## Ordem de Acoes para Interacao com a Interface (Display :1)
+
+        1. **AT-SPI primeiro (Acessibilidade)**:
+           - Se o elemento existir na arvore de acessibilidade do sistema ou do aplicativo, utilize AT-SPI diretamente.
+           - A leitura semantica via AT-SPI e a mais rapida, deterministica e nao depende de inferencia visual.
+
+        2. **Moondream Cloud (`md`) como fallback**:
+           - Utilize a ferramenta de linha de comando `md` quando a aplicacao nao tiver suporte a acessibilidade (ex.: elementos renderizados em canvas HTML5, jogos, janelas legadas, bibliotecas graficas sem bridge AT-SPI ou quando a busca semantica falhar).
+           - O comando `md point` captura a tela do display `:1`, redimensiona para <=1280px em JPEG q85, envia para Moondream Cloud e converte as coordenadas para pixels reais da tela.
+
+        ## Ferramenta CLI `md`
+
+        - **Mira e Clique**:
+          `md point '<descricao do alvo>' --click`
+          Localiza o elemento visual, move o cursor com glide suave estilo Hark (~12 passos, ~180 ms, com easing) e exibe um anel de pulso visual de 400 ms ao clicar.
+        - **Clique Duplo**:
+          `md point '<alvo>' --double`
+        - **Clique com Botao Direito**:
+          `md point '<alvo>' --right`
+        - **Modo Rapido (sem animacao)**:
+          `md point '<alvo>' --click --sem-cursor`
+        - **Deteccao de Caixas Delimitadoras**:
+          `md detect '<alvo>'`
+        - **Perguntas Visuais sobre a Tela (VQA)**:
+          `md ask '<pergunta>'`
+
+        Display padrao: `:1` (pode ser sobrescrito com `--display :0` ou variavel `DISPLAY`).
+        Chave da API: configurada via variavel de ambiente `MOONDREAM_API_KEY` ou arquivo `/config/moondream.key` (pelo painel web na porta 8593 ou `/moondream`).
+        EOF
+        fi
+        if [ ! -f /data/skills/moondream.md ]; then
+          cat <<'EOF' > /data/skills/moondream.md
+        # Skill: moondream
+
+        Ferramenta CLI de mira visual (`md`) integrada com Moondream Cloud para operacao de computer use no display `:1`.
+
+        ## Regra de Precedencia
+        - **AT-SPI primeiro**: Sempre verifique a arvore de acessibilidade antes de acionar visao computacional.
+        - **Moondream fallback**: Acione `md point` quando a janela nao expuser objetos acessiveis ou falhar a localizacao semantica.
+
+        ## Comandos Principais
+        ```bash
+        # Localizar e clicar no botao
+        md point "Send button" --click
+
+        # Duplo clique
+        md point "Document icon" --double
+
+        # Clique com botao direito
+        md point "Context menu target" --right
+
+        # Clique rapido sem animacao Hark
+        md point "Submit" --click --sem-cursor
+
+        # Detectar todos os objetos da classe
+        md detect "button"
+
+        # Perguntar o estado visual da tela
+        md ask "Qual mensagem de erro esta em destaque?"
+        ```
+        EOF
+        fi
+        cp -f /data/skills/moondream.md /data/.config/opencode/skills/moondream.md 2>/dev/null || true
+        cat <<'EOF' > /data/bin/md
+        #!/usr/bin/env python3
+        """
+        CLI Moondream Cloud (md) para mira e auxilio visual a agentes de Computer Use.
+        Suporta subcomandos: point, detect e ask.
+        """
+
+        import argparse
+        import base64
+        import io
+        import json
+        import os
+        import re
+        import subprocess
+        import sys
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        MOONDREAM_API_BASE = "https://api.moondream.ai/v1"
+
+
+        def get_api_key():
+            """Busca a chave Moondream na variavel de ambiente ou arquivo montado."""
+            env_key = os.environ.get("MOONDREAM_API_KEY", "").strip()
+            if env_key:
+                return env_key
+
+            candidate_files = []
+            app_data = os.environ.get("APP_DATA_DIR")
+            if app_data:
+                candidate_files.append(os.path.join(app_data, "config", "moondream.key"))
+
+            candidate_files.extend([
+                "/config/moondream.key",
+                "/data/config/moondream.key",
+                os.path.expanduser("~/.config/moondream/moondream.key"),
+            ])
+
+            for path in candidate_files:
+                if os.path.isfile(path):
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            key = f.read().strip()
+                            if key:
+                                return key
+                    except Exception:
+                        continue
+
+            return None
+
+
+        def capture_display(display=None):
+            """Captura screenshot do display X11 indicado (padrao :1)."""
+            target_display = display or os.environ.get("DISPLAY") or ":1"
+
+            # 1. Tentativa via PIL ImageGrab
+            try:
+                from PIL import ImageGrab
+                img = ImageGrab.grab(xdisplay=target_display)
+                if img is not None:
+                    return img
+            except Exception:
+                pass
+
+            # 2. Tentativa via scrot
+            try:
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+                    tmp_png = tf.name
+                env = dict(os.environ, DISPLAY=target_display)
+                res = subprocess.run(["scrot", "-z", "-d", "0", tmp_png], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if res.returncode == 0 and os.path.isfile(tmp_png) and os.path.getsize(tmp_png) > 0:
+                    from PIL import Image
+                    img = Image.open(tmp_png)
+                    img.load()
+                    try:
+                        os.unlink(tmp_png)
+                    except Exception:
+                        pass
+                    return img
+                try:
+                    os.unlink(tmp_png)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # 3. Tentativa via import (ImageMagick)
+            try:
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+                    tmp_png = tf.name
+                env = dict(os.environ, DISPLAY=target_display)
+                res = subprocess.run(["import", "-window", "root", tmp_png], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if res.returncode == 0 and os.path.isfile(tmp_png) and os.path.getsize(tmp_png) > 0:
+                    from PIL import Image
+                    img = Image.open(tmp_png)
+                    img.load()
+                    try:
+                        os.unlink(tmp_png)
+                    except Exception:
+                        pass
+                    return img
+                try:
+                    os.unlink(tmp_png)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # 4. Tentativa via xwd
+            try:
+                import tempfile
+                import struct
+                with tempfile.NamedTemporaryFile(suffix=".xwd", delete=False) as tf:
+                    tmp_xwd = tf.name
+                env = dict(os.environ, DISPLAY=target_display)
+                res = subprocess.run(["xwd", "-display", target_display, "-root", "-silent", "-out", tmp_xwd], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if res.returncode == 0 and os.path.isfile(tmp_xwd) and os.path.getsize(tmp_xwd) > 100:
+                    from PIL import Image
+                    try:
+                        img = Image.open(tmp_xwd)
+                        img.load()
+                        os.unlink(tmp_xwd)
+                        return img
+                    except Exception:
+                        with open(tmp_xwd, "rb") as f:
+                            raw = f.read()
+                        os.unlink(tmp_xwd)
+                        if len(raw) > 100:
+                            hdr = raw[:100]
+                            hdr_vals = struct.unpack(">25I", hdr)
+                            hdr_size = hdr_vals[0]
+                            width = hdr_vals[4]
+                            height = hdr_vals[5]
+                            bpp = hdr_vals[11]
+                            pixel_bytes = raw[hdr_size:]
+                            if bpp == 32 and len(pixel_bytes) >= width * height * 4:
+                                img = Image.frombytes("RGBA", (width, height), pixel_bytes[:width * height * 4], "raw", "BGRA")
+                                return img.convert("RGB")
+            except Exception:
+                pass
+
+            raise RuntimeError(f"Nao foi possivel capturar screenshot do display {target_display}")
+
+
+        def prepare_image_payload(image_obj_or_path, display=None):
+            """Carrega ou captura imagem, reduz para <=1280px de largura e gera data URI JPEG q85."""
+            from PIL import Image
+
+            if isinstance(image_obj_or_path, str):
+                img = Image.open(image_obj_or_path)
+            elif image_obj_or_path is not None:
+                img = image_obj_or_path
+            else:
+                img = capture_display(display)
+
+            orig_w, orig_h = img.size
+
+            # Reducao proporcional para <= 1280px de largura
+            if orig_w > 1280:
+                target_w = 1280
+                target_h = max(1, int(round(orig_h * (1280.0 / orig_w))))
+                resized_img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            else:
+                resized_img = img
+
+            buf = io.BytesIO()
+            resized_img.convert("RGB").save(buf, format="JPEG", quality=85)
+            b64_data = base64.b64encode(buf.getvalue()).decode("ascii")
+            data_uri = f"data:image/jpeg;base64,{b64_data}"
+
+            return data_uri, orig_w, orig_h
+
+
+        def post_moondream(endpoint, payload, api_key):
+            """Envia POST com autenticacao Moondream e retorna o dicionario de resposta."""
+            url = f"{MOONDREAM_API_BASE}/{endpoint}"
+            data_bytes = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data_bytes,
+                headers={
+                    "X-Moondream-Auth": api_key,
+                    "Content-Type": "application/json",
+                    "User-Agent": "thainan-openbot-md/0.61.0-r8",
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    body = resp.read().decode("utf-8", errors="replace")
+                    return json.loads(body)
+            except urllib.error.HTTPError as exc:
+                err_msg = exc.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"Moondream API retornou HTTP {exc.code}: {err_msg}")
+            except Exception as exc:
+                raise RuntimeError(f"Falha na conexao com Moondream: {exc}")
+
+
+        def get_current_mouse(display):
+            """Obtem coordenadas atuais do cursor via xdotool."""
+            try:
+                env = dict(os.environ, DISPLAY=display)
+                res = subprocess.run(["xdotool", "getmouselocation"], env=env, capture_output=True, text=True, check=False)
+                m = re.search(r"x:(\d+)\s+y:(\d+)", res.stdout)
+                if m:
+                    return int(m.group(1)), int(m.group(2))
+            except Exception:
+                pass
+            return None
+
+
+        def glide_mouse(target_x, target_y, display, steps=12, total_ms=180):
+            """Move o mouse com glide suave usando easing em ~12 passos (~180 ms total)."""
+            curr = get_current_mouse(display)
+            if curr is None:
+                start_x, start_y = target_x, target_y
+            else:
+                start_x, start_y = curr
+
+            if start_x == target_x and start_y == target_y:
+                return
+
+            env = dict(os.environ, DISPLAY=display)
+            step_duration = (total_ms / 1000.0) / float(steps)
+
+            for i in range(1, steps + 1):
+                u = float(i) / float(steps)
+                # Smoothstep easing: 3*u^2 - 2*u^3
+                ease = 3.0 * (u ** 2) - 2.0 * (u ** 3)
+                cur_x = int(round(start_x + (target_x - start_x) * ease))
+                cur_y = int(round(start_y + (target_y - start_y) * ease))
+                subprocess.run(["xdotool", "mousemove", "--", str(cur_x), str(cur_y)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(step_duration)
+
+            subprocess.run(["xdotool", "mousemove", "--", str(target_x), str(target_y)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+        def show_hark_pulse_tk(x, y, display, duration_ms=400):
+            """Exibe anel de pulso estilo Hark por 400 ms em janela X sem borda, sem roubar foco."""
+            # Executa de forma assincrona via subprocesso leve
+            code = f"""
+        import tkinter as tk
+        try:
+            root = tk.Tk(screenName='{display}')
+            root.overrideredirect(True)
+            size = 48
+            x0 = {x} - size // 2
+            y0 = {y} - size // 2
+            root.geometry(f'{{size}}x{{size}}+{{x0}}+{{y0}}')
+            try:
+                root.attributes('-topmost', True)
+            except Exception:
+                pass
+            try:
+                root.attributes('-alpha', 0.85)
+            except Exception:
+                pass
+            c = tk.Canvas(root, width=size, height=size, highlightthickness=0, bg='#000000')
+            try:
+                root.wm_attributes('-transparentcolor', '#000000')
+            except Exception:
+                pass
+            c.pack(fill='both', expand=True)
+            c.create_oval(3, 3, size-3, size-3, outline='#00e5ff', width=3)
+            c.create_oval(14, 14, size-14, size-14, outline='#00e5ff', width=1)
+            root.after({duration_ms}, root.destroy)
+            root.mainloop()
+        except Exception:
+            pass
+        """
+            try:
+                env = dict(os.environ, DISPLAY=display)
+                subprocess.Popen([sys.executable, "-c", code], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+
+
+        def execute_click(x, y, display, click_type, sem_cursor=False):
+            """Move cursor e dispara clique com estilizacao Hark opcional."""
+            env = dict(os.environ, DISPLAY=display)
+
+            if not sem_cursor:
+                glide_mouse(x, y, display, steps=12, total_ms=180)
+                show_hark_pulse_tk(x, y, display, duration_ms=400)
+            else:
+                subprocess.run(["xdotool", "mousemove", "--", str(x), str(y)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            if click_type == "click":
+                subprocess.run(["xdotool", "click", "1"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif click_type == "double":
+                subprocess.run(["xdotool", "click", "--repeat", "2", "--delay", "50", "1"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif click_type == "right":
+                subprocess.run(["xdotool", "click", "3"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+        def cmd_point(args):
+            api_key = get_api_key()
+            if not api_key:
+                sys.stderr.write("erro: chave ausente\n")
+                sys.exit(1)
+
+            display = args.display or os.environ.get("DISPLAY") or ":1"
+            data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
+
+            payload = {
+                "image_url": data_uri,
+                "object": args.target,
+            }
+
+            resp = post_moondream("point", payload, api_key)
+            points = resp.get("points", [])
+            if not points:
+                sys.stderr.write(f"nenhum alvo encontrado para '{args.target}'\n")
+                sys.exit(2)
+
+            primary = points[0]
+            norm_x = float(primary.get("x", 0.0))
+            norm_y = float(primary.get("y", 0.0))
+            real_x = int(round(norm_x * orig_w))
+            real_y = int(round(norm_y * orig_h))
+
+            result = {
+                "target": args.target,
+                "pixel": {"x": real_x, "y": real_y},
+                "normalized": {"x": norm_x, "y": norm_y},
+                "screen_size": {"width": orig_w, "height": orig_h},
+                "all_points": [
+                    {
+                        "pixel": {"x": int(round(p["x"] * orig_w)), "y": int(round(p["y"] * orig_h))},
+                        "normalized": {"x": p["x"], "y": p["y"]},
+                    }
+                    for p in points
+                ],
+            }
+
+            print(json.dumps(result, ensure_ascii=False))
+
+            click_type = None
+            if args.click:
+                click_type = "click"
+            elif args.double:
+                click_type = "double"
+            elif args.right:
+                click_type = "right"
+
+            if click_type:
+                execute_click(real_x, real_y, display, click_type, sem_cursor=args.sem_cursor)
+
+
+        def cmd_detect(args):
+            api_key = get_api_key()
+            if not api_key:
+                sys.stderr.write("erro: chave ausente\n")
+                sys.exit(1)
+
+            display = args.display or os.environ.get("DISPLAY") or ":1"
+            data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
+
+            payload = {
+                "image_url": data_uri,
+                "object": args.target,
+            }
+
+            resp = post_moondream("detect", payload, api_key)
+            objects = resp.get("objects", [])
+
+            converted = []
+            for obj in objects:
+                x_min = float(obj.get("x_min", 0.0))
+                y_min = float(obj.get("y_min", 0.0))
+                x_max = float(obj.get("x_max", 0.0))
+                y_max = float(obj.get("y_max", 0.0))
+                converted.append({
+                    "pixel": {
+                        "x_min": int(round(x_min * orig_w)),
+                        "y_min": int(round(y_min * orig_h)),
+                        "x_max": int(round(x_max * orig_w)),
+                        "y_max": int(round(y_max * orig_h)),
+                    },
+                    "normalized": {
+                        "x_min": x_min,
+                        "y_min": y_min,
+                        "x_max": x_max,
+                        "y_max": y_max,
+                    },
+                })
+
+            result = {
+                "target": args.target,
+                "count": len(converted),
+                "screen_size": {"width": orig_w, "height": orig_h},
+                "objects": converted,
+            }
+
+            print(json.dumps(result, ensure_ascii=False))
+
+
+        def cmd_ask(args):
+            api_key = get_api_key()
+            if not api_key:
+                sys.stderr.write("erro: chave ausente\n")
+                sys.exit(1)
+
+            display = args.display or os.environ.get("DISPLAY") or ":1"
+            data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
+
+            payload = {
+                "image_url": data_uri,
+                "question": args.question,
+            }
+
+            resp = post_moondream("query", payload, api_key)
+            answer = resp.get("answer") or resp.get("caption") or ""
+
+            result = {
+                "question": args.question,
+                "answer": answer,
+                "screen_size": {"width": orig_w, "height": orig_h},
+            }
+
+            print(json.dumps(result, ensure_ascii=False))
+
+
+        def main():
+            parser = argparse.ArgumentParser(
+                prog="md",
+                description="Ferramenta CLI do Moondream Cloud para mira visual e computer use no OpenBot",
+            )
+            subparsers = parser.add_subparsers(dest="subcommand", help="Subcomandos disponiveis")
+
+            # Subcomando point
+            p_point = subparsers.add_parser("point", help="Localiza as coordenadas centrais de um alvo visual no display")
+            p_point.add_argument("target", help="Descricao textual do elemento visual alvo (ex: 'Send button')")
+            p_point.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
+            p_point.add_argument("--image", default=None, help="Arquivo de imagem opcional (para testes sem captura de display)")
+            p_point.add_argument("--sem-cursor", action="store_true", help="Desativa o glide suave e o pulso de anel Hark")
+            click_group = p_point.add_mutually_exclusive_group()
+            click_group.add_argument("--click", action="store_true", help="Executa clique simples com botao esquerdo")
+            click_group.add_argument("--double", action="store_true", help="Executa clique duplo com botao esquerdo")
+            click_group.add_argument("--right", action="store_true", help="Executa clique com botao direito")
+            p_point.set_defaults(func=cmd_point)
+
+            # Subcomando detect
+            p_detect = subparsers.add_parser("detect", help="Detecta caixas delimitadoras (bounding boxes) do elemento alvo")
+            p_detect.add_argument("target", help="Descricao textual do objeto alvo")
+            p_detect.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
+            p_detect.add_argument("--image", default=None, help="Arquivo de imagem opcional")
+            p_detect.set_defaults(func=cmd_detect)
+
+            # Subcomando ask
+            p_ask = subparsers.add_parser("ask", help="Faz uma pergunta sobre a imagem da tela usando Moondream VQA")
+            p_ask.add_argument("question", help="Pergunta sobre a tela (ex: 'Qual botao esta selecionado?')")
+            p_ask.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
+            p_ask.add_argument("--image", default=None, help="Arquivo de imagem opcional")
+            p_ask.set_defaults(func=cmd_ask)
+
+            args = parser.parse_args()
+            if not args.subcommand:
+                parser.print_help()
+                sys.exit(0)
+
+            try:
+                args.func(args)
+            except Exception as exc:
+                sys.stderr.write(f"erro: {exc}\n")
+                sys.exit(1)
+
+
+        if __name__ == "__main__":
+            main()
+        EOF
+        chmod 755 /data/bin/md
         if [ ! -s /data/9router_key ] && [ -s /vkb/config.json ]; then
           key=$$(sed -n 's/.*"llm_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /vkb/config.json | tr -d '\r\n ')
           if [ -n "$$key" ]; then
@@ -65,8 +613,11 @@ services:
             echo "init: nvidia-uvm nao encontrado em /proc/devices"
           fi
         fi
+        chown -R 1000:1000 /config && chmod 700 /config
+        [ -f /config/moondream.key ] && chmod 600 /config/moondream.key
         chown -R 1000:1000 /data && chmod 700 /data
         [ -f /data/9router_key ] && chmod 600 /data/9router_key
+        [ -f /data/bin/md ] && chmod 755 /data/bin/md
         chown 1000:1000 /run/openbot
         chmod 700 /run/openbot
   web:
@@ -78,6 +629,10 @@ services:
         condition: service_completed_successfully
     volumes:
       - ${APP_DATA_DIR}/run:/run/openbot
+      - ${APP_DATA_DIR}/config:/config
+    environment:
+      CONFIG_KEY_PATH: /config/moondream.key
+      MOONDREAM_API_KEY: ${MOONDREAM_API_KEY:-}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -102,6 +657,23 @@ services:
         SOCKET_PATH = os.environ.get("OPENBOT_SOCKET_PATH", "/run/openbot/control.sock")
         SERVER_PORT = int(os.environ.get("OPENBOT_WEB_PORT", "8592"))
         DEFAULT_EMAIL = "thainancaldeira75@gmail.com"
+        MOONDREAM_KEY_PATH = os.environ.get("CONFIG_KEY_PATH", "/config/moondream.key")
+
+
+        def get_moondream_status():
+            env_key = os.environ.get("MOONDREAM_API_KEY", "").strip()
+            if env_key:
+                return True, env_key[-4:] if len(env_key) >= 4 else env_key
+            if os.path.isfile(MOONDREAM_KEY_PATH):
+                try:
+                    with open(MOONDREAM_KEY_PATH, "r", encoding="utf-8") as f:
+                        c = f.read().strip()
+                        if c:
+                            return True, c[-4:] if len(c) >= 4 else c
+                except Exception:
+                    pass
+            return False, ""
+
 
 
         class UnixHTTPConnection(http.client.HTTPConnection):
@@ -287,6 +859,31 @@ services:
                   </div>
                 </div>
                 """
+            has_md, md_last4 = get_moondream_status()
+            if has_md:
+                md_badge = f'<span class="badge" style="background-color:#16a34a">salva (termina em {html.escape(md_last4)})</span>'
+            else:
+                md_badge = '<span class="badge" style="background-color:#d97706">chave ausente</span>'
+
+            moondream_section = f"""
+            <div class="card">
+              <div class="status-row">
+                <h2>Mira Visual Moondream</h2>
+                {md_badge}
+              </div>
+              <p class="subtitle">Chave de API do Moondream Cloud para mira visual e computer use de agentes.</p>
+              <form id="form-moondream" method="POST" action="/moondream/save">
+                <div class="field">
+                  <label for="moondream-key">Chave Moondream</label>
+                  <input type="password" id="moondream-key" name="key" placeholder="Cole sua chave aqui..." autocomplete="off" required />
+                </div>
+                <div class="actions">
+                  <button type="submit" id="btn-moondream" class="btn btn-secondary">Salvar</button>
+                </div>
+              </form>
+            </div>
+            """
+
 
             page = f"""<!DOCTYPE html>
         <html lang="pt-BR">
@@ -519,6 +1116,7 @@ services:
             {qr_section}
             {login_section}
             {actions_section}
+            {moondream_section}
 
             <footer>
               <p>OpenBot rodando no Nonve via Umbrel</p>
@@ -645,6 +1243,10 @@ services:
                 if path == "/":
                     content = render_html_page()
                     self._reply_html(200, content)
+                elif path == "/moondream":
+                    content = render_html_page()
+                    self._reply_html(200, content)
+
                 elif path == "/api/status":
                     info = query_control_socket("GET", "/v1/status")
                     self._reply_json(200 if info.get("_ok") else 503, {
@@ -753,6 +1355,37 @@ services:
                         page = render_html_page(notice="Desconectado com sucesso.")
                         self._reply_html(200, page)
 
+                # API: Moondream Key
+                elif path in ("/moondream/save", "/api/moondream/save"):
+                    data = self._read_form_or_json()
+                    key = data.get("key", "").strip()
+                    if not key:
+                        if path.startswith("/api/"):
+                            self._reply_json(400, {"ok": False, "message": "A chave nao pode estar vazia."})
+                        else:
+                            page = render_html_page(error_msg="A chave nao pode estar vazia.")
+                            self._reply_html(400, page)
+                        return
+
+                    try:
+                        os.makedirs(os.path.dirname(MOONDREAM_KEY_PATH), exist_ok=True)
+                        with open(MOONDREAM_KEY_PATH, "w", encoding="utf-8") as f:
+                            f.write(key)
+                        os.chmod(MOONDREAM_KEY_PATH, 0o600)
+                        last4 = key[-4:] if len(key) >= 4 else key
+                        msg = f"salva (termina em {last4})"
+                        if path.startswith("/api/"):
+                            self._reply_json(200, {"ok": True, "message": msg, "last4": last4})
+                        else:
+                            page = render_html_page(notice=msg)
+                            self._reply_html(200, page)
+                    except Exception as exc:
+                        if path.startswith("/api/"):
+                            self._reply_json(500, {"ok": False, "message": str(exc)})
+                        else:
+                            page = render_html_page(error_msg=f"Erro ao salvar: {exc}")
+                            self._reply_html(500, page)
+
                 else:
                     self.send_response(404)
                     self.end_headers()
@@ -762,6 +1395,335 @@ services:
             server_address = ("0.0.0.0", SERVER_PORT)
             httpd = http.server.ThreadingHTTPServer(server_address, OpenBotWebHandler)
             sys.stderr.write(f"[web] Servidor de login OpenBot iniciado na porta {SERVER_PORT}...\n")
+            has_md, _ = get_moondream_status()
+            if has_md:
+                sys.stderr.write("moondream: chave presente\n")
+            else:
+                sys.stderr.write("moondream: chave ausente\n")
+
+            try:
+                httpd.serve_forever()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                httpd.server_close()
+
+
+        if __name__ == "__main__":
+            run()
+        PY
+        exec python3 -u /tmp/server.py
+
+  moondream_config:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    user: "1000:1000"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    ports:
+      - "8593:8593"
+    volumes:
+      - ${APP_DATA_DIR}/config:/config
+    environment:
+      PORT: "8593"
+      CONFIG_KEY_PATH: /config/moondream.key
+      MOONDREAM_API_KEY: ${MOONDREAM_API_KEY:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat <<'PY' > /tmp/server.py
+        #!/usr/bin/env python3
+        """
+        Servidor HTTP leve para configuracao da chave Moondream Cloud do OpenBot.
+        Porta padrao: 8593 (configuravel via variavel PORT).
+        """
+
+        import html
+        import http.server
+        import os
+        import sys
+        import urllib.parse
+
+        PORT = int(os.environ.get("PORT", "8593"))
+        KEY_PATH = os.environ.get("CONFIG_KEY_PATH", "/config/moondream.key")
+
+
+        def get_key_status():
+            """Retorna (presente, sufixo_4_digitos)."""
+            env_key = os.environ.get("MOONDREAM_API_KEY", "").strip()
+            if env_key:
+                last4 = env_key[-4:] if len(env_key) >= 4 else env_key
+                return True, last4, "env"
+
+            if os.path.isfile(KEY_PATH):
+                try:
+                    with open(KEY_PATH, "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                        if content:
+                            last4 = content[-4:] if len(content) >= 4 else content
+                            return True, last4, "file"
+                except Exception:
+                    pass
+
+            return False, "", "none"
+
+
+        def log_startup_status():
+            present, _, _ = get_key_status()
+            if present:
+                print("moondream: chave presente", flush=True)
+            else:
+                print("moondream: chave ausente", flush=True)
+
+
+        def render_html(notice=None, error=None):
+            present, last4, source = get_key_status()
+
+            if present:
+                status_badge = f'<span class="badge badge-success">salva (termina em {html.escape(last4)})</span>'
+                status_info = f"Chave ativa configurada (fonte: {source})."
+            else:
+                status_badge = '<span class="badge badge-warning">chave ausente</span>'
+                status_info = "Nenhuma chave configurada. Insira sua chave da Moondream Cloud abaixo."
+
+            alert_box = ""
+            if notice:
+                alert_box = f'<div class="alert alert-success">{html.escape(notice)}</div>'
+            elif error:
+                alert_box = f'<div class="alert alert-error">{html.escape(error)}</div>'
+
+            return f"""<!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Configuração Moondream - OpenBot</title>
+          <style>
+            * {{
+              box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+            }}
+            body {{
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+              background: #0f172a;
+              color: #f8fafc;
+              min-height: 100vh;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              padding: 20px;
+            }}
+            .card {{
+              background: #1e293b;
+              border: 1px solid #334155;
+              border-radius: 12px;
+              padding: 32px;
+              width: 100%;
+              max-width: 480px;
+              box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+            }}
+            h1 {{
+              font-size: 1.5rem;
+              margin-bottom: 8px;
+              color: #38bdf8;
+            }}
+            p.desc {{
+              font-size: 0.9rem;
+              color: #94a3b8;
+              margin-bottom: 24px;
+              line-height: 1.4;
+            }}
+            .status-row {{
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              margin-bottom: 20px;
+              padding-bottom: 16px;
+              border-bottom: 1px solid #334155;
+            }}
+            .badge {{
+              display: inline-block;
+              padding: 4px 10px;
+              border-radius: 9999px;
+              font-size: 0.8rem;
+              font-weight: 600;
+            }}
+            .badge-success {{
+              background: rgba(34, 197, 94, 0.2);
+              color: #4ade80;
+              border: 1px solid #22c55e;
+            }}
+            .badge-warning {{
+              background: rgba(234, 179, 8, 0.2);
+              color: #facc15;
+              border: 1px solid #eab308;
+            }}
+            .field {{
+              margin-bottom: 20px;
+            }}
+            label {{
+              display: block;
+              font-size: 0.85rem;
+              font-weight: 500;
+              color: #cbd5e1;
+              margin-bottom: 8px;
+            }}
+            input[type="password"] {{
+              width: 100%;
+              padding: 12px 14px;
+              background: #0f172a;
+              border: 1px solid #475569;
+              border-radius: 8px;
+              color: #ffffff;
+              font-size: 0.95rem;
+              outline: none;
+              transition: border-color 0.2s;
+            }}
+            input[type="password"]:focus {{
+              border-color: #38bdf8;
+            }}
+            button.btn {{
+              width: 100%;
+              padding: 12px;
+              border-radius: 8px;
+              border: none;
+              background: #0284c7;
+              color: #ffffff;
+              font-weight: 600;
+              font-size: 0.95rem;
+              cursor: pointer;
+              transition: background 0.2s;
+            }}
+            button.btn:hover {{
+              background: #0369a1;
+            }}
+            .alert {{
+              padding: 12px 16px;
+              border-radius: 8px;
+              font-size: 0.85rem;
+              margin-bottom: 20px;
+            }}
+            .alert-success {{
+              background: rgba(34, 197, 94, 0.15);
+              border: 1px solid #22c55e;
+              color: #86efac;
+            }}
+            .alert-error {{
+              background: rgba(239, 68, 68, 0.15);
+              border: 1px solid #ef4444;
+              color: #fca5a5;
+            }}
+            .footer {{
+              margin-top: 24px;
+              text-align: center;
+              font-size: 0.8rem;
+              color: #64748b;
+            }}
+            .footer a {{
+              color: #38bdf8;
+              text-decoration: none;
+            }}
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Mira Visual Moondream</h1>
+            <p class="desc">Chave de API do Moondream Cloud para mira visual e computer use no OpenBot.</p>
+            
+            <div class="status-row">
+              <span style="font-size:0.85rem;color:#94a3b8;">Status atual:</span>
+              {status_badge}
+            </div>
+
+            {alert_box}
+
+            <form method="POST" action="/save">
+              <div class="field">
+                <label for="key">Chave Moondream</label>
+                <input type="password" id="key" name="key" placeholder="Cole sua chave aqui..." autocomplete="off" required />
+              </div>
+              <button type="submit" class="btn">Salvar</button>
+            </form>
+
+            <div class="footer">
+              Thainan OpenBot &bull; <a href="/">&#8592; Voltar ao painel principal</a>
+            </div>
+          </div>
+        </body>
+        </html>"""
+
+
+        class MoondreamConfigHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                parsed = urllib.parse.urlparse(self.path)
+                qs = urllib.parse.parse_qs(parsed.query)
+
+                notice = None
+                if "saved" in qs:
+                    _, last4, _ = get_key_status()
+                    notice = f"salva (termina em {last4})"
+
+                body = render_html(notice=notice).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                parsed = urllib.parse.urlparse(self.path)
+                path = parsed.path
+
+                if path in ("/save", "/moondream/save", "/"):
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    raw_body = self.rfile.read(content_length).decode("utf-8", errors="replace")
+                    params = urllib.parse.parse_qs(raw_body)
+                    key = params.get("key", [""])[0].strip()
+
+                    if not key:
+                        body = render_html(error="A chave nao pode estar vazia.").encode("utf-8")
+                        self.send_response(400)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+
+                    try:
+                        os.makedirs(os.path.dirname(KEY_PATH), exist_ok=True)
+                        with open(KEY_PATH, "w", encoding="utf-8") as f:
+                            f.write(key)
+                        os.chmod(KEY_PATH, 0o600)
+                    except Exception as exc:
+                        body = render_html(error=f"Erro ao salvar arquivo: {exc}").encode("utf-8")
+                        self.send_response(500)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+
+                    redirect_target = "/?saved=1" if path != "/moondream/save" else "/moondream?saved=1"
+                    self.send_response(303)
+                    self.send_header("Location", redirect_target)
+                    self.end_headers()
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def log_message(self, format, *args):
+                # Reduz verbosidade de logs HTTP
+                pass
+
+
+        def run():
+            log_startup_status()
+            server_address = ("0.0.0.0", PORT)
+            httpd = http.server.ThreadingHTTPServer(server_address, MoondreamConfigHandler)
+            sys.stderr.write(f"[moondream_config] Servidor de configuracao iniciado na porta {PORT}...\n")
             try:
                 httpd.serve_forever()
             except KeyboardInterrupt:
@@ -776,7 +1738,7 @@ services:
         exec python3 -u /tmp/server.py
 
   openbot:
-    image: ghcr.io/nancmd77/thainan-openbot:0.61.0-r4
+    image: ghcr.io/nancmd77/thainan-openbot:0.61.0-r8
     restart: unless-stopped
     user: "1000:1000"
     depends_on:
@@ -796,6 +1758,7 @@ services:
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/run:/run/openbot
+      - ${APP_DATA_DIR}/config:/config
       - /dev:/host/dev:ro
       - /usr/lib/x86_64-linux-gnu:/host/lib:ro
       - /usr/lib:/host/usr/lib:ro
@@ -804,6 +1767,7 @@ services:
       - /usr/share:/host/share:ro
     environment:
       OPENBOT_9ROUTER_KEY: ${OPENBOT_9ROUTER_KEY:-}
+      MOONDREAM_API_KEY: ${MOONDREAM_API_KEY:-}
       ACCESSIBILITY_ENABLED: "1"
       QT_LINUX_ACCESSIBILITY_ALWAYS_ON: "1"
     entrypoint:
@@ -814,6 +1778,16 @@ services:
       - |
         [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
         unset NO_AT_BRIDGE
+        # Suporte a mira visual Moondream e CLI md (r8)
+        if [ ! -f /usr/local/bin/md ] && [ -f /data/bin/md ]; then
+          sudo cp -f /data/bin/md /usr/local/bin/md 2>/dev/null || true
+          sudo chmod 755 /usr/local/bin/md 2>/dev/null || true
+        fi
+        if [ -n "$$MOONDREAM_API_KEY" ] || [ -s /config/moondream.key ]; then
+          echo "openbot: moondream: chave presente"
+        else
+          echo "openbot: moondream: chave ausente"
+        fi
         # Diagnostico de devices e suporte grafico (mknod seguro em /dev com permissao 666)
         if [ -d /host/dev/dri ]; then
           sudo mkdir -p /dev/dri

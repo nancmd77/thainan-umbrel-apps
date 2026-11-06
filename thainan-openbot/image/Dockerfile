@@ -9,6 +9,11 @@ RUN apt-get update \
         sudo \
         at-spi2-core \
         openbox \
+        xdotool \
+        x11-apps \
+        scrot \
+        python3-pil \
+        python3-tk \
     && rm -rf /var/lib/apt/lists/* \
     && echo "openbot ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/openbot \
     && chmod 0440 /etc/sudoers.d/openbot \
@@ -22,5 +27,8 @@ RUN apt-get update \
     && sed -i '1i[ -f /etc/profile.d/a11y.sh ] && . /etc/profile.d/a11y.sh' /etc/bash.bashrc
 
 ENV BASH_ENV=/etc/profile.d/a11y.sh
+COPY md /usr/local/bin/md
+RUN chmod 0755 /usr/local/bin/md
+
 
 USER 1000
