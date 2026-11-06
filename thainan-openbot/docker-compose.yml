@@ -787,16 +787,12 @@ services:
       - apparmor=unconfined
     shm_size: 1g
     stop_grace_period: 60s
-    # Aceleração gráfica por GPU e suporte a CUDA (r6):
+    # Aceleração gráfica por GPU e suporte a CUDA (r7):
     # Suporte resiliente a GPU Intel (DRI) e NVIDIA RTX 2050 sem exigir nvidia-container-toolkit.
     # /dev do host é montado ro em /host/dev preservando /dev/shm (shm_size: 1g) e /dev/pts.
-    # device_cgroup_rules restringe acesso a majors 195 (nvidia), 226 (dri) e 510 (nvidia-uvm).
-    # nvidia-uvm (CUDA; major lido no host Nonve hoje = 510)
+    # Permite todos os dispositivos de caractere ('c *:* rmw'); discos e dispositivos de bloco ('b') ficam de fora (nan aprovou 2026-11-05 22:06)
     device_cgroup_rules:
-      - 'c 226:* rmw'
-      - 'c 195:* rmw'
-      # nvidia-uvm (CUDA; major lido no host Nonve hoje = 510)
-      - 'c 510:* rmw'
+      - 'c *:* rmw'
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/run:/run/openbot
@@ -938,15 +934,11 @@ services:
             echo "openbot: dispositivo CUDA $$base provisionado em /dev (major $$major, minor $$minor)"
           fi
         done
-        # Leitura de /proc/devices para verificar o major do nvidia-uvm (regra cgroup 510)
+        # Leitura de /proc/devices para registrar major do nvidia-uvm
         if [ -f /proc/devices ]; then
           uvm_major=$$(awk '$$2=="nvidia-uvm" {print $$1}' /proc/devices)
           if [ -n "$$uvm_major" ]; then
-            if [ "$$uvm_major" != "510" ]; then
-              echo "openbot: AVISO nvidia-uvm major $$uvm_major != 510, CUDA bloqueado; atualizar regra"
-            else
-              echo "openbot: nvidia-uvm detectado no host com major $$uvm_major (CUDA liberado via cgroup 510)"
-            fi
+            echo "openbot: nvidia-uvm detectado no host com major $$uvm_major (CUDA liberado via cgroup c *:* rmw)"
           fi
         fi
         # Execucao diagnostica de nvidia-smi se presente no host
