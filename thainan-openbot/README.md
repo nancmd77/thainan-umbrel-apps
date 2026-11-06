@@ -2,7 +2,7 @@
 
 Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando no hardware do Nonve (Umbrel, amd64).
 
-- **Imagem**: `ghcr.io/nancmd77/thainan-openbot:0.61.0-r9` (imagem derivada enxuta baseada na upstream oficial `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`, com build definido em `thainan-openbot/image/Dockerfile`).
+- **Imagem**: `ghcr.io/nancmd77/thainan-openbot:0.61.0-r10` (imagem derivada enxuta baseada na upstream oficial `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`, com build definido em `thainan-openbot/image/Dockerfile`).
 - **Segurança e Privilégios**:
   - `seccomp=${APP_DATA_DIR}/seccomp.json`: perfil seccomp dedicado do upstream oficial permitindo `clone` e `unshare` para o sandbox do Electron.
   - `apparmor=unconfined`: contorna a restrição de criação de user namespace (`CLONE_NEWUSER`) imposta pelo perfil `docker-default` do AppArmor em kernels modernos. **Documentação de risco**: com `apparmor=unconfined`, perde-se o confinamento de regras do perfil AppArmor `docker-default`; continuam ativos o perfil seccomp do upstream, execução como usuário UID 1000 e o isolamento interno do próprio Electron sandbox.
@@ -230,9 +230,9 @@ md ask "Qual formulário está aberto na tela?"
 
 ---
 
-## 7. Modelo de Decisão por Passo com Liquid AI e Jev (r9)
+## 7. Modelo de Decisão por Passo com Liquid AI e Jev (r10)
 
-A partir da versão `0.61.0-r9`, o OpenBot integra a CLI `decide` para que agentes de computer use tomem decisões determinísticas, rápidas e calibradas por passo sem overhead de geração textual.
+A partir da versão `0.61.0-r9`, o OpenBot integra a CLI `decide` para que agentes de computer use tomem decisões determinísticas, rápidas e calibradas por passo sem overhead de geração textual. Na versão `0.61.0-r10`, a reserva Jev migra para a API oficial da TypeSafe.
 
 ### 7.1 Pipeline de Decisão CUA
 1. **AT-SPI**: Leitura semântica imediata da árvore de acessibilidade da janela ativa.
@@ -270,10 +270,12 @@ decide --objetivo "Clicar no ícone de salvar" \
    - Endpoint: `POST https://api.liquid.ai/decisions/v1/systemone`
    - Modelo: `d1-ultra`
    - Chave: lida de `LIQUID_API_KEY` ou `/config/liquid.key` (permissão `600`).
-2. **Jev via 9Router (Reserva)**:
-   - Endpoint: `POST http://192.168.18.171:20128/v1/systemone`
-   - Modelo: `~typesafe/jev-latest` (mesmo schema da API Liquid)
-   - Chave: lida de `NINEROUTER_API_KEY`, `OPENBOT_9ROUTER_KEY` ou `/config/9router.key` (permissão `600`).
+2. **Jev via API oficial TypeSafe (Reserva)**:
+   - Endpoint: `POST https://api.typesafe.ai/v1/systemone`
+   - Modelo: `jev-latest` (mesmo schema da API Liquid)
+   - Header: `Authorization: Bearer <chave>`
+   - Header de imagem: `TypeSafe-Danger-Zone-Images: true` quando `--imagem` for fornecida.
+   - Chave: lida de `TYPESAFE_API_KEY` ou `/config/typesafe.key` (permissão `600`).
    - Acionado automaticamente quando o Liquid AI falhar (erro HTTP ou timeout de 5 segundos).
 3. **Gestão de Chaves na Web**:
-   - Ambas as chaves podem ser configuradas no painel web unificado na porta `8592` (rotas `/config` e `/moondream`), nunca criando portas adicionais.
+   - As chaves podem ser configuradas no painel web unificado na porta `8592` (rotas `/config` e `/moondream`), gravando com permissão `600` e nunca criando portas adicionais.

@@ -1,6 +1,6 @@
 # Skill: decide
 
-Ferramenta CLI de modelo de decisão por passo (`decide`) integrada com Liquid AI SystemOne (`d1-ultra`) e reserva Jev (`~typesafe/jev-latest`) via 9Router para operação de computer use.
+Ferramenta CLI de modelo de decisão por passo (`decide`) integrada com Liquid AI SystemOne (`d1-ultra`) e reserva Jev (`jev-latest`) via API oficial da TypeSafe para operação de computer use.
 
 ## Fluxo de Decisão do Agente
 1. **AT-SPI**: inspecione a árvore de acessibilidade do sistema e da janela aberta.
