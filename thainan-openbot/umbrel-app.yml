@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.62.0-r3"
+version: "0.62.0-r4"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.62.0-r3: jeito Hark em todos os agentes. Skills globais jeito-hark (tom, autonomia, navegador, formulários no chat) e cursor-hark (bolinha do Hark visível nos cliques do navegador), mais um bloco no AGENTS.md de cada agente, recriado a cada início e aplicado sozinho em agentes novos.
+  Versão 0.62.0-r4: Supermemory por padrão em todos os agentes. Comando sm (buscar e gravar na memória local do Nonve, chave lida do app Supermemory) e skill supermemory, com a regra incluída no AGENTS.md de cada agente.
 dependencies: []
 path: ""
 defaultUsername: ""
