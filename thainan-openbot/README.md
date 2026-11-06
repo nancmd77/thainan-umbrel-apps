@@ -148,3 +148,51 @@ sudo -n docker build -t thainan-openbot:r4-teste thainan-openbot/image
 #   openbot:
 #     image: thainan-openbot:r4-teste
 ```
+
+---
+
+## 5. Aceleração por GPU e Compartilhamento com o Host (r5-gpu)
+
+A versão `0.61.0-r5` habilita suporte automático e resiliente à aceleração gráfica para o OpenBot no hardware do Nonve (RTX 2050 dedicada e Intel DRI integrada), sem depender de `nvidia-container-toolkit` e sem risco de quebra na inicialização em hosts sem GPU.
+
+### 5.1 Arquitetura de Isolamento e Segurança
+
+1. **Montagens Read-Only e Preservação do Container**:
+   - O diretório `/dev` do host é montado como `/host/dev:ro`. Isso evita sobrepor o `/dev` interno do container, preservando intactos o `/dev/shm` (com `shm_size: 1g`), `/dev/pts` e `/dev/mqueue`, além de impedir qualquer alteração nas permissões reais dos nós do host (`chmod`).
+   - Diretórios userspace do host são montados em modo somente leitura (`:ro`):
+     - `/usr/lib/x86_64-linux-gnu` -> `/host/lib:ro`
+     - `/usr/bin` -> `/host/bin:ro`
+     - `/usr/share` -> `/host/share:ro`
+   - Todos esses caminhos existem nativamente no Debian/Ubuntu do host, eliminando falhas de montagem na criação do container.
+
+2. **Regras de Cgroup Seguras**:
+   - O container define estritamente:
+     - `'c 195:* rmw'` para dispositivos NVIDIA (`nvidia0`, `nvidiactl`, `nvidia-modeset`).
+     - `'c 226:* rmw'` para dispositivos DRI (`card0`, `renderD128`).
+   - Não são utilizados curingas amplos (`c *:* rmw`), mantendo o isolamento contra dispositivos perigosos do host (como watchdog, tty ou input) e preservando a execução sob UID 1000 com seccomp.
+
+### 5.2 Detecção e Injeção Userspace em Tempo de Execução
+
+Ao iniciar o container:
+1. **Com GPU NVIDIA presente (`/host/dev/nvidia0`)**:
+   - Recria os nós `/dev/nvidia*` localmente no container com permissão `666` via `mknod` seguro (consultando major e minor do host), permitindo acesso irrestrito pelo UID 1000 sem alterar arquivos do host.
+   - Cria `/usr/local/nvidia/lib` com symlinks dedicados das bibliotecas do driver do host: `libnvidia*`, `libcuda*`, `libEGL_nvidia*`, `libGLX_nvidia*`, `libnvidia-egl*` e `vdpau/nvidia`.
+   - Configura o GLVND vendor EGL em `/usr/share/glvnd/egl_vendor.d/10_nvidia.json` e o Vulkan ICD em `/usr/share/vulkan/icd.d/nvidia_icd.json`.
+   - Cria symlink para `nvidia-smi` em `/usr/local/bin/nvidia-smi` caso presente no host.
+   - Registra o caminho no linker (`/etc/ld.so.conf.d/00-nvidia.conf`, `ldconfig`), exporta `LD_LIBRARY_PATH` e define `__GLX_VENDOR_LIBRARY_NAME=nvidia`.
+2. **Sem GPU NVIDIA (ou em hosts sem placa dedicada como VMs)**:
+   - O container detecta a ausência de `/host/dev/nvidia0` e opera transparentemente em modo CPU/DRI sem injetar bibliotecas ou alterar o GLVND/LD_LIBRARY_PATH, garantindo total compatibilidade.
+
+### 5.3 Processos GL, Suporte a CUDA e Major Dinâmico do `nvidia-uvm`
+
+- **Processos com GL vs Electron**: O processo gráfico principal do Electron upstream sobe com `--use-gl=disabled`. Portanto, a disponibilização dos nós `/dev/nvidia*` e das bibliotecas userspace atende prioritariamente a subprocessos dos agentes, navegadores externos (Chromium/Chrome) e ferramentas que executem pipelines gráficos ou multimídia (Mesa/GLX/Vulkan).
+- **Dispositivos necessários**: Para operações gráficas e GLX/EGL, apenas os dispositivos `nvidia0`, `nvidiactl` e `nvidia-modeset` (major 195) são requeridos.
+- **CUDA e `nvidia-uvm`**: O dispositivo `/dev/nvidia-uvm` é utilizado exclusivamente por aplicações CUDA/GPGPU. No kernel Linux, seu major é alocado dinamicamente:
+  - O serviço `init` e o entrypoint do OpenBot inspecionam `/proc/devices` no início da execução e reportam o major detectado nos logs (ex.: `openbot: nvidia-uvm detectado no host com major dinâmico 510`).
+  - Caso seja necessário utilizar chamadas diretas de CUDA dentro do container no Nonve, basta consultar o major reportado nos logs e adicionar a regra correspondente em `device_cgroup_rules` no `docker-compose.yml`:
+    ```yaml
+      device_cgroup_rules:
+        - 'c 226:* rmw'
+        - 'c 195:* rmw'
+        - 'c <MAJOR_UVM>:* rmw'
+    ```
