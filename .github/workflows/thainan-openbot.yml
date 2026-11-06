@@ -37,9 +37,8 @@ jobs:
           file: thainan-openbot/image/Dockerfile
           push: true
           tags: |
-            ghcr.io/nancmd77/thainan-openbot:0.61.0-r4
+            ghcr.io/nancmd77/thainan-openbot:0.61.0-r8
             ghcr.io/nancmd77/thainan-openbot:latest
-
       - name: Output image digest
         run: |
           echo "Imagem publicada com sucesso."

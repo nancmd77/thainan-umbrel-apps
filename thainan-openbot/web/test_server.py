@@ -228,6 +228,43 @@ class TestServer(unittest.TestCase):
             html_body = resp.read().decode("utf-8")
             self.assertIn("Conectado", html_body)
 
+    def test_moondream_key_flow(self):
+        with tempfile.TemporaryDirectory() as td:
+            key_file = os.path.join(td, "moondream.key")
+            orig_path = server.MOONDREAM_KEY_PATH
+            server.MOONDREAM_KEY_PATH = key_file
+            try:
+                # 1. Verifica estado inicial (chave ausente)
+                req_get = urllib.request.Request(f"{self.base_url}/moondream")
+                with urllib.request.urlopen(req_get) as resp:
+                    self.assertEqual(resp.status, 200)
+                    html_body = resp.read().decode("utf-8")
+                    self.assertIn("chave ausente", html_body)
+
+                # 2. Salva chave via POST form
+                sample_val = "example_val_1234"
+                form_data = urllib.parse.urlencode({"key": sample_val}).encode("utf-8")
+                req_post = urllib.request.Request(
+                    f"{self.base_url}/moondream/save",
+                    data=form_data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_post) as resp:
+                    self.assertEqual(resp.status, 200)
+                    html_body = resp.read().decode("utf-8")
+                    self.assertIn("salva (termina em 1234)", html_body)
+                    self.assertNotIn(sample_val, html_body)
+
+                # 3. Verifica se arquivo foi criado com perm 600
+                self.assertTrue(os.path.isfile(key_file))
+                mode = os.stat(key_file).st_mode & 0o777
+                self.assertEqual(mode, 0o600)
+                with open(key_file, "r") as f:
+                    self.assertEqual(f.read().strip(), sample_val)
+            finally:
+                server.MOONDREAM_KEY_PATH = orig_path
+
 
 if __name__ == "__main__":
     unittest.main()

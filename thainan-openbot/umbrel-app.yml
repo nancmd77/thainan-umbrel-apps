@@ -4,14 +4,16 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.61.0-r7"
+version: "0.61.0-r8"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
 
-  Inclui interface web mínima na porta 8592 para verificação de status, envio de código de login por e-mail, confirmação de código e pareamento móvel por código QR (Mobile Connect). O servidor conecta-se à sua conta OpenBot para uso pelo app desktop ou navegador em https://openbot.run/app.
+  Inclui interface web na porta 8592 para verificação de status, envio de código de login por e-mail, confirmação de código e pareamento móvel por código QR (Mobile Connect). O servidor conecta-se à sua conta OpenBot para uso pelo app desktop ou navegador em https://openbot.run/app.
 
   Pré-configurado para consumir modelos do 9Router local (http://192.168.18.171:20128/v1) através do OpenCode com importação automática da chave do 9Router a partir do Video KB.
+
+  Integração Moondream Cloud (r8) para mira visual de alta velocidade e computer use de agentes via CLI 'md' no display :1, com cursor estilo Hark (glide suave e pulso luminoso) e mini página web de configuração na porta 8593 e rota /moondream.
 developer: nightly-labs
 website: https://openbot.run
 submitter: Thainan Caldeira
@@ -20,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.61.0-r7: CUDA automático com regra device_cgroup_rules 'c *:* rmw' (todos os dispositivos de caractere; discos isolados), recriação resiliente de /dev/nvidia-uvm e uvm-tools via stat sem depender de major fixo e diagnóstico com nvidia-smi -L.
+  Versão 0.61.0-r8: integração com Moondream Cloud como ferramenta de mira visual e computer use (CLI md point, md detect, md ask com display :1 e redução para <=1280px JPEG q85); cursor estilo Hark com glide suave em 12 passos (~180 ms) e anel de pulso visual de 400 ms (flag --sem-cursor); documentação de ordem para agentes (AT-SPI primeiro, md como fallback); mini página web de configuração de chave na porta 8593 e rota /moondream (porta 8592); suporte a MOONDREAM_API_KEY e arquivo /config/moondream.key (perm 600).
 dependencies: []
 path: ""
 defaultUsername: ""

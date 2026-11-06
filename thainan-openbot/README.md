@@ -16,6 +16,12 @@ Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando 
   - Mitigação preventiva para `NO_AT_BRIDGE`: configurado `ENV BASH_ENV=/etc/profile.d/a11y.sh` e inclusão em `/etc/bash.bashrc` (`unset NO_AT_BRIDGE`, `ACCESSIBILITY_ENABLED=1`, `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`). Em runtime, processos vivos inspecionados (`cua-driver`) não apresentaram a variável e processos Chromium usam `PR_SET_DUMPABLE=0`, restando confirmação em turno real.
   - **Pendência técnica (Split de barramento AT-SPI)**: com `at-spi2-core` em `/usr`, o session bus ativa `org.a11y.Bus` via `at-spi-bus-launcher` gerando um segundo barramento em `unix:path=/run/openbot/at-spi/bus` (ao qual o `cua-driver` se conecta), enquanto `at-spi2-registryd` roda no barramento manual (`/tmp/dbus-...` via `xprop AT_SPI_BUS`). A unificação dos dois barramentos fica mapeada para a próxima etapa.
 - **Interface web**: O servidor expõe uma interface web mínima na porta 8592 (serviço sidecar leve conectado ao `/run/openbot/control.sock`). Permite verificar o status da conexão, solicitar código de acesso por e-mail para `thainancaldeira75@gmail.com`, confirmar o código numérico recebido e exibir o código QR para pareamento com o aplicativo móvel (Mobile Connect). O acesso após login também funciona pelo app desktop (macOS/Windows/Linux) ou em [https://openbot.run/app](https://openbot.run/app).
+- **Mira Visual e Moondream Cloud (r8)**:
+  - Ferramenta de linha de comando `md` (`python3`, urllib) instalada no container com subcomandos `point`, `detect` e `ask`.
+  - Captura direta da tela no display dos agentes (`:1`), com redução proporcional para largura <=1280px em JPEG q85 para máxima velocidade e menor latência de rede.
+  - **Ordem obrigatória para agentes**: (1) AT-SPI primeiro via árvore de acessibilidade; (2) `md point` como fallback para interfaces sem suporte a a11y (canvas, jogos, apps legados).
+  - **Cursor estilo Hark**: movimentação com glide suave via `xdotool` em 12 passos (~180 ms, smoothstep easing) e anel de pulso visual ciano de 400 ms ao clicar (override-redirect sem roubar foco). Suporte à flag `--sem-cursor` para automação sem animação.
+  - **Gestão de Chave**: lida da variável de ambiente `MOONDREAM_API_KEY` ou de `${APP_DATA_DIR}/config/moondream.key` (permissão 600). Mini página de configuração dedicada na porta 8593 e rota `/moondream` na porta 8592 com máscara segura (nunca exibe a chave).
 ---
 
 ## 1. Login e Vinculação da Conta
@@ -188,3 +194,37 @@ Ao iniciar o container:
   - Com a regra `'c *:* rmw'`, o acesso cgroup a qualquer major de caractere é liberado sem necessidade de intervenção manual ou suposições de major fixo (como 510).
   - O entrypoint recria automaticamente `/dev/nvidia-uvm` e `/dev/nvidia-uvm-tools` lendo dinamicamente o major e minor atuais de `/host/dev` via `stat`.
   - O entrypoint executa `nvidia-smi -L` na inicialização para reportar o diagnóstico das GPUs detectadas nos logs.
+
+---
+
+## 6. Mira Visual com Moondream Cloud (r8)
+
+A partir da versão `0.61.0-r8`, o OpenBot integra a Moondream Cloud API como ferramenta de mira visual para agentes CUA (Computer Use Agents) no display `:1`.
+
+### 6.1 Ordem de Precedência para Agentes
+1. **AT-SPI primeiro**: Sempre que o elemento existir na árvore de acessibilidade do sistema ou aplicativo, interaja diretamente pela semântica do AT-SPI. É determinístico, rápido e sem custo de inferência visual.
+2. **Moondream Cloud (`md point`) como fallback**: Utilize quando o aplicativo não tiver suporte a acessibilidade (canvas WebGL, interfaces sem bridge a11y, menus renderizados em bitmap, jogos) ou quando a busca semântica não localizar o elemento.
+
+### 6.2 Comandos da CLI `md`
+```bash
+# Mira e clique no elemento com glide e pulso Hark
+md point "Send button" --click
+
+# Duplo clique ou clique com botão direito
+md point "File icon" --double
+md point "Table row" --right
+
+# Clique rápido sem animações
+md point "Confirm" --click --sem-cursor
+
+# Detecção de caixas delimitadoras de múltiplos objetos
+md detect "text input"
+
+# Perguntas visuais sobre o estado da tela (VQA)
+md ask "Qual formulário está aberto na tela?"
+```
+
+### 6.3 Configuração da Chave
+- **Página Web**: Acesse diretamente na porta 8593 (`http://<host>:8593/`) ou pela rota `/moondream` na porta principal 8592. O painel grava o arquivo `/config/moondream.key` com permissão restrita `600` e exibe apenas os últimos 4 dígitos.
+- **Variável de Ambiente**: Defina `MOONDREAM_API_KEY=<sua-chave>` no arquivo de ambiente do Umbrel ou no compose.
+- **Diagnóstico nos Logs**: O OpenBot e o serviço de configuração reportam `moondream: chave presente` ou `moondream: chave ausente` na inicialização.
