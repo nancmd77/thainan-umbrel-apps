@@ -21,6 +21,9 @@ os.environ['ECONOMIA_SIM_GPU_EM_USO'] = '1'
 sys.path.insert(0, str(RAIZ / 'src'))
 import economia as E  # noqa: E402
 
+# Thread de comparação real roda com PASSO_COMPARACAO=1 e sobreviveria ao teste; os testes não a exercitam.
+PATCH_COMPARACAO = mock.patch.object(E, 'iniciar_comparacao')
+
 CTX = {
     'cpu': {'long': 45, 'short': 90},
     'epp': ['default', 'performance', 'balance_performance', 'balance_power', 'power'],
@@ -273,7 +276,12 @@ class Compose(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+def setUpModule():
+    PATCH_COMPARACAO.start()
+
+
 def tearDownModule():
+    PATCH_COMPARACAO.stop()
     shutil.rmtree(TMP, ignore_errors=True)
 
 
