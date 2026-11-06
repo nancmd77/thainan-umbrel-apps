@@ -153,73 +153,46 @@ sudo -n docker build -t thainan-openbot:r4-teste thainan-openbot/image
 
 ## 5. Aceleração por GPU e Compartilhamento com o Host (r5-gpu)
 
-Esta branch (`feat/openbot-r5-gpu`) habilita o suporte à aceleração gráfica para o OpenBot no hardware do Nonve (notebook Acer Nitro 5 com processador Intel Core i5-12450H e placa de vídeo dedicada NVIDIA GeForce RTX 2050).
+A versão `0.61.0-r5` habilita suporte automático e resiliente à aceleração gráfica para o OpenBot no hardware do Nonve (RTX 2050 dedicada e Intel DRI integrada), sem depender de `nvidia-container-toolkit` e sem risco de quebra na inicialização em hosts sem GPU.
 
-### 5.1 Aceleração DRI Resiliente (`/dev/dri`)
+### 5.1 Arquitetura de Isolamento e Segurança
 
-O `docker-compose.yml` monta nativamente o subsistema Direct Rendering Infrastructure do host:
-```yaml
-    devices:
-      - /dev/dri:/dev/dri
-    device_cgroup_rules:
-      - 'c 226:* rmw'
-      - 'c 195:* rmw'
-      - 'c 509:* rmw'
-      - 'c 511:* rmw'
-```
-- **Intel Iris Xe / UHD Graphics**: Sempre presente no kernel Linux (`/dev/dri/card0` e `/dev/dri/renderD128`). Provê aceleração por hardware (OpenGL, WebGL, renderização no display `:1`) aos navegadores e ferramentas dos agentes sem risco de falha na inicialização do container.
-- **Permissões automáticas**: O entrypoint do OpenBot detecta `/dev/dri` e ajusta permissões (`chmod 666`) via sudo NOPASSWD para acesso irrestrito pelo usuário `openbot` (UID 1000).
+1. **Montagens Read-Only e Preservação do Container**:
+   - O diretório `/dev` do host é montado como `/host/dev:ro`. Isso evita sobrepor o `/dev` interno do container, preservando intactos o `/dev/shm` (com `shm_size: 1g`), `/dev/pts` e `/dev/mqueue`, além de impedir qualquer alteração nas permissões reais dos nós do host (`chmod`).
+   - Diretórios userspace do host são montados em modo somente leitura (`:ro`):
+     - `/usr/lib/x86_64-linux-gnu` -> `/host/lib:ro`
+     - `/usr/bin` -> `/host/bin:ro`
+     - `/usr/share` -> `/host/share:ro`
+   - Todos esses caminhos existem nativamente no Debian/Ubuntu do host, eliminando falhas de montagem na criação do container.
 
-### 5.2 NVIDIA RTX 2050 e Diagnóstico do Host
+2. **Regras de Cgroup Seguras**:
+   - O container define estritamente:
+     - `'c 195:* rmw'` para dispositivos NVIDIA (`nvidia0`, `nvidiactl`, `nvidia-modeset`).
+     - `'c 226:* rmw'` para dispositivos DRI (`card0`, `renderD128`).
+   - Não são utilizados curingas amplos (`c *:* rmw`), mantendo o isolamento contra dispositivos perigosos do host (como watchdog, tty ou input) e preservando a execução sob UID 1000 com seccomp.
 
-A habilitação da GPU dedicada NVIDIA para o OpenBot depende das informações expostas pelo diagnóstico do aplicativo **Economia** (`thainan-economia` v1.0.6) na porta 8535 (HTML ou endpoint JSON `/status.json`).
+### 5.2 Detecção e Injeção Userspace em Tempo de Execução
 
-Campos reportados pelo bloco `gpu` do diagnóstico:
-1. `lspci_01_00`: Confirma se a RTX 2050 (`01:00.0` VGA e `01:00.1` Audio) está conectada ao barramento PCI do host (acionada via `RTX=on` e `rescan`).
-2. `lsmod_nvidia`: Informa se os módulos de kernel proprietários da NVIDIA (`nvidia`, `nvidia_modeset`, `nvidia_uvm`, `nvidia_drm`) estão carregados no host.
-3. `dev_nvidia`: Lista os nós de dispositivo criados pelo driver (`/dev/nvidia0`, `/dev/nvidiactl`, `/dev/nvidia-uvm`, `/dev/nvidia-modeset`).
-4. `driver_version`: Versão do driver instalada em `/proc/driver/nvidia/version`.
-5. `nvidia_smi`: Presença do binário `nvidia-smi` no host (verificado via nsenter).
-6. `docker_daemon_json` e `nvidia_container_runtime`: Indica se o Docker do host possui configuração de runtime NVIDIA em `/etc/docker/daemon.json` e se o binário `nvidia-container-runtime` existe no PATH do host.
+Ao iniciar o container:
+1. **Com GPU NVIDIA presente (`/host/dev/nvidia0`)**:
+   - Recria os nós `/dev/nvidia*` localmente no container com permissão `666` via `mknod` seguro (consultando major e minor do host), permitindo acesso irrestrito pelo UID 1000 sem alterar arquivos do host.
+   - Cria `/usr/local/nvidia/lib` com symlinks dedicados das bibliotecas do driver do host: `libnvidia*`, `libcuda*`, `libEGL_nvidia*`, `libGLX_nvidia*`, `libnvidia-egl*` e `vdpau/nvidia`.
+   - Configura o GLVND vendor EGL em `/usr/share/glvnd/egl_vendor.d/10_nvidia.json` e o Vulkan ICD em `/usr/share/vulkan/icd.d/nvidia_icd.json`.
+   - Cria symlink para `nvidia-smi` em `/usr/local/bin/nvidia-smi` caso presente no host.
+   - Registra o caminho no linker (`/etc/ld.so.conf.d/00-nvidia.conf`, `ldconfig`), exporta `LD_LIBRARY_PATH` e define `__GLX_VENDOR_LIBRARY_NAME=nvidia`.
+2. **Sem GPU NVIDIA (ou em hosts sem placa dedicada como VMs)**:
+   - O container detecta a ausência de `/host/dev/nvidia0` e opera transparentemente em modo CPU/DRI sem injetar bibliotecas ou alterar o GLVND/LD_LIBRARY_PATH, garantindo total compatibilidade.
 
-Com base no diagnóstico obtido, escolha uma das duas abordagens:
+### 5.3 Processos GL, Suporte a CUDA e Major Dinâmico do `nvidia-uvm`
 
-#### Opção 1: NVIDIA Container Toolkit (`deploy.resources.reservations.devices`)
-
-**Quando usar**: Quando o diagnóstico indicar que o Docker do host possui runtime NVIDIA ativo (`docker_has_nvidia_runtime: true` e `nvidia_container_runtime: presente`).
-
-Descomente o bloco `deploy` no serviço `openbot` em `docker-compose.yml`:
-```yaml
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-```
-*Funcionamento*: O runtime do Docker injeta automaticamente os drivers de usuário, bibliotecas CUDA e utilitários NVIDIA dentro do container sem necessidade de mapear nós manualmente.
-
-#### Opção 2: Bind Direto de Dispositivos (`/dev/nvidia*`)
-
-**Quando usar**: Quando o diagnóstico indicar que os módulos de kernel NVIDIA estão carregados e os nós `/dev/nvidia*` existem no host, mas o Docker daemon do host ainda **não** possui o `nvidia-container-runtime` configurado em `/etc/docker/daemon.json`.
-
-Descomente os nós correspondentes na lista `devices:` do serviço `openbot`:
-```yaml
-    devices:
-      - /dev/dri:/dev/dri
-      - /dev/nvidia0:/dev/nvidia0
-      - /dev/nvidiactl:/dev/nvidiactl
-      - /dev/nvidia-uvm:/dev/nvidia-uvm
-      - /dev/nvidia-modeset:/dev/nvidia-modeset
-    device_cgroup_rules:
-      - 'c 226:* rmw'
-      - 'c 195:* rmw'
-      - 'c 509:* rmw'
-      - 'c 511:* rmw'
-```
-*Funcionamento*: Os nós de hardware ficam disponíveis diretamente no container sob permissões de cgroup. O entrypoint ajusta automaticamente as permissões para o usuário `openbot`.
-
-#### O que falta se o diagnóstico indicar ausência de driver ou runtime
-- Se `lspci_01_00` mostrar a placa mas `lsmod_nvidia` estiver vazio: os drivers NVIDIA do kernel precisam ser instalados no Debian/Umbrel do host (`apt install nvidia-driver`).
-- Se os nós `/dev/nvidia*` existirem mas o Docker não tiver runtime: instale o pacote `nvidia-container-toolkit` no host e execute `nvidia-ctk runtime configure --runtime=docker && systemctl restart docker`.
+- **Processos com GL vs Electron**: O processo gráfico principal do Electron upstream sobe com `--use-gl=disabled`. Portanto, a disponibilização dos nós `/dev/nvidia*` e das bibliotecas userspace atende prioritariamente a subprocessos dos agentes, navegadores externos (Chromium/Chrome) e ferramentas que executem pipelines gráficos ou multimídia (Mesa/GLX/Vulkan).
+- **Dispositivos necessários**: Para operações gráficas e GLX/EGL, apenas os dispositivos `nvidia0`, `nvidiactl` e `nvidia-modeset` (major 195) são requeridos.
+- **CUDA e `nvidia-uvm`**: O dispositivo `/dev/nvidia-uvm` é utilizado exclusivamente por aplicações CUDA/GPGPU. No kernel Linux, seu major é alocado dinamicamente:
+  - O serviço `init` e o entrypoint do OpenBot inspecionam `/proc/devices` no início da execução e reportam o major detectado nos logs (ex.: `openbot: nvidia-uvm detectado no host com major dinâmico 510`).
+  - Caso seja necessário utilizar chamadas diretas de CUDA dentro do container no Nonve, basta consultar o major reportado nos logs e adicionar a regra correspondente em `device_cgroup_rules` no `docker-compose.yml`:
+    ```yaml
+      device_cgroup_rules:
+        - 'c 226:* rmw'
+        - 'c 195:* rmw'
+        - 'c <MAJOR_UVM>:* rmw'
+    ```

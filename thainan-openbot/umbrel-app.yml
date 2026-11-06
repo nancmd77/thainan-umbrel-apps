@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.61.0-r4"
+version: "0.61.0-r5"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -20,7 +20,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.61.0-r4: imagem derivada enxuta baseada na upstream oficial fixada por digest; inclui sudo (NOPASSWD para UID 1000), at-spi2-core nativo, gerenciador de janelas Openbox no display dos agentes (:1) e mitigação preventiva de NO_AT_BRIDGE para shells dos agentes via BASH_ENV e profile.d; inicializa dbus-daemon (accessibility.conf) e at-spi2-registryd no display :1; preserva perfil seccomp, UID 1000 e apparmor=unconfined; remove no-new-privileges para viabilizar sudo. Pendência técnica: unificação do split de barramento AT-SPI entre registryd e cua-driver.
+  Versão 0.61.0-r5: nós e bibliotecas NVIDIA e subsistema DRI disponibilizados no container sem dependência de nvidia-container-toolkit. Montagem segura read-only do host (/host/dev, /host/lib, /host/bin, /host/share) preservando shm_size e isolamento cgroup restrito a majors 195 (nvidia) e 226 (dri); nós recriados em /dev com permissão 666 via mknod seguro; detecção automática e configuração em tempo de execução de bibliotecas userspace, GLVND vendor e Vulkan ICD sob /usr/local/nvidia/lib se /host/dev/nvidia0 estiver presente; detecção e registro de major dinâmico do nvidia-uvm no init; fallback transparente para CPU/DRI em hosts sem GPU dedicada. Nota: o processo gráfico do Electron upstream inicializa com --use-gl=disabled, logo a aceleração gráfica aplica-se a subprocessos, navegadores e ferramentas auxiliares que usem GL/hardware.
 dependencies: []
 path: ""
 defaultUsername: ""

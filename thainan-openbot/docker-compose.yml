@@ -56,11 +56,19 @@ services:
             printf '%s' "$$key" > /data/9router_key
           fi
         fi
+        if [ -f /proc/devices ]; then
+          uvm_major=$$(awk '$$2=="nvidia-uvm" {print $$1}' /proc/devices)
+          if [ -n "$$uvm_major" ]; then
+            echo "init: nvidia-uvm detectado em /proc/devices com major $$uvm_major"
+            printf '%s' "$$uvm_major" > /run/openbot/nvidia-uvm-major 2>/dev/null || true
+          else
+            echo "init: nvidia-uvm nao encontrado em /proc/devices"
+          fi
+        fi
         chown -R 1000:1000 /data && chmod 700 /data
         [ -f /data/9router_key ] && chmod 600 /data/9router_key
         chown 1000:1000 /run/openbot
         chmod 700 /run/openbot
-
   web:
     image: python:3.12-alpine
     restart: unless-stopped
@@ -780,31 +788,22 @@ services:
     shm_size: 1g
     stop_grace_period: 60s
     # Aceleração gráfica por GPU (r5-gpu):
-    # /dev/dri provê aceleração nativa via Intel iGPU (Mesa/DRM).
-    # Para NVIDIA RTX 2050, consulte a seção 5 do README e o status do thainan-economia (porta 8535):
-    # - Opção A (se Docker host tiver nvidia-container-runtime): descomente o bloco deploy abaixo.
-    # - Opção B (se apenas os nós de kernel existirem): descomente os nós /dev/nvidia* em devices.
-    devices:
-      - /dev/dri:/dev/dri
-      # - /dev/nvidia0:/dev/nvidia0
-      # - /dev/nvidiactl:/dev/nvidiactl
-      # - /dev/nvidia-uvm:/dev/nvidia-uvm
-      # - /dev/nvidia-modeset:/dev/nvidia-modeset
+    # Suporte resiliente a GPU Intel (DRI) e NVIDIA RTX 2050 sem exigir nvidia-container-toolkit.
+    # /dev do host é montado ro em /host/dev preservando /dev/shm (shm_size: 1g) e /dev/pts.
+    # device_cgroup_rules restringe acesso a majors 195 (nvidia) e 226 (dri).
+    # nvidia-uvm é exclusivo para CUDA (não afeta renderização gráfica GLX/EGL do Electron/Chromium).
     device_cgroup_rules:
       - 'c 226:* rmw'
       - 'c 195:* rmw'
-      - 'c 509:* rmw'
-      - 'c 511:* rmw'
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/run:/run/openbot
+      - /dev:/host/dev:ro
+      - /usr/lib/x86_64-linux-gnu:/host/lib:ro
+      - /usr/lib:/host/usr/lib:ro
+      - /etc/alternatives:/host/etc/alternatives:ro
+      - /usr/bin:/host/bin:ro
+      - /usr/share:/host/share:ro
     environment:
       OPENBOT_9ROUTER_KEY: ${OPENBOT_9ROUTER_KEY:-}
       ACCESSIBILITY_ENABLED: "1"
@@ -817,14 +816,125 @@ services:
       - |
         [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
         unset NO_AT_BRIDGE
-        # Detecção e liberação de permissões para aceleração gráfica
-        if [ -d /dev/dri ]; then
-          sudo chmod 666 /dev/dri/* 2>/dev/null || true
-          echo "openbot: aceleracao grafica DRI detectada e liberada (/dev/dri)"
+        # Diagnostico de devices e suporte grafico (mknod seguro em /dev com permissao 666)
+        if [ -d /host/dev/dri ]; then
+          sudo mkdir -p /dev/dri
+          for f in /host/dev/dri/*; do
+            if [ -c "$$f" ]; then
+              base=$$(basename "$$f")
+              major=$$((0x$$(stat -c "%t" "$$f")))
+              minor=$$((0x$$(stat -c "%T" "$$f")))
+              sudo rm -f "/dev/dri/$$base"
+              sudo mknod -m 666 "/dev/dri/$$base" c "$$major" "$$minor" 2>/dev/null || true
+            fi
+          done
+          echo "openbot: aceleracao grafica DRI provisionada (/dev/dri, modo 666)"
+        elif [ -d /dev/dri ]; then
+          echo "openbot: aceleracao grafica DRI presente (/dev/dri)"
         fi
-        if ls /dev/nvidia* >/dev/null 2>&1; then
-          sudo chmod 666 /dev/nvidia* 2>/dev/null || true
-          echo "openbot: dispositivos NVIDIA detectados e liberados (/dev/nvidia*)"
+        if [ -e /host/dev/nvidia0 ]; then
+          echo "openbot: dispositivos NVIDIA detectados no host (/host/dev/nvidia*)"
+          for f in /host/dev/nvidia*; do
+            if [ -c "$$f" ]; then
+              base=$$(basename "$$f")
+              major=$$((0x$$(stat -c "%t" "$$f")))
+              minor=$$((0x$$(stat -c "%T" "$$f")))
+              sudo rm -f "/dev/$$base"
+              sudo mknod -m 666 "/dev/$$base" c "$$major" "$$minor" 2>/dev/null || true
+            fi
+          done
+          # Configuracao de userspace para driver NVIDIA do host (resolucao de alternatives Debian)
+          sudo mkdir -p /usr/local/nvidia/lib /usr/local/nvidia/lib/vdpau /usr/share/glvnd/egl_vendor.d /usr/share/vulkan/icd.d /usr/local/bin
+        sudo python3 -c '
+        import os, glob
+        def host_to_container(p):
+            if p.startswith("/host/"):
+                return p
+            if p.startswith("/etc/alternatives/"):
+                return "/host/etc/alternatives/" + p[len("/etc/alternatives/"):]
+            if p.startswith("/usr/lib/x86_64-linux-gnu/"):
+                return "/host/lib/" + p[len("/usr/lib/x86_64-linux-gnu/"):]
+            if p.startswith("/usr/lib/"):
+                return "/host/usr/lib/" + p[len("/usr/lib/"):]
+            if p.startswith("/usr/bin/"):
+                return "/host/bin/" + p[len("/usr/bin/"):]
+            if p.startswith("/usr/share/"):
+                return "/host/share/" + p[len("/usr/share/"):]
+            return p
+        def resolve_host_link(initial_path):
+            curr = initial_path
+            for _ in range(12):
+                if not os.path.islink(curr):
+                    break
+                target = os.readlink(curr)
+                if not os.path.isabs(target):
+                    curr = os.path.normpath(os.path.join(os.path.dirname(curr), target))
+                else:
+                    curr = host_to_container(target)
+            return curr if os.path.exists(curr) else None
+        for pat in ["libnvidia*", "libcuda*", "libEGL_nvidia*", "libGLX_nvidia*", "libnvidia-egl*"]:
+            for f in glob.glob("/host/lib/" + pat):
+                real = resolve_host_link(f)
+                if real:
+                    dest = os.path.join("/usr/local/nvidia/lib", os.path.basename(f))
+                    if os.path.lexists(dest):
+                        os.remove(dest)
+                    os.symlink(real, dest)
+        for f in glob.glob("/host/lib/vdpau/libvdpau_nvidia*"):
+            real = resolve_host_link(f)
+            if real:
+                dest = os.path.join("/usr/local/nvidia/lib/vdpau", os.path.basename(f))
+                if os.path.lexists(dest):
+                    os.remove(dest)
+                os.symlink(real, dest)
+        smi = resolve_host_link("/host/bin/nvidia-smi")
+        if smi and os.path.isfile(smi):
+            dest = "/usr/local/bin/nvidia-smi"
+            if os.path.lexists(dest):
+                os.remove(dest)
+            os.symlink(smi, dest)
+        '
+          # Vulkan ICD do host
+          if [ -d /host/share/vulkan/icd.d ]; then
+            for f in /host/share/vulkan/icd.d/*nvidia*.json; do
+              if [ -e "$$f" ]; then
+                sudo ln -sf "$$f" /usr/share/vulkan/icd.d/ 2>/dev/null || true
+                sudo ln -sf "$$f" /usr/local/nvidia/lib/ 2>/dev/null || true
+              fi
+            done
+          fi
+          if [ ! -f /usr/share/vulkan/icd.d/nvidia_icd.json ] && [ ! -L /usr/share/vulkan/icd.d/*nvidia*.json 2>/dev/null ]; then
+            printf '{\n  "file_format_version": "1.0.0",\n  "ICD": {\n    "library_path": "libGLX_nvidia.so.0",\n    "api_version": "1.3.277"\n  }\n}\n' | sudo tee /usr/share/vulkan/icd.d/nvidia_icd.json >/dev/null
+          fi
+          # Configuracao do GLVND EGL vendor
+          if [ -d /host/share/glvnd/egl_vendor.d ]; then
+            for f in /host/share/glvnd/egl_vendor.d/*nvidia*.json; do
+              [ -e "$$f" ] && sudo ln -sf "$$f" /usr/share/glvnd/egl_vendor.d/ 2>/dev/null || true
+            done
+          fi
+          if [ ! -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ] && [ ! -L /usr/share/glvnd/egl_vendor.d/*nvidia*.json 2>/dev/null ]; then
+            printf '{\n  "file_format_version": "1.0.0",\n  "ICD": {\n    "library_path": "libEGL_nvidia.so.0"\n  }\n}\n' | sudo tee /usr/share/glvnd/egl_vendor.d/10_nvidia.json >/dev/null
+          fi
+          # Symlink de nvidia-smi se presente no host
+          if [ -x /host/bin/nvidia-smi ]; then
+            sudo ln -sf /host/bin/nvidia-smi /usr/local/bin/nvidia-smi 2>/dev/null || true
+          fi
+          # Configuracao do linker e variaveis de ambiente
+          echo "/usr/local/nvidia/lib" | sudo tee /etc/ld.so.conf.d/00-nvidia.conf >/dev/null
+          sudo ldconfig 2>/dev/null || true
+          export LD_LIBRARY_PATH=/usr/local/nvidia/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}
+          export __GLX_VENDOR_LIBRARY_NAME=nvidia
+          printf 'export LD_LIBRARY_PATH=/usr/local/nvidia/lib:$${LD_LIBRARY_PATH}\nexport __GLX_VENDOR_LIBRARY_NAME=nvidia\n' | sudo tee -a /etc/profile.d/a11y.sh >/dev/null
+          echo "openbot: ambiente NVIDIA userspace configurado com sucesso (/usr/local/nvidia/lib, GLVND, Vulkan)"
+        else
+          echo "openbot: nenhuma GPU NVIDIA detectada (/host/dev/nvidia0 ausente); seguindo em modo padrao sem alteracoes"
+        fi
+        # Leitura de /proc/devices para logar o major do nvidia-uvm (caso CUDA venha a ser habilitado)
+        if [ -f /proc/devices ]; then
+          uvm_major=$$(awk '$$2=="nvidia-uvm" {print $$1}' /proc/devices)
+          if [ -n "$$uvm_major" ]; then
+            echo "openbot: nvidia-uvm detectado no host com major dinâmico $$uvm_major (regra cgroup sugerida para CUDA: 'c $$uvm_major:* rmw')"
+          fi
         fi
         export ACCESSIBILITY_ENABLED=1
         export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
