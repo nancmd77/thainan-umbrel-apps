@@ -277,10 +277,18 @@ class Paginas(unittest.TestCase):
         import re
         html = E.pagina(E.status_data())
         ids = re.findall(r'<select id="([^"]+)"', html)
+        self.assertTrue(ids)
         self.assertEqual(len(ids), len(set(ids)), ids)
         for ident in ids:
             with self.subTest(select=ident):
                 self.assertRegex(html, r'<label class="campo" for="%s">[^<]+</label>' % ident)
+
+    def test_todos_os_ids_da_pagina_sao_unicos(self):
+        import re
+        html = E.pagina(E.status_data())
+        ids = re.findall(r'\sid="([^"]+)"', html)
+        self.assertTrue(ids)
+        self.assertEqual(len(ids), len(set(ids)), sorted({i for i in ids if ids.count(i) > 1}))
 
     def test_cada_controle_de_faixa_tem_rotulo_e_descricao(self):
         import re
