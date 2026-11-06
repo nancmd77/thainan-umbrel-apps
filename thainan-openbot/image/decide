@@ -122,7 +122,7 @@ def call_systemone_api(url, payload, api_key, timeout=REQUEST_TIMEOUT, extra_hea
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "User-Agent": "thainan-openbot-decide/0.61.0-r10",
+        "User-Agent": "thainan-openbot-decide/0.62.0-r1",
     }
     if extra_headers:
         headers.update(extra_headers)

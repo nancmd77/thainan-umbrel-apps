@@ -316,7 +316,7 @@ services:
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "thainan-openbot-decide/0.61.0-r10",
+                "User-Agent": "thainan-openbot-decide/0.62.0-r1",
             }
             if extra_headers:
                 headers.update(extra_headers)
@@ -1205,7 +1205,7 @@ services:
             user_email = status_info.get("email", "")
             server_phase = status_info.get("server", "desconhecido")
             server_name = status_info.get("server_name", "OpenBot")
-            version = status_info.get("version", "0.61.0")
+            version = status_info.get("version", "0.62.0")
 
             if not is_ready:
                 badge_text = "Iniciando"
@@ -1746,7 +1746,7 @@ services:
                         "email": info.get("email", ""),
                         "server": info.get("server", "unknown"),
                         "server_name": info.get("server_name", ""),
-                        "version": info.get("version", "0.61.0"),
+                        "version": info.get("version", "0.62.0"),
                         "message": info.get("message") or info.get("account_message") or info.get("server_message") or "",
                     })
                 else:
@@ -1978,7 +1978,7 @@ services:
         exec python3 -u /tmp/server.py
 
   openbot:
-    image: ghcr.io/nancmd77/thainan-openbot:0.61.0-r10
+    image: ghcr.io/nancmd77/thainan-openbot:0.62.0-r1
     restart: unless-stopped
     user: "1000:1000"
     depends_on:

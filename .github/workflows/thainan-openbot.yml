@@ -37,10 +37,10 @@ jobs:
           file: thainan-openbot/image/Dockerfile
           push: true
           tags: |
-            ghcr.io/nancmd77/thainan-openbot:0.61.0-r10
+            ghcr.io/nancmd77/thainan-openbot:0.62.0-r1
             ghcr.io/nancmd77/thainan-openbot:latest
       - name: Output image digest
         run: |
           echo "Imagem publicada com sucesso."
           echo "Digest: ${{ steps.docker_build.outputs.digest }}"
-          echo "Atualize thainan-openbot/docker-compose.yml com: ghcr.io/nancmd77/thainan-openbot:0.61.0-r4@${{ steps.docker_build.outputs.digest }}"
+          echo "Atualize thainan-openbot/docker-compose.yml com: ghcr.io/nancmd77/thainan-openbot:0.62.0-r1@${{ steps.docker_build.outputs.digest }}"

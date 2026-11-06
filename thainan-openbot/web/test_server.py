@@ -26,9 +26,9 @@ class MockOpenBotUnixHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             if getattr(self.server, "logged_in", False):
-                self.wfile.write(b"version=0.61.0\naccount=signed_in\nemail=thainancaldeira75@gmail.com\nserver=online\nserver_name=OpenBot\n")
+                self.wfile.write(b"version=0.62.0\naccount=signed_in\nemail=thainancaldeira75@gmail.com\nserver=online\nserver_name=OpenBot\n")
             else:
-                self.wfile.write(b"version=0.61.0\naccount=signed_out\nserver=offline\nserver_name=OpenBot\n")
+                self.wfile.write(b"version=0.62.0\naccount=signed_out\nserver=offline\nserver_name=OpenBot\n")
         else:
             self.send_response(404)
             self.end_headers()
@@ -50,7 +50,7 @@ class MockOpenBotUnixHandler(http.server.BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(b"version=0.61.0\naccount=signed_in\nemail=thainancaldeira75@gmail.com\nserver=online\nserver_name=OpenBot\n")
+                self.wfile.write(b"version=0.62.0\naccount=signed_in\nemail=thainancaldeira75@gmail.com\nserver=online\nserver_name=OpenBot\n")
             else:
                 self.send_response(400)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -68,7 +68,7 @@ class MockOpenBotUnixHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b"version=0.61.0\naccount=signed_out\nserver=offline\nserver_name=OpenBot\n")
+            self.wfile.write(b"version=0.62.0\naccount=signed_out\nserver=offline\nserver_name=OpenBot\n")
         else:
             self.send_response(404)
             self.end_headers()
