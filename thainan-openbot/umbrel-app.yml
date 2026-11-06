@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.62.0-r4"
+version: "0.62.0-r5"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.62.0-r4: Supermemory por padrão em todos os agentes. Comando sm (buscar e gravar na memória local do Nonve, chave lida do app Supermemory) e skill supermemory, com a regra incluída no AGENTS.md de cada agente.
+  Versão 0.62.0-r5: Cartões OpenUI no estilo Hark como skill padrão em todos os agentes. Skill openui-hark (montar.py, hark.css e exemplos de tabela, escolha, confirmação de compra, login e chave de API) em ~/.agents/skills, com a regra incluída no AGENTS.md de cada agente.
 dependencies: []
 path: ""
 defaultUsername: ""

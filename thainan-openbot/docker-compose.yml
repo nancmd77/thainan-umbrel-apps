@@ -298,6 +298,7 @@ services:
         - Antes de qualquer resposta ou tarefa, siga a skill jeito-hark (tom, autonomia, navegador, formulários ask_ui/ask_user).
         - Em toda ação no navegador ou na área remota, siga a skill cursor-hark (bolinha do Hark visível, clique em dois tempos, md e decide).
         - Memória: siga a skill supermemory (sm buscar antes de responder, sm gravar decisões e resultados no mesmo turno).
+        - Cartões no chat (tabela, pergunta com opções, várias escolhas, campos, sim ou não, confirmação de compra, login, chave de API, código): siga a skill openui-hark. Senha, cartão e chave nunca em campo do cartão; use o cofre.
         - Skills em ~/.agents/skills. Se não achar, avise o Nan.
         <!-- jeito-hark:fim -->
         FIM_HARK
@@ -437,6 +438,200 @@ services:
         if [ -s /sm/local_key ]; then tr -d '\r\n' < /sm/local_key > /config/supermemory.key; chown 1000:1000 /config/supermemory.key; chmod 600 /config/supermemory.key; echo 'init: supermemory: chave copiada'; else echo 'init: supermemory: chave ausente'; fi
         for f in /data/OpenBot/Agents/*/AGENTS.md; do [ -f "$$f" ] && sed -i '/<!-- jeito-hark:inicio/,/<!-- jeito-hark:fim -->/d' "$$f"; done
         sh /data/bin/regras-hark.sh once
+        # OpenUI Hark (r5): skill openui-hark (cartões OpenUI no estilo Hark) em ~/.agents/skills
+        mkdir -p /data/.agents/skills/openui-hark/exemplos
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/SKILL.md
+        ---
+        name: openui-hark
+        description: Use sempre que a resposta pedir um cartão no chat (tabela, comparação, pergunta com opções, várias escolhas, campos de texto, sim ou não, confirmação de compra, login, chave de API, código de verificação). Desenha o cartão com OpenUI no estilo Hark e mostra com html_render.
+        ---
+
+        # Cartões OpenUI no estilo Hark
+
+        Quando usar: uma pergunta que o Nan responde tocando (em vez de digitar), um conjunto pra comparar (tabela), ou uma confirmação antes de agir. Resposta que é um fato ou uma frase continua só texto.
+
+        ## Como
+        1. Escreva o cartão em OpenUI Lang num arquivo `.oui` (comece pelo exemplo mais parecido em `exemplos/`).
+        2. `python3 ~/.agents/skills/openui-hark/montar.py cartao.oui cartao.html`
+        3. Confira com `openbot.html_preview` (veja o print e o console). Corrija se quebrar.
+        4. Mostre com `openbot.html_render` (título curto, o HTML inteiro). Depois escreva só o que o cartão não diz, numa frase.
+        5. O toque do Nan volta como mensagem dele, com os valores marcados em JSON. Leia e siga.
+
+        ## Estilo Hark (o CSS já faz o visual; você cuida do conteúdo)
+        - Título = a pergunta ou o nome do conjunto, curto. Subtítulo só quando ajuda ("Pode marcar mais de um").
+        - Opções com rótulo curto e uma descrição de poucas palavras. 2 a 4 opções; a mais provável primeiro e já marcada.
+        - Tabela: 3 colunas no máximo no celular, poucas palavras por célula. Uma frase de escolha embaixo (TextContent "small"): "Eu iria de X: motivo."
+        - Botão principal com verbo ("Enviar", "Fazer pedido", "Pode aplicar"). Secundário só pra recusar ou mudar.
+        - Nada de rótulo em caixa alta, nada inventado: todo valor vem de fonte real.
+
+        ## Segurança (obrigatório)
+        - Nunca ponha campo de senha, cartão ou chave de API no cartão: o cartão só manda texto pro chat. Os exemplos `login-seguro` e `chave-api` mostram a conta ou o serviço e o botão pede o cofre. Ao receber "Abrir login seguro: <site>" ou "Abrir cofre: chave <host>", use o cofre ou o request_takeover do OpenBot.
+        - Código de verificação (SMS, e-mail, app) pode ir no cartão `codigo`.
+        - Compra: o cartão `confirmar-compra` mostra itens, total e o cartão de pagamento; só cobre depois do toque do Nan.
+
+        ## OpenUI Lang (resumo)
+        - Cada linha: `nome = Expressao`. A primeira linha é `root = Card([...])`. Argumentos são posicionais. Todo nome precisa ser usado a partir do root.
+        - CardHeader(titulo, subtitulo?) · TextContent(texto, "small") · Table([Col(rotulo, lista)]) · Callout(variante, titulo, descricao)
+        - Form(nome, Buttons, [FormControl(rotulo, campo)]) · Input(nome, placeholder, tipo, {required: true}) · TextArea(nome, placeholder, linhas)
+        - RadioGroup(nome, [RadioItem(rotulo, descricao, valor)], valorPadrao) · CheckBoxGroup(nome, [CheckBoxItem(rotulo, descricao, nome, marcado?)])
+        - Buttons([Button(rotulo, Action([@ToAssistant("texto")]), "primary"|"secondary")], "row"|"column") · @OpenUrl("https://...") abre link
+        - FollowUpBlock([FollowUpItem("texto")]) pra sugestões de próximo passo no fim.
+        - Gráficos: BarChart(rotulos, [Series(nome, valores)]), LineChart, PieChart(rotulos, valores).
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/montar.py
+        #!/usr/bin/env python3
+        """Monta a página HTML de um cartão OpenUI no estilo Hark.
+        Uso: python3 montar.py cartao.oui [saida.html]   (sem saída: imprime o HTML)
+        Depois passe o HTML inteiro para openbot.html_render (confira antes com html_preview)."""
+        import json, os, sys
+        D = os.path.dirname(os.path.abspath(__file__))
+        CDN = "https://cdn.jsdelivr.net/npm/@openuidev/browser-bundle@latest/dist"
+        css = open(os.path.join(D, "hark.css")).read()
+        codes = [open(f).read() for f in sys.argv[1:2]]
+        html = f'''<!DOCTYPE html><html class="dark" data-theme="dark"><head><meta charset="utf-8">
+        <link rel="stylesheet" href="{CDN}/openui-styles.css"><style>{css}</style></head><body><div id="r0"></div>
+        <script>
+        var C={json.dumps(codes, ensure_ascii=False)};
+        function act(e){{var t=e.humanFriendlyMessage||(e.params&&e.params.message)||"";
+        if(e.type==="open_url"&&e.params){{window.open(e.params.url);return}}
+        if(e.formState&&Object.keys(e.formState).length){{t=(t?t+"\\n":"")+JSON.stringify(e.formState)}}
+        if(t&&window.openbotPage)window.openbotPage.sendMessage(t)}}
+        var s=document.createElement("script");s.src="{CDN}/openui-bundle.min.js";
+        s.onload=function(){{var O=window.__OpenUI;O.createRoot(document.getElementById("r0")).render(O.React.createElement(O.Renderer,{{response:C[0],library:O.openuiChatLibrary,isStreaming:false,onAction:act}}))}};
+        document.head.appendChild(s);
+        </script></body></html>'''
+        if len(sys.argv) > 2: open(sys.argv[2], "w").write(html)
+        else: sys.stdout.write(html)
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/hark.css
+        :root{color-scheme:dark;
+        --h-fg:var(--foreground,#f2f2f2);--h-mut:var(--muted-foreground,#9a9a9a);--h-card:var(--card,#232323);--h-bd:var(--border,rgba(255,255,255,.08));--h-acc:var(--accent,#2f2f2f);
+        --h-font:var(--font-sans,-apple-system,"SF Pro Text",Inter,system-ui,sans-serif);
+        --openui-font-body:var(--h-font);--openui-font-heading:var(--h-font);--openui-font-label:var(--h-font);--openui-font-numbers:var(--h-font);
+        --openui-text-neutral-primary:var(--h-fg);--openui-text-neutral-secondary:var(--h-mut);--openui-border-default:var(--h-bd);
+        --openui-foreground:var(--h-card);--openui-background:transparent;--openui-sunk:transparent}
+        html,body{background:transparent;margin:0}body{padding:2px;font-family:var(--h-font);color:var(--h-fg)}
+        .openui-card{background:var(--h-card)!important;border:1px solid var(--h-bd);border-radius:18px;padding:16px 16px 6px!important;gap:10px!important;width:100%!important}
+        .openui-card *{font-family:var(--h-font)!important;letter-spacing:0!important}
+        .openui-card h1,.openui-card h2,.openui-card h3,.openui-card [class*="header"] [class*="title"]{font-size:17px!important;font-weight:600!important;color:var(--h-fg)!important}
+        .openui-table-container{border:0!important;border-radius:0!important;background:transparent!important}
+        .openui-table-head-label{font-size:13px!important;font-weight:500!important;color:var(--h-mut)!important;text-transform:none!important}
+        .openui-table-cell{font-size:15px!important;padding:10px 0!important;color:var(--h-fg)!important;background:transparent!important}
+        .openui-table-row{background:transparent!important;border-bottom:1px solid var(--h-bd)!important}
+        .openui-table-row:last-child{border-bottom:0!important}
+        .openui-text-content{font-size:14px!important;line-height:1.45!important;color:var(--h-mut)!important}
+        .openui-follow-up-block{margin-top:2px}
+        .openui-follow-up-block__header{display:none!important}
+        .openui-follow-up-item{border-bottom:0!important;border-top:1px solid var(--h-bd)!important;padding:12px 0!important;font-size:15px!important;font-weight:500!important}
+        .openui-follow-up-item:hover{color:var(--h-mut)!important}
+        .openui-table-head,.openui-table-head-content{padding-left:0!important;padding-right:0!important;background:transparent!important}
+        .openui-table-cell{padding-right:10px!important}
+        .openui-card>:first-child,.openui-card>:first-child *{font-size:17px!important;font-weight:650!important;color:var(--h-fg)!important}
+        .openui-text-content,.openui-text-content *{color:var(--h-mut)!important}
+        /* cabeçalho */
+        .openui-card>.openui-header .openui-header-bottom{font-size:14px!important;font-weight:400!important;color:var(--h-mut)!important}
+        .openui-card>:first-child .openui-header-bottom{margin-top:2px}
+        /* opções = linhas com borda fina, estilo Hark */
+        .openui-radio-group,.openui-checkbox-group{display:flex!important;flex-direction:column!important;gap:8px!important;background:transparent!important;padding:0!important}
+        .openui-radio-item-container,.openui-checkbox-item-container{border:1px solid var(--h-bd)!important;border-radius:14px!important;padding:12px 14px!important;background:transparent!important;cursor:pointer}
+        .openui-radio-item-container:has([data-state=checked]),.openui-checkbox-item-container:has([data-state=checked]){border-color:var(--h-fg)!important}
+        .openui-radio-item-label,.openui-checkbox-item-label{font-size:15px!important;font-weight:500!important;color:var(--h-fg)!important}
+        .openui-radio-item-description,.openui-checkbox-item-description{font-size:13px!important;color:var(--h-mut)!important;margin-top:2px!important;padding:0!important}
+        .openui-radio-item-content,.openui-checkbox-item-content{gap:0!important}
+        .openui-checkbox-item-root{background:transparent!important;border:1.5px solid var(--h-mut)!important;border-radius:6px!important}
+        .openui-checkbox-item-root[data-state=checked]{background:var(--h-fg)!important;border-color:var(--h-fg)!important}
+        .openui-checkbox-item-indicator,.openui-checkbox-item-indicator svg{color:var(--h-card)!important;stroke:var(--h-card)!important;background:transparent!important}
+        /* campos */
+        .openui-input,.openui-card textarea{background:transparent!important;border:1px solid var(--h-bd)!important;border-radius:12px!important;font-size:15px!important;color:var(--h-fg)!important}
+        .openui-label{font-size:13px!important;font-weight:500!important;color:var(--h-mut)!important}
+        .openui-label:empty{display:none!important}
+        /* botões */
+        .openui-buttons{gap:8px!important;width:100%;padding-bottom:10px}
+        .openui-buttons-horizontal>*{flex:1}
+        .openui-button-base{border-radius:999px!important;height:44px!important;font-size:15px!important;font-weight:600!important;width:100%;justify-content:center}
+        .openui-button-base-primary{background:var(--h-fg)!important;color:var(--h-card)!important;border:0!important}
+        .openui-button-base-secondary{background:transparent!important;color:var(--h-fg)!important;border:1px solid var(--h-bd)!important}
+
+        .openui-radio-item-container,.openui-checkbox-item-container{box-sizing:border-box!important;width:100%!important;display:flex!important;align-items:center!important;gap:12px!important}
+        .openui-radio-item-root{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important}
+        .openui-radio-item-container{position:relative!important}
+        .openui-radio-item-container:has([data-state=checked]){background:var(--h-acc)!important}
+        .openui-form-control{gap:6px!important}
+        .openui-buttons-vertical{flex-direction:column!important}
+        .openui-buttons-vertical>*{width:100%}
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/chave-api.oui
+        root = Card([header, info, aviso, btns])
+        header = CardHeader("Chave da API do Groq", "Pra ligar o modelo no 9Router")
+        info = Table([Col("Serviço", servicos), Col("Endereço", hosts)])
+        servicos = ["Groq"]
+        hosts = ["api.groq.com"]
+        aviso = TextContent("A chave vai cifrada pro cofre e só sai na hora da chamada. Não cola ela aqui no chat.", "small")
+        btns = Buttons([Button("Salvar chave com segurança", Action([@ToAssistant("Abrir cofre: chave api.groq.com")]), "primary"), Button("Onde pego a chave?", Action([@ToAssistant("Onde pego a chave do Groq?")]), "secondary")], "column")
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/codigo.oui
+        root = Card([header, form])
+        header = CardHeader("Código de verificação", "Mandado por SMS pro final 0333")
+        form = Form("codigo", btns, [campo])
+        campo = FormControl("Código", Input("codigo", "000000", "text", {required: true}))
+        btns = Buttons([Button("Confirmar", Action([@ToAssistant("Código de verificação")]), "primary")])
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/confirmar-compra.oui
+        root = Card([header, tbl, comment, btns])
+        header = CardHeader("Padaria Real · Jardim da Conquista", "Entrega em casa, 25 a 40 min")
+        tbl = Table([Col("Item", itens), Col("Valor", valores)])
+        itens = ["Pão de fermentação natural", "Café torra média 500 g", "Taxa de entrega", "Total"]
+        valores = ["R$$ 18,00", "R$$ 42,90", "R$$ 6,99", "R$$ 67,89"]
+        comment = TextContent("Mastercard final 3414. Cobra só quando você confirmar.", "small")
+        btns = Buttons([Button("Fazer pedido", Action([@ToAssistant("Confirmo o pedido")]), "primary")])
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/escolha-unica.oui
+        root = Card([header, form])
+        header = CardHeader("Qual horário fica melhor?")
+        form = Form("horario", btns, [ctl])
+        ctl = FormControl("", RadioGroup("horario", [RadioItem("19:00", "Mesa no salão", "19:00"), RadioItem("20:30", "Balcão, perto da cozinha", "20:30"), RadioItem("21:15", "Última mesa da noite", "21:15")], "19:00"))
+        btns = Buttons([Button("Enviar", Action([@ToAssistant("Escolhi o horário")]), "primary")])
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/login-seguro.oui
+        root = Card([header, conta, aviso, btns])
+        header = CardHeader("Entrar no Mercado Livre", "Login seguro do OpenBot")
+        conta = Table([Col("Conta", contas), Col("Senha", senhas)])
+        contas = ["utilidades.luar@gmail.com"]
+        senhas = ["Salva no cofre"]
+        aviso = TextContent("A senha vai direto pro cofre. Eu nunca vejo nem guardo no chat.", "small")
+        btns = Buttons([Button("Entrar com segurança", Action([@ToAssistant("Abrir login seguro: mercadolivre.com.br")]), "primary"), Button("Outra conta", Action([@ToAssistant("Usar outra conta no Mercado Livre")]), "secondary")], "column")
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/sim-ou-nao.oui
+        root = Card([header, txt, btns])
+        header = CardHeader("Posso aplicar na produção?")
+        txt = TextContent("A prévia passou nos testes. Leva uns 5 minutos e dá pra voltar com um comando.", "small")
+        btns = Buttons([Button("Pode aplicar", Action([@ToAssistant("Pode aplicar")]), "primary"), Button("Ainda não", Action([@ToAssistant("Ainda não")]), "secondary")], "row")
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/tabela.oui
+        root = Card([header, tbl, comment, followUps])
+        header = CardHeader("Modelos da equipe")
+        tbl = Table([Col("Agente", agentes), Col("Modelo", modelos), Col("Custo", custos)])
+        agentes = ["Chefe", "Operário 1", "Operário 2", "Nichados"]
+        modelos = ["Mercury 3", "DeepSeek V4.1 Flash", "Claude Haiku 5.5", "GPT-6.1 Sol"]
+        custos = ["$$0,20 / 1M", "$$0,15 / 1M", "Cota Claude", "Cota Codex"]
+        comment = TextContent("Eu iria de Mercury no chat: responde quase na hora e custa centavos.", "small")
+        followUps = FollowUpBlock([FollowUpItem("Aplica esses modelos"), FollowUpItem("Explica a escolha")])
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/texto-livre.oui
+        root = Card([header, form])
+        header = CardHeader("Pra quem vai o presente?")
+        form = Form("presente", btns, [nome, nota])
+        nome = FormControl("Nome", Input("nome", "Ex.: Ariane", "text", {required: true}))
+        nota = FormControl("Recado no cartão", TextArea("recado", "Opcional", 3))
+        btns = Buttons([Button("Enviar", Action([@ToAssistant("Dados do presente")]), "primary")])
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/.agents/skills/openui-hark/exemplos/varias-escolhas.oui
+        root = Card([header, form])
+        header = CardHeader("O que entra no pedido?", "Pode marcar mais de um")
+        form = Form("itens", btns, [ctl])
+        ctl = FormControl("", CheckBoxGroup("itens", [CheckBoxItem("Café", "Torra média, 500 g", "cafe", true), CheckBoxItem("Pão", "Fermentação natural", "pao"), CheckBoxItem("Frutas", "Da estação", "frutas")]))
+        btns = Buttons([Button("Enviar", Action([@ToAssistant("Escolhi os itens")]), "primary")])
+        FIM_HARK
         chown -R 1000:1000 /data/.agents /data/bin/regras-hark.sh 2>/dev/null || true
         for d in /data/OpenBot/Agents/*/; do [ -f "$${d}AGENTS.md" ] && chown 1000:1000 "$${d}AGENTS.md"; done
         cat <<'EOF' > /data/bin/decide
