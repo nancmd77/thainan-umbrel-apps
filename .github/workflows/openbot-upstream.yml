@@ -1,7 +1,10 @@
 name: OpenBot upstream (robô diário)
 
-# Detecta release nova em nightly-labs/openbot, reconstrói a imagem thainan-openbot
-# e só commita em main depois do build e do smoke test passarem.
+# Detecta release nova em nightly-labs/openbot e reconstrói a imagem thainan-openbot.
+# Antes de publicar nada, duas travas:
+#   1. os arquivos upstream que os patches dependem (thainan-openbot/upstream-pins.sha256) não mudaram;
+#   2. a imagem candidata (tag candidate-<run>) passa em thainan-openbot/smoke-custom.sh.
+# Só depois disso as tags finais recebem o mesmo digest (imagetools create, sem rebuild) e o commit vai para main.
 # O commit usa GITHUB_TOKEN, e o GitHub não dispara workflows com esse token, então
 # thainan-openbot.yml (push em image/**) NÃO roda de novo e o digest fixado continua válido.
 
@@ -41,6 +44,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 .github/scripts/openbot_upstream.py detect --root .
 
+      - name: Trava 1 - arquivos upstream remendados não mudaram
+        if: steps.detect.outputs.changed == 'true'
+        id: pins
+        env:
+          CURRENT: ${{ steps.detect.outputs.current }}
+          LATEST: ${{ steps.detect.outputs.latest }}
+        run: |
+          bash .github/scripts/check-upstream-pins.sh nightly-labs/openbot \
+            "$CURRENT" "$LATEST" thainan-openbot/upstream-pins.sha256 "$RUNNER_TEMP/pins-issue.md"
+
       - name: Aplicar nova versão nos arquivos (sem commit)
         if: steps.detect.outputs.changed == 'true'
         env:
@@ -68,7 +81,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push OpenBot image
+      - name: Build da imagem candidata (sem tag final)
         if: steps.detect.outputs.changed == 'true'
         id: docker_build
         uses: docker/build-push-action@v5
@@ -76,25 +89,26 @@ jobs:
           context: thainan-openbot/image
           file: thainan-openbot/image/Dockerfile
           push: true
-          tags: |
-            ghcr.io/nancmd77/thainan-openbot:${{ steps.revision.outputs.tag }}
-            ghcr.io/nancmd77/thainan-openbot:latest
+          tags: ghcr.io/nancmd77/thainan-openbot:candidate-${{ github.run_id }}
 
-      - name: Smoke test da imagem publicada
+      - name: Trava 2 - smoke das customizações na imagem candidata
         if: steps.detect.outputs.changed == 'true'
+        id: smoke
+        env:
+          DIGEST: ${{ steps.docker_build.outputs.digest }}
+        run: bash thainan-openbot/smoke-custom.sh "ghcr.io/nancmd77/thainan-openbot@$DIGEST"
+
+      - name: Publicar tags finais com o mesmo digest (sem rebuild)
+        if: steps.detect.outputs.changed == 'true'
+        id: publish
+        env:
+          DIGEST: ${{ steps.docker_build.outputs.digest }}
+          REV: ${{ steps.revision.outputs.tag }}
         run: |
-          IMAGE="ghcr.io/nancmd77/thainan-openbot@${{ steps.docker_build.outputs.digest }}"
-          docker run --rm --entrypoint /bin/bash "$IMAGE" -c '
-            set -e
-            test "$(id -u)" = 1000
-            test -x /opt/OpenBot/app/resources/hosting/openbot-container
-            test -x /usr/bin/tini
-            test -x /usr/local/bin/md
-            test -x /usr/local/bin/decide
-            command -v openbox xdotool scrot >/dev/null
-            sudo -n true
-            test -z "${NO_AT_BRIDGE+x}"
-          '
+          IMG=ghcr.io/nancmd77/thainan-openbot
+          docker buildx imagetools create -t "$IMG:$REV" -t "$IMG:latest" "$IMG@$DIGEST"
+          FINAL=$(docker buildx imagetools inspect "$IMG:$REV" --format '{{.Manifest.Digest}}')
+          test "$FINAL" = "$DIGEST" || { echo "digest final $FINAL difere do candidato $DIGEST"; exit 1; }
 
       - name: Fixar digest no docker-compose
         if: steps.detect.outputs.changed == 'true'
@@ -126,6 +140,15 @@ jobs:
           NEW_VERSION: ${{ steps.detect.outputs.new_version }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "OpenBot ${NEW_VERSION:-upstream}: atualização automática falhou" \
-            --body "A atualização automática do thainan-openbot falhou. O push é atômico (main + tag): se falhou, nenhum dos dois mudou. Veja a run e reexecute com workflow_dispatch. Log: $RUN_URL"
+          BODY="$RUNNER_TEMP/issue-body.md"
+          {
+            echo "A atualização automática do thainan-openbot falhou; nada foi publicado em main nem em tag."
+            echo "Imagem candidata: ghcr.io/nancmd77/thainan-openbot:candidate-${GITHUB_RUN_ID} (não é tag final)."
+            echo "Se 'Publicar tags finais' rodou, a tag final existe no GHCR, mas main e a tag git não mudaram."
+            echo
+            echo "Log: $RUN_URL"
+            if [ -s "$RUNNER_TEMP/pins-issue.md" ]; then echo; cat "$RUNNER_TEMP/pins-issue.md"; fi
+          } > "$BODY"
+          TITULO="OpenBot ${NEW_VERSION:-upstream}: atualização automática falhou"
+          if [ -s "$RUNNER_TEMP/pins-issue.md" ]; then TITULO="OpenBot ${NEW_VERSION:-upstream}: arquivos upstream remendados mudaram"; fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITULO" --body-file "$BODY"
