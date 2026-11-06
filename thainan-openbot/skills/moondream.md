@@ -2,10 +2,12 @@
 
 Ferramenta CLI de mira visual (`md`) integrada com Moondream Cloud para operacao de computer use no display `:1`.
 
-## Regra de Precedencia
-- **AT-SPI primeiro**: Sempre verifique a arvore de acessibilidade antes de acionar visao computacional.
-- **Moondream fallback**: Acione `md point` quando a janela nao expuser objetos acessiveis ou falhar a localizacao semantica.
-
+## Fluxo de Precedencia CUA
+1. **AT-SPI primeiro**: Inspecione a arvore de acessibilidade da janela.
+2. **decide escolhe**: Escolha o proximo passo com a CLI `decide`.
+3. **Clique pela arvore**: Interaja diretamente com os nos acessiveis identificados na arvore.
+4. **md point como mira visual**: Quando o elemento nao tiver rotulo acessivel, estiver em canvas/jogos/bitmaps ou a localizacao semantica falhar, acione `md point`.
+5. **Modelo grande se exit 3**: Se `decide` retornar exit code 3 (`ESCALAR`), delegue a decisao ao modelo de raciocinio grande.
 ## Comandos Principais
 ```bash
 # Localizar e clicar no botao

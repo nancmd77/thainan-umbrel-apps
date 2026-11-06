@@ -1,14 +1,37 @@
 # Diretrizes para Agentes OpenBot (Computer Use)
 
-## Ordem de Acoes para Interacao com a Interface (Display :1)
+## Fluxo de Decisao e Acoes do Agente (Display :1)
 
-1. **AT-SPI primeiro (Acessibilidade)**:
-   - Se o elemento existir na arvore de acessibilidade do sistema ou do aplicativo, utilize AT-SPI diretamente.
-   - A leitura semantica via AT-SPI e a mais rapida, deterministica e nao depende de inferencia visual.
+O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
 
-2. **Moondream Cloud (`md`) como fallback**:
-   - Utilize a ferramenta de linha de comando `md` quando a aplicacao nao tiver suporte a acessibilidade (ex.: elementos renderizados em canvas HTML5, jogos, janelas legadas, bibliotecas graficas sem bridge AT-SPI ou quando a busca semantica falhar).
-   - O comando `md point` captura a tela do display `:1`, redimensiona para <=1280px em JPEG q85, envia para Moondream Cloud e converte as coordenadas para pixels reais da tela.
+1. **AT-SPI (Leitura de Estado)**:
+   - Inspecione a arvore de acessibilidade da janela ativa via AT-SPI. A leitura semantica e imediata, confiavel e sem custo de inferencia.
+
+2. **decide escolhe (Decisao por Passo)**:
+   - Execute a CLI `decide --objetivo '<meta>' --estado '<lista AT-SPI>' --opcao id='descricao' ...`.
+   - O modelo leve calibrado (Liquid AI `d1-ultra` com reserva Jev `~typesafe/jev-latest` via 9Router) seleciona a melhor opcao com confianca e custo minimo.
+
+3. **Clique pela arvore**:
+   - Apos a escolha do `decide`, clique diretamente no no da arvore AT-SPI correspondente ao elemento.
+
+4. **md point se nao houver rotulo (Mira Visual)**:
+   - Se o elemento nao possuir rotulo acessivel, estiver em canvas WebGL, bitmaps, jogos ou a arvore falhar, utilize `md point '<alvo>' --click` para mira visual com glide e pulso Hark.
+
+5. **Modelo grande se exit 3 (Escalonamento)**:
+   - Se o `decide` retornar código de saída `3` e imprimir `ESCALAR` (confianca inferior ao `--limiar`, padrao 0.35), o agente escala o passo para o modelo grande de raciocinio com contexto completo.
+
+## Ferramenta CLI `decide`
+
+- **Decisao rapida entre opcoes**:
+  `decide --objetivo '<meta>' --estado '<estado/arvore>' --opcao id='descricao' (repetivel)`
+- **Com imagem de apoio opcional**:
+  `decide --objetivo '<meta>' --estado '<estado>' --opcao id='descricao' --imagem arq.png`
+- **Ajuste de limiar e saida JSON**:
+  `decide --objetivo '<meta>' --estado '<estado>' --opcao id='descricao' --limiar 0.40 --json`
+- **Chaves de API**:
+  - Liquid AI: `LIQUID_API_KEY` ou `/config/liquid.key` (perm 600).
+  - 9Router (Jev reserva): `NINEROUTER_API_KEY` ou `/config/9router.key` (perm 600).
+  - Configuraveis no painel web na porta `8592` (rotas `/config` e `/moondream`).
 
 ## Ferramenta CLI `md`
 
@@ -27,4 +50,4 @@
   `md ask '<pergunta>'`
 
 Display padrao: `:1` (pode ser sobrescrito com `--display :0` ou variavel `DISPLAY`).
-Chave da API: configurada via variavel de ambiente `MOONDREAM_API_KEY` ou arquivo `/config/moondream.key` (pelo painel web na porta 8593 ou `/moondream`).
+Chave da API Moondream: `MOONDREAM_API_KEY` ou arquivo `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`).

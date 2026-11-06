@@ -265,6 +265,68 @@ class TestServer(unittest.TestCase):
             finally:
                 server.MOONDREAM_KEY_PATH = orig_path
 
+    def test_config_page_and_liquid_9router_keys_flow(self):
+        with tempfile.TemporaryDirectory() as td:
+            liq_file = os.path.join(td, "liquid.key")
+            nine_file = os.path.join(td, "9router.key")
+            orig_liq = server.LIQUID_KEY_PATH
+            orig_nine = server.NINEROUTER_KEY_PATH
+            server.LIQUID_KEY_PATH = liq_file
+            server.NINEROUTER_KEY_PATH = nine_file
+            try:
+                # 1. Rota /config exibe pagina com badges de chave ausente
+                req_get = urllib.request.Request(f"{self.base_url}/config")
+                with urllib.request.urlopen(req_get) as resp:
+                    self.assertEqual(resp.status, 200)
+                    html_body = resp.read().decode("utf-8")
+                    self.assertIn("Liquid AI", html_body)
+                    self.assertIn("9Router", html_body)
+
+                # 2. Salva chave Liquid AI
+                sample_liq = "sk-liquid-test-7788"
+                form_liq = urllib.parse.urlencode({"key": sample_liq}).encode("utf-8")
+                req_liq = urllib.request.Request(
+                    f"{self.base_url}/liquid/save",
+                    data=form_liq,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_liq) as resp:
+                    self.assertEqual(resp.status, 200)
+                    body = resp.read().decode("utf-8")
+                    self.assertIn("termina em 7788", body)
+                    self.assertNotIn(sample_liq, body)
+
+                self.assertTrue(os.path.isfile(liq_file))
+                mode_liq = os.stat(liq_file).st_mode & 0o777
+                self.assertEqual(mode_liq, 0o600)
+                with open(liq_file, "r") as f:
+                    self.assertEqual(f.read().strip(), sample_liq)
+
+                # 3. Salva chave 9Router
+                sample_nine = "sk-9router-test-5544"
+                form_nine = urllib.parse.urlencode({"key": sample_nine}).encode("utf-8")
+                req_nine = urllib.request.Request(
+                    f"{self.base_url}/9router/save",
+                    data=form_nine,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_nine) as resp:
+                    self.assertEqual(resp.status, 200)
+                    body = resp.read().decode("utf-8")
+                    self.assertIn("termina em 5544", body)
+                    self.assertNotIn(sample_nine, body)
+
+                self.assertTrue(os.path.isfile(nine_file))
+                mode_nine = os.stat(nine_file).st_mode & 0o777
+                self.assertEqual(mode_nine, 0o600)
+                with open(nine_file, "r") as f:
+                    self.assertEqual(f.read().strip(), sample_nine)
+            finally:
+                server.LIQUID_KEY_PATH = orig_liq
+                server.NINEROUTER_KEY_PATH = orig_nine
+
 
 if __name__ == "__main__":
     unittest.main()

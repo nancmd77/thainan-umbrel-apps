@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""
+CLI de Decisao (decide) por passo para agentes de Computer Use no OpenBot.
+API Principal: Liquid AI SystemOne (d1-ultra).
+Reserva: Jev (~typesafe/jev-latest) via 9Router.
+"""
+
+import argparse
+import base64
+import io
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+LIQUID_API_URL = os.environ.get("LIQUID_API_URL", "https://api.liquid.ai/decisions/v1/systemone")
+NINEROUTER_API_URL = os.environ.get("NINEROUTER_API_URL", "http://192.168.18.171:20128/v1/systemone")
+DEFAULT_LIQUID_MODEL = "d1-ultra"
+DEFAULT_JEV_MODEL = "~typesafe/jev-latest"
+DEFAULT_THRESHOLD = 0.35
+REQUEST_TIMEOUT = 5.0
+
+
+def get_liquid_key():
+    """Busca a chave Liquid AI na variavel de ambiente ou em arquivos restritos."""
+    env_key = os.environ.get("LIQUID_API_KEY", "").strip()
+    if env_key:
+        return env_key
+
+    candidate_files = []
+    app_data = os.environ.get("APP_DATA_DIR")
+    if app_data:
+        candidate_files.append(os.path.join(app_data, "config", "liquid.key"))
+
+    candidate_files.extend([
+        "/config/liquid.key",
+        "/data/config/liquid.key",
+        os.path.expanduser("~/.config/liquid/liquid.key"),
+        os.path.expanduser("~/.config/liquid.key"),
+    ])
+
+    for path in candidate_files:
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    key = f.read().strip()
+                    if key:
+                        return key
+            except Exception:
+                continue
+
+    return None
+
+
+def get_9router_key():
+    """Busca a chave 9Router/Jev na variavel de ambiente ou em arquivos restritos."""
+    for env_var in ["NINEROUTER_API_KEY", "OPENBOT_9ROUTER_KEY"]:
+        env_key = os.environ.get(env_var, "").strip()
+        if env_key:
+            return env_key
+
+    candidate_files = []
+    app_data = os.environ.get("APP_DATA_DIR")
+    if app_data:
+        candidate_files.append(os.path.join(app_data, "config", "9router.key"))
+
+    candidate_files.extend([
+        "/config/9router.key",
+        "/data/config/9router.key",
+        "/data/9router_key",
+        os.path.expanduser("~/.config/9router/9router.key"),
+        os.path.expanduser("~/.config/9router.key"),
+    ])
+
+    for path in candidate_files:
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    key = f.read().strip()
+                    if key:
+                        return key
+            except Exception:
+                continue
+
+    return None
+
+
+def prepare_image(image_path):
+    """Carrega a imagem, redimensiona se necessario e converte para data URI."""
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"Arquivo de imagem nao encontrado: {image_path}")
+
+    try:
+        from PIL import Image
+        img = Image.open(image_path)
+        orig_w, orig_h = img.size
+        if orig_w > 1280:
+            target_w = 1280
+            target_h = max(1, int(round(orig_h * (1280.0 / orig_w))))
+            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=85)
+        raw_bytes = buf.getvalue()
+        mime = "image/jpeg"
+    except Exception:
+        with open(image_path, "rb") as f:
+            raw_bytes = f.read()
+        mime = "image/png"
+        lower = image_path.lower()
+        if lower.endswith((".jpg", ".jpeg")):
+            mime = "image/jpeg"
+        elif lower.endswith(".webp"):
+            mime = "image/webp"
+
+    b64_data = base64.b64encode(raw_bytes).decode("ascii")
+    return f"data:{mime};base64,{b64_data}"
+
+
+def call_systemone_api(url, payload, api_key, timeout=REQUEST_TIMEOUT):
+    """Envia POST com autenticacao Bearer para o endpoint SystemOne."""
+    data_bytes = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data_bytes,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "thainan-openbot-decide/0.61.0-r9",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+        return json.loads(body)
+
+
+def parse_options(options_list):
+    """Analisa opcoes repetiveis no formato id='descricao' ou id=descricao."""
+    criteria = {}
+    for item in options_list:
+        if "=" not in item:
+            sys.stderr.write(f"erro: opcao invalida '{item}', esperado formato id='descricao'\n")
+            sys.exit(1)
+        k, v = item.split("=", 1)
+        k = k.strip().strip("'\"")
+        v = v.strip().strip("'\"")
+        if not k:
+            sys.stderr.write(f"erro: id da opcao vazio em '{item}'\n")
+            sys.exit(1)
+        criteria[k] = v
+
+    if not criteria:
+        sys.stderr.write("erro: nenhuma opcao fornecida\n")
+        sys.exit(1)
+
+    return criteria
+
+
+def extract_decision(resp):
+    """Extrai escolha, confianca, probabilidades e custo da resposta SystemOne."""
+    answers = resp.get("answers", {})
+    ans = answers.get("decisao")
+    if not ans and answers:
+        ans = next(iter(answers.values()))
+
+    if not ans:
+        sys.stderr.write("erro: resposta da API sem bloco answers valido\n")
+        sys.exit(1)
+
+    choice = ans.get("choice") or ans.get("top") or ans.get("answer") or ""
+    probabilities = ans.get("probabilities", {})
+    confidence_raw = ans.get("confidence")
+
+    if confidence_raw is None:
+        if choice and choice in probabilities:
+            confidence = float(probabilities[choice])
+        elif probabilities:
+            max_k = max(probabilities, key=lambda k: float(probabilities[k]))
+            confidence = float(probabilities[max_k])
+            if not choice:
+                choice = max_k
+        else:
+            confidence = 1.0 if choice else 0.0
+    else:
+        confidence = float(confidence_raw)
+
+    usage = resp.get("usage", {})
+    cost = usage.get("cost")
+    if cost is None:
+        cost = 0.0
+
+    return choice, confidence, probabilities, cost
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="decide",
+        description="Modelo de decisao por passo para agentes de computer use no OpenBot",
+    )
+    parser.add_argument("--objetivo", required=True, help="Meta ou instrucao da decisao")
+    parser.add_argument("--estado", required=True, help="Texto descritivo do estado atual (ex: arvore AT-SPI)")
+    parser.add_argument("--opcao", action="append", required=True, help="Opcao no formato id='descricao' (repetivel)")
+    parser.add_argument("--imagem", default=None, help="Arquivo de imagem opcional")
+    parser.add_argument("--limiar", type=float, default=DEFAULT_THRESHOLD, help="Limiar de confianca minima (padrao 0.35)")
+    parser.add_argument("--json", action="store_true", help="Saida estruturada em formato JSON")
+    parser.add_argument("--liquid-url", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--ninerouter-url", default=None, help=argparse.SUPPRESS)
+
+    args = parser.parse_args(argv)
+
+    criteria = parse_options(args.opcao)
+
+    image_data_uri = None
+    if args.imagem:
+        try:
+            image_data_uri = prepare_image(args.imagem)
+        except Exception as exc:
+            sys.stderr.write(f"erro ao processar imagem: {exc}\n")
+            sys.exit(1)
+
+    liquid_key = get_liquid_key()
+    jev_key = get_9router_key()
+
+    if not liquid_key and not jev_key:
+        sys.stderr.write("erro: chave ausente\n")
+        sys.exit(1)
+
+    liquid_url = args.liquid_url or LIQUID_API_URL
+    ninerouter_url = args.ninerouter_url or NINEROUTER_API_URL
+
+    base_question = {
+        "type": "choice",
+        "instructions": args.objetivo,
+        "criteria": criteria,
+    }
+
+    resp = None
+    used_provider = None
+
+    # 1. Tentativa com Liquid AI (SystemOne)
+    if liquid_key:
+        payload_liquid = {
+            "model": DEFAULT_LIQUID_MODEL,
+            "state": args.estado,
+            "context": args.estado,
+            "questions": {
+                "decisao": base_question,
+            },
+        }
+        if image_data_uri:
+            payload_liquid["images"] = [image_data_uri]
+
+        try:
+            resp = call_systemone_api(liquid_url, payload_liquid, liquid_key, timeout=REQUEST_TIMEOUT)
+            used_provider = "liquid"
+        except Exception:
+            resp = None
+
+    # 2. Fallback para Jev via 9Router se Liquid falhou ou nao tinha chave
+    if resp is None:
+        if not jev_key:
+            sys.stderr.write("erro: Liquid AI falhou e chave 9Router/Jev nao esta configurada\n")
+            sys.exit(1)
+
+        payload_jev = {
+            "model": DEFAULT_JEV_MODEL,
+            "state": args.estado,
+            "context": args.estado,
+            "questions": {
+                "decisao": base_question,
+            },
+        }
+        if image_data_uri:
+            payload_jev["images"] = [image_data_uri]
+
+        try:
+            resp = call_systemone_api(ninerouter_url, payload_jev, jev_key, timeout=REQUEST_TIMEOUT)
+            used_provider = "jev"
+        except Exception as exc:
+            sys.stderr.write(f"erro: falha ao consultar Liquid AI e Jev 9Router: {exc}\n")
+            sys.exit(1)
+
+    choice, confidence, probabilities, cost = extract_decision(resp)
+    is_escalate = confidence < args.limiar
+
+    if args.json:
+        out_dict = {
+            "opcao": choice,
+            "confianca": confidence,
+            "probabilidades": probabilities,
+            "custo": cost,
+            "provedor": used_provider,
+        }
+        if is_escalate:
+            out_dict["status"] = "ESCALAR"
+            out_dict["escalar"] = True
+            print(json.dumps(out_dict, ensure_ascii=False))
+            sys.exit(3)
+        else:
+            print(json.dumps(out_dict, ensure_ascii=False))
+            sys.exit(0)
+    else:
+        if is_escalate:
+            print("ESCALAR")
+            print(f"opcao: {choice}")
+            print(f"confianca: {confidence:.4f}")
+            print(f"probabilidades: {json.dumps(probabilities, ensure_ascii=False)}")
+            print(f"custo: {cost}")
+            sys.exit(3)
+        else:
+            print(f"opcao: {choice}")
+            print(f"confianca: {confidence:.4f}")
+            print(f"probabilidades: {json.dumps(probabilities, ensure_ascii=False)}")
+            print(f"custo: {cost}")
+            sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
