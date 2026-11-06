@@ -952,43 +952,95 @@ services:
 
 
         # ---------------- páginas ----------------
-        CSS = """
+        TEMAS = {
+            'claro': {
+                'cor-fundo': '#f4f4f5', 'cor-superficie': '#ffffff', 'cor-texto': '#18181b', 'cor-texto-2': '#3f3f46',
+                'cor-ajuda': '#52525b', 'cor-link': '#1d4ed8', 'cor-borda-ui': '#71717a', 'cor-borda-forte': '#18181b',
+                'cor-divisor': '#e4e4e7', 'cor-primaria-fundo': '#18181b', 'cor-primaria-texto': '#ffffff',
+                'cor-secundaria-fundo': '#ffffff', 'cor-secundaria-texto': '#18181b', 'cor-perigo-fundo': '#b91c1c',
+                'cor-perigo-texto': '#ffffff', 'cor-perfil-ativo-fundo': '#18181b', 'cor-perfil-ativo-texto': '#ffffff',
+                'cor-pre-fundo': '#f4f4f5', 'cor-aviso-fundo': '#fffbeb', 'cor-aviso-borda': '#b45309',
+                'cor-ok-fundo': '#f0fdf4', 'cor-ok-borda': '#15803d', 'cor-erro-fundo': '#fef2f2', 'cor-erro-borda': '#b91c1c',
+            },
+            'escuro': {
+                'cor-fundo': '#09090b', 'cor-superficie': '#18181b', 'cor-texto': '#fafafa', 'cor-texto-2': '#d4d4d8',
+                'cor-ajuda': '#a1a1aa', 'cor-link': '#93c5fd', 'cor-borda-ui': '#a1a1aa', 'cor-borda-forte': '#fafafa',
+                'cor-divisor': '#3f3f46', 'cor-primaria-fundo': '#fafafa', 'cor-primaria-texto': '#18181b',
+                'cor-secundaria-fundo': '#18181b', 'cor-secundaria-texto': '#fafafa', 'cor-perigo-fundo': '#dc2626',
+                'cor-perigo-texto': '#ffffff', 'cor-perfil-ativo-fundo': '#fafafa', 'cor-perfil-ativo-texto': '#18181b',
+                'cor-pre-fundo': '#27272a', 'cor-aviso-fundo': '#422006', 'cor-aviso-borda': '#fbbf24',
+                'cor-ok-fundo': '#052e16', 'cor-ok-borda': '#4ade80', 'cor-erro-fundo': '#450a0a', 'cor-erro-borda': '#f87171',
+            },
+        }
+
+
+        def _bloco_tokens(seletor, valores, esquema):
+            decl = ''.join('--%s:%s;' % (k, v) for k, v in valores.items())
+            return '%s{%scolor-scheme:%s}\n' % (seletor, decl, esquema)
+
+
+        # Tema claro em :root; escuro em html[data-tema=escuro], aplicado pelo script TEMA_JS antes da pintura.
+        TOKENS_CSS = _bloco_tokens(':root', TEMAS['claro'], 'light') + _bloco_tokens('html[data-tema=escuro]', TEMAS['escuro'], 'dark')
+
+        CSS = TOKENS_CSS + """
         *{box-sizing:border-box;border-radius:0}
-        body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:#f4f4f5;color:#18181b;font-size:16px;line-height:1.5}
+        body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:var(--cor-fundo);color:var(--cor-texto);font-size:16px;line-height:1.5}
         main{max-width:920px;margin:0 auto;padding:16px}
         h1{font-size:28px;margin:8px 0 4px}
         h2{font-size:20px;margin:0 0 12px}
         header p{margin:0 0 8px}
-        section{background:#fff;border:1px solid #d4d4d8;padding:16px;margin:0 0 16px}
+        section{background:var(--cor-superficie);border:1px solid var(--cor-borda-ui);padding:16px;margin:0 0 16px}
         table{width:100%;border-collapse:collapse;font-size:16px}
-        th,td{padding:8px;border-bottom:1px solid #e4e4e7;vertical-align:top;text-align:left;overflow-wrap:anywhere}
-        th[scope=row]{width:36%;font-weight:600;color:#3f3f46}
+        th,td{padding:8px;border-bottom:1px solid var(--cor-divisor);vertical-align:top;text-align:left;overflow-wrap:anywhere}
+        th[scope=row]{width:36%;font-weight:600;color:var(--cor-texto-2)}
+        .tema{background:var(--cor-superficie);border:1px solid var(--cor-borda-ui);padding:12px 16px;margin:0 0 16px}
+        .tema .campo{margin:0 0 4px}
         .perfis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
         .perfis form{margin:0}
-        .perfil{display:block;width:100%;min-height:44px;text-align:left;padding:12px;border:2px solid #18181b;background:#fff;color:#18181b;font:inherit;cursor:pointer}
+        .perfil{display:block;width:100%;min-height:44px;text-align:left;padding:12px;border:2px solid var(--cor-borda-forte);background:var(--cor-superficie);color:var(--cor-texto);font:inherit;cursor:pointer}
         .perfil span{display:block}
         .perfil .titulo{font-size:18px;font-weight:700;margin-bottom:4px}
-        .perfil[aria-current=true]{background:#18181b;color:#fff}
+        .perfil[aria-current=true]{background:var(--cor-perfil-ativo-fundo);color:var(--cor-perfil-ativo-texto)}
         .ctl{margin:0 0 16px}
-        fieldset{border:1px solid #d4d4d8;margin:0;padding:12px}
+        fieldset{border:1px solid var(--cor-borda-ui);margin:0;padding:12px}
         legend{font-weight:600;font-size:18px;padding:0 4px}
-        button{min-height:44px;padding:8px 16px;border:2px solid #18181b;background:#18181b;color:#fff;font:inherit;font-size:16px;cursor:pointer;margin-top:8px}
-        button.secundario{background:#fff;color:#18181b}
-        button.perigo{background:#b91c1c;border-color:#b91c1c}
+        button{min-height:44px;padding:8px 16px;border:2px solid var(--cor-primaria-fundo);background:var(--cor-primaria-fundo);color:var(--cor-primaria-texto);font:inherit;font-size:16px;cursor:pointer;margin-top:8px}
+        button.secundario{background:var(--cor-secundaria-fundo);color:var(--cor-secundaria-texto);border-color:var(--cor-borda-forte)}
+        button.perigo{background:var(--cor-perigo-fundo);border-color:var(--cor-perigo-fundo);color:var(--cor-perigo-texto)}
         label.op{display:inline-block;min-height:44px;padding:10px 16px 10px 0}
         input[type=range]{width:100%;min-height:44px;margin:4px 0}
-        select{min-height:44px;font:inherit;padding:6px;width:100%;max-width:420px}
+        select{min-height:44px;font:inherit;padding:6px;width:100%;max-width:420px;background:var(--cor-superficie);color:var(--cor-texto);border:1px solid var(--cor-borda-ui)}
         .campo{display:block;margin:12px 0 4px}
-        .ajuda{font-size:15px;color:#52525b;margin:4px 0 12px}
+        .ajuda{font-size:15px;color:var(--cor-ajuda);margin:4px 0 12px}
         .atual{margin:0 0 8px}
-        .aviso{border-left:4px solid #b45309;background:#fffbeb;padding:12px;margin:0 0 16px}
-        .aviso.ok{border-left-color:#15803d;background:#f0fdf4}
-        .aviso.erro{border-left-color:#b91c1c;background:#fef2f2}
-        pre{background:#f4f4f5;padding:12px;white-space:pre-wrap;font-size:15px;overflow-wrap:anywhere;margin:0}
-        a{color:#1d4ed8}
+        .aviso{border-left:4px solid var(--cor-aviso-borda);background:var(--cor-aviso-fundo);padding:12px;margin:0 0 16px}
+        .aviso.ok{border-left-color:var(--cor-ok-borda);background:var(--cor-ok-fundo)}
+        .aviso.erro{border-left-color:var(--cor-erro-borda);background:var(--cor-erro-fundo)}
+        pre{background:var(--cor-pre-fundo);color:var(--cor-texto);padding:12px;white-space:pre-wrap;font-size:15px;overflow-wrap:anywhere;margin:0}
+        a{color:var(--cor-link);text-decoration:underline}
         .acoes{margin:16px 0}
         @media (max-width:480px){h1{font-size:24px}th[scope=row]{width:100%;display:block;border-bottom:0;padding-bottom:0}td{display:block;padding-top:2px}}
         """
+
+
+        # Roda antes da pintura (script no head). Preferência em localStorage['economia-tema'] (claro|escuro|sistema).
+        TEMA_JS = """(function(){
+        var k='economia-tema',d=document.documentElement,m=null;
+        try{m=window.matchMedia('(prefers-color-scheme: dark)')}catch(x){}
+        function guardado(){try{var v=localStorage.getItem(k);return v==='claro'||v==='escuro'?v:'sistema'}catch(x){return 'sistema'}}
+        function aplicar(v){
+        var escuro=v==='escuro'||(v!=='claro'&&!!(m&&m.matches));
+        d.setAttribute('data-tema',escuro?'escuro':'claro');
+        }
+        aplicar(guardado());
+        document.addEventListener('DOMContentLoaded',function(){
+        var sel=document.getElementById('tema');
+        if(!sel)return;
+        sel.value=guardado();
+        sel.addEventListener('change',function(){try{localStorage.setItem(k,sel.value)}catch(x){}aplicar(sel.value)});
+        });
+        if(m){try{m.addEventListener('change',function(){if(guardado()==='sistema')aplicar('sistema')})}catch(x){}}
+        })();"""
 
 
         def e(x):
@@ -1008,8 +1060,8 @@ services:
 
         def frame(titulo, corpo):
             return ('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
-                    '<meta name="viewport" content="width=device-width, initial-scale=1">'
-                    '<title>%s · Economia</title><style>%s</style></head><body><main>%s</main></body></html>') % (e(titulo), CSS, corpo)
+                    '<meta name="viewport" content="width=device-width, initial-scale=1"><script>%s</script>'
+                    '<title>%s · Economia</title><style>%s</style></head><body><main>%s</main></body></html>') % (TEMA_JS, e(titulo), CSS, corpo)
 
 
         def linha(rotulo, valor):
@@ -1148,8 +1200,14 @@ services:
             return '<section aria-labelledby="h-reg"><h2 id="h-reg">Registro</h2><pre>%s</pre></section>' % e('\n'.join(LOG[-12:]))
 
 
+        def secao_tema():
+            return ('<div class="tema"><label class="campo" for="tema">Tema</label>'
+                    '<select id="tema" name="tema"><option value="claro">Claro</option>'
+                    '<option value="escuro">Escuro</option><option value="sistema" selected>Sistema</option></select></div>')
+
+
         def pagina(d, aviso=None):
-            corpo = ['<header><h1>Economia de energia</h1><p>Atualizado %s · <a href="/">Atualizar estado</a> · <a href="/status.json">Ver estado em JSON</a>%s</p></header>'
+            corpo = [secao_tema(), '<header><h1>Economia de energia</h1><p>Atualizado %s · <a href="/">Atualizar estado</a> · <a href="/status.json">Ver estado em JSON</a>%s</p></header>'
                      % (e(d['atualizado']), ' · <strong>Modo simulado: nada é alterado</strong>' if SIM else '')]
             if aviso:
                 corpo.append('<p class="aviso %s" role="status">%s</p>' % (aviso[0], e(aviso[1])))

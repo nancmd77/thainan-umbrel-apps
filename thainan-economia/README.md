@@ -23,6 +23,13 @@ Cada controle é um formulário com POST próprio: limites de CPU (PL1/PL2), tur
 - CPU: faixa de 5 W até o teto de fábrica (`constraint_N_max_power_uw`). PL2 não pode ficar abaixo de PL1. Token `fabrica` volta ao limite de fábrica.
 - RTX: remover a GPU do barramento pede confirmação se ela estiver em uso (o loop de 300 s adia e registra).
 
+## Tema
+
+- Seletor "Tema" no topo: Claro, Escuro ou Sistema (padrão). Sistema segue `prefers-color-scheme` do navegador e atualiza ao vivo.
+- Escolha salva só no navegador, em `localStorage` (`economia-tema`). Não passa pelo servidor nem muda o estado do Nonve.
+- Script de tema roda no `<head>` antes do CSS, então a página não pisca no tema errado.
+- Cores em `TEMAS` (`src/economia.py`), um par claro/escuro de tokens `--cor-*`. Testes conferem contraste WCAG AA (texto 4,5:1; bordas de controle 3:1).
+
 ## Estado
 
 - Salvo em `/data/estado.json` (volume `${APP_DATA_DIR}/data:/data`), escrita atômica.

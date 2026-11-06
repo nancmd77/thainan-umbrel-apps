@@ -300,6 +300,121 @@ class Paginas(unittest.TestCase):
                 self.assertEqual(len(re.findall(r'id="d-%s"' % ident, html)), 1)
 
 
+def _lum(hexa):
+    canais = [int(hexa.lstrip('#')[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in canais]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _razao(a, b):
+    claro, escuro = sorted([_lum(a), _lum(b)], reverse=True)
+    return (claro + 0.05) / (escuro + 0.05)
+
+
+NODE = shutil.which('node')
+
+HARNESS_TEMA = r"""
+const vm = require('vm');
+const cfg = JSON.parse(process.argv[1]);
+const attrs = {}, handlers = {}, store = Object.assign({}, cfg.store);
+const storage = cfg.quebra
+  ? {getItem() { throw new Error('bloqueado'); }, setItem() { throw new Error('bloqueado'); }}
+  : {getItem(k) { return k in store ? store[k] : null; }, setItem(k, v) { store[k] = String(v); }};
+const select = {value: '', listeners: {}, addEventListener(ev, fn) { this.listeners[ev] = fn; }};
+const mm = {matches: cfg.escuro, addEventListener() {}};
+const doc = {
+  documentElement: {setAttribute(k, v) { attrs[k] = v; }},
+  addEventListener(ev, fn) { handlers[ev] = fn; },
+  getElementById(id) { return id === 'tema' ? select : null; },
+};
+vm.runInNewContext(cfg.script, {document: doc, localStorage: storage, window: {matchMedia: () => mm}});
+const saida = {inicial: attrs['data-tema']};
+handlers.DOMContentLoaded();
+saida.selecionado = select.value;
+if (cfg.escolha) {
+  select.value = cfg.escolha;
+  select.listeners.change();
+  saida.apos_escolha = attrs['data-tema'];
+  saida.salvo = store['economia-tema'] === undefined ? null : store['economia-tema'];
+}
+console.log(JSON.stringify(saida));
+"""
+
+
+class Tema(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        E.criar_simulacao()
+        carregar()
+
+    def test_texto_sobre_fundo_atinge_aa_nos_dois_temas(self):
+        pares = [('cor-texto', 'cor-fundo'), ('cor-texto', 'cor-superficie'), ('cor-texto-2', 'cor-superficie'),
+                 ('cor-ajuda', 'cor-superficie'), ('cor-link', 'cor-superficie'), ('cor-link', 'cor-fundo'),
+                 ('cor-primaria-texto', 'cor-primaria-fundo'), ('cor-secundaria-texto', 'cor-secundaria-fundo'),
+                 ('cor-perigo-texto', 'cor-perigo-fundo'), ('cor-perfil-ativo-texto', 'cor-perfil-ativo-fundo'),
+                 ('cor-texto', 'cor-pre-fundo'), ('cor-texto', 'cor-aviso-fundo'),
+                 ('cor-texto', 'cor-ok-fundo'), ('cor-texto', 'cor-erro-fundo')]
+        for tema, valores in E.TEMAS.items():
+            for texto, fundo in pares:
+                with self.subTest(tema=tema, texto=texto, fundo=fundo):
+                    self.assertGreaterEqual(_razao(valores[texto], valores[fundo]), 4.5)
+
+    def test_bordas_de_controle_atingem_3_para_1_nos_dois_temas(self):
+        pares = [('cor-borda-ui', 'cor-superficie'), ('cor-borda-forte', 'cor-superficie'),
+                 ('cor-perigo-fundo', 'cor-superficie'), ('cor-aviso-borda', 'cor-aviso-fundo'),
+                 ('cor-ok-borda', 'cor-ok-fundo'), ('cor-erro-borda', 'cor-erro-fundo')]
+        for tema, valores in E.TEMAS.items():
+            for borda, fundo in pares:
+                with self.subTest(tema=tema, borda=borda, fundo=fundo):
+                    self.assertGreaterEqual(_razao(valores[borda], valores[fundo]), 3.0)
+
+    def test_os_dois_temas_definem_as_mesmas_variaveis(self):
+        self.assertEqual(set(E.TEMAS['claro']), set(E.TEMAS['escuro']))
+
+    def test_pagina_traz_seletor_de_tema_no_topo_com_tres_opcoes(self):
+        import re
+        html = E.pagina(E.status_data())
+        corpo = html[html.index('<main>'):]
+        self.assertTrue(corpo.startswith('<main><div class="tema">'), corpo[:80])
+        seletor = re.search(r'<select id="tema".*?</select>', html, re.S)
+        opcoes = re.findall(r'<option value="(\w+)"', seletor.group(0))
+        self.assertEqual(opcoes, ['claro', 'escuro', 'sistema'])
+        self.assertIn('<select id="tema" name="tema">', html)
+
+    def test_script_do_tema_fica_no_head_antes_do_css(self):
+        html = E.pagina(E.status_data())
+        self.assertLess(html.index('<script>'), html.index('<style>'))
+        self.assertLess(html.index('<style>'), html.index('<body>'))
+
+    @unittest.skipUnless(NODE, 'node não instalado')
+    def test_script_do_tema_resolve_preferencia_e_salva_escolha(self):
+        import re
+        casos = [
+            ('sem preferencia, sistema escuro', {'store': {}, 'escuro': True},
+             {'inicial': 'escuro', 'selecionado': 'sistema'}),
+            ('sem preferencia, sistema claro', {'store': {}, 'escuro': False},
+             {'inicial': 'claro', 'selecionado': 'sistema'}),
+            ('preferencia claro vence sistema escuro', {'store': {'economia-tema': 'claro'}, 'escuro': True},
+             {'inicial': 'claro', 'selecionado': 'claro'}),
+            ('valor invalido cai em sistema', {'store': {'economia-tema': 'xyz'}, 'escuro': True},
+             {'inicial': 'escuro', 'selecionado': 'sistema'}),
+            ('escolha escuro sobre sistema claro grava', {'store': {}, 'escuro': False, 'escolha': 'escuro'},
+             {'inicial': 'claro', 'selecionado': 'sistema', 'apos_escolha': 'escuro', 'salvo': 'escuro'}),
+            ('storage bloqueado nao quebra', {'store': {}, 'quebra': True, 'escuro': True, 'escolha': 'claro'},
+             {'inicial': 'escuro', 'selecionado': 'sistema', 'apos_escolha': 'claro', 'salvo': None}),
+        ]
+        script = re.search(r'<script>(.*?)</script>', E.pagina(E.status_data()), re.S).group(1)
+        for nome, cfg, esperado in casos:
+            with self.subTest(caso=nome):
+                cfg = dict(cfg, script=script)
+                r = subprocess.run([NODE, '-e', HARNESS_TEMA, json.dumps(cfg)], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                saida = json.loads(r.stdout)
+                for chave, valor in esperado.items():
+                    self.assertEqual(saida.get(chave), valor, saida)
+
+
+
 class Compose(unittest.TestCase):
     def test_compose_embutido_esta_sincronizado_com_o_codigo(self):
         r = subprocess.run([sys.executable, str(RAIZ / 'tools' / 'gerar_compose.py'), '--check'],
