@@ -30,7 +30,7 @@ services:
 
         Este arquivo é a fonte; tools/gerar_compose.py embute o código no docker-compose.yml.
         """
-        import os, re, glob, time, threading, subprocess, html, http.server, socketserver, json, urllib.parse, math, shutil
+        import os, re, glob, time, threading, subprocess, html, http.server, socketserver, json, urllib.parse, math, shutil, datetime
 
         SIM = os.environ.get('ECONOMIA_SIMULADO', '0').strip().lower() in ('1', 'on', 'true', 'sim')
         SIM_DIR = (os.environ.get('ECONOMIA_SIM_DIR') or '/tmp/economia-simulado') if SIM else ''
@@ -97,8 +97,16 @@ services:
             pass
 
 
+        FUSO_SP = datetime.timezone(datetime.timedelta(hours=-3))  # America/Sao_Paulo: sem horário de verão desde 2019; imagem alpine não tem tzdata
+
+
+        def hora_sp(fmt, instante=None):
+            instante = instante or datetime.datetime.now(datetime.timezone.utc)
+            return instante.astimezone(FUSO_SP).strftime(fmt)
+
+
         def log(m):
-            m = time.strftime('%H:%M:%S ') + m
+            m = hora_sp('%H:%M:%S ') + m
             print(m, flush=True)
             LOG.append(m)
             del LOG[:-40]
@@ -896,7 +904,7 @@ services:
                 'fans': ', '.join(acer_fans()) or 'RPM não exposto',
                 'acer_wmi': FAN['estado'] + ' | predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4', '?'),
                 'temperaturas': ', '.join(temps()) or 'nenhuma',
-                'atualizado': time.strftime('%d/%m %H:%M:%S'),
+                'atualizado': hora_sp('%d/%m %H:%M:%S'),
                 'gpu': probe_gpu(),
                 'gpu_em_uso_por': usos,
                 'controles': dict(ESTADO),
@@ -970,6 +978,7 @@ services:
         label.op{display:inline-block;min-height:44px;padding:10px 16px 10px 0}
         input[type=range]{width:100%;min-height:44px;margin:4px 0}
         select{min-height:44px;font:inherit;padding:6px;width:100%;max-width:420px}
+        .campo{display:block;margin:12px 0 4px}
         .ajuda{font-size:15px;color:#52525b;margin:4px 0 12px}
         .atual{margin:0 0 8px}
         .aviso{border-left:4px solid #b45309;background:#fffbeb;padding:12px;margin:0 0 16px}
@@ -1058,11 +1067,12 @@ services:
 
         def faixa_cpu(nome, rotulo, v, maximo, fabrica):
             txt = '%d W (fábrica)' % v if fabrica else '%d W' % v
-            return ('<label for="%s">%s: <output id="o-%s">%s</output></label>'
+            return ('<label class="campo" for="%s">%s: <output id="o-%s">%s</output></label>'
                     '<input id="%s" name="%s" type="range" min="%d" max="%d" step="1" value="%d" '
+                    'aria-describedby="d-%s" '
                     'oninput="document.getElementById(\'o-%s\').textContent=this.value+\' W\'">'
-                    '<p class="ajuda">Faixa: %d a %d W. O teto é o limite de fábrica do firmware.</p>') % (
-                nome, e(rotulo), nome, e(txt), nome, nome, CPU_MIN_W, maximo, v, nome, CPU_MIN_W, maximo)
+                    '<p class="ajuda" id="d-%s">Faixa: %d a %d W. O teto é o limite de fábrica do firmware.</p>') % (
+                nome, e(rotulo), nome, e(txt), nome, nome, CPU_MIN_W, maximo, v, nome, nome, nome, CPU_MIN_W, maximo)
 
 
         def bloco(acao, legenda, corpo, botao, classe=''):
@@ -1075,9 +1085,9 @@ services:
                            % (nome, e(v), ' checked' if v == atual else '', e(t)) for v, t in opcoes)
 
 
-        def select(nome, rotulo, opcoes, atual):
+        def select(ident, rotulo, opcoes, atual, campo='valor'):
             itens = ''.join('<option value="%s"%s>%s</option>' % (e(v), ' selected' if v == atual else '', e(t)) for v, t in opcoes)
-            return '<label for="%s">%s</label><select id="%s" name="%s">%s</select>' % (nome, e(rotulo), nome, nome, itens)
+            return '<label class="campo" for="%s">%s</label><select id="%s" name="%s">%s</select>' % (ident, e(rotulo), ident, campo, itens)
 
 
         def secao_controles(d):
@@ -1114,24 +1124,24 @@ services:
             if o['fans']:
                 fans = bloco('/acao/fans', 'Perfil de fans',
                              '<p class="atual">Atual: %s</p>' % e(dict(fans_vals).get(atual_fans, atual_fans)) +
-                             select('valor', 'Escolha', fans_vals, atual_fans), 'Aplicar fans')
+                             select('fans', 'Modo de fans', fans_vals, atual_fans), 'Aplicar fans')
             else:
                 fans = bloco('/acao/fans', 'Perfil de fans', '<p>Indisponível neste sistema.</p>', 'Aplicar fans')
-            epp = _select_bloco('/acao/epp', 'EPP (preferência de energia)', o['epp'], ROT_EPP, est['epp'], 'Aplicar EPP')
-            gov = _select_bloco('/acao/governor', 'Governor', o['governor'], ROT_GOV, est['governor'], 'Aplicar governor')
-            aspm = _select_bloco('/acao/aspm', 'ASPM (energia do PCIe)', o['aspm'], ROT_ASPM, est['aspm'], 'Aplicar ASPM')
+            epp = _select_bloco('/acao/epp', 'EPP (preferência de energia)', o['epp'], ROT_EPP, est['epp'], 'Aplicar EPP', 'epp', 'Preferência de energia')
+            gov = _select_bloco('/acao/governor', 'Governor', o['governor'], ROT_GOV, est['governor'], 'Aplicar governor', 'governor', 'Governor de frequência')
+            aspm = _select_bloco('/acao/aspm', 'ASPM (energia do PCIe)', o['aspm'], ROT_ASPM, est['aspm'], 'Aplicar ASPM', 'aspm', 'Política ASPM')
             return ('<section aria-labelledby="h-controles"><h2 id="h-controles">Controles</h2>'
                     '<p class="ajuda">Cada controle aplica só o seu item e salva. Os limites da CPU ficam sempre dentro da faixa segura.</p>'
                     '%s%s%s%s%s%s%s</section>') % (cpu, turbo, rtx, fans, epp, gov, aspm)
 
 
-        def _select_bloco(acao, legenda, opcoes, rot, atual, botao):
+        def _select_bloco(acao, legenda, opcoes, rot, atual, botao, ident, rotulo):
             if not opcoes:
                 return bloco(acao, legenda, '<p>Indisponível neste sistema.</p>', botao)
             vals = [(v, rot.get(v, v)) for v in opcoes]
             atual_v = atual if atual in opcoes else opcoes[0]
             return bloco(acao, legenda, '<p class="atual">Atual: %s</p>' % e(rot.get(atual, atual)) +
-                         select('valor', 'Escolha', vals, atual_v), botao)
+                         select(ident, rotulo, vals, atual_v), botao)
 
 
         def secao_registro():
@@ -1139,7 +1149,7 @@ services:
 
 
         def pagina(d, aviso=None):
-            corpo = ['<header><h1>Economia de energia</h1><p>Atualizado %s · <a href="/">Atualizar</a> · <a href="/status.json">Ver JSON</a>%s</p></header>'
+            corpo = ['<header><h1>Economia de energia</h1><p>Atualizado %s · <a href="/">Atualizar estado</a> · <a href="/status.json">Ver estado em JSON</a>%s</p></header>'
                      % (e(d['atualizado']), ' · <strong>Modo simulado: nada é alterado</strong>' if SIM else '')]
             if aviso:
                 corpo.append('<p class="aviso %s" role="status">%s</p>' % (aviso[0], e(aviso[1])))

@@ -268,6 +268,29 @@ class Paginas(unittest.TestCase):
         self.assertIn('name="valor" value="off"', html)
         self.assertIn('ollama', html)
 
+    def test_hora_sp_converte_utc_para_brasilia_com_virada_de_dia(self):
+        import datetime
+        instante = datetime.datetime(2024, 1, 1, 2, 30, tzinfo=datetime.timezone.utc)
+        self.assertEqual(E.hora_sp('%d/%m %H:%M:%S', instante), '31/12 23:30:00')
+
+    def test_cada_select_tem_id_unico_e_rotulo_proprio(self):
+        import re
+        html = E.pagina(E.status_data())
+        ids = re.findall(r'<select id="([^"]+)"', html)
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        for ident in ids:
+            with self.subTest(select=ident):
+                self.assertRegex(html, r'<label class="campo" for="%s">[^<]+</label>' % ident)
+
+    def test_cada_controle_de_faixa_tem_rotulo_e_descricao(self):
+        import re
+        html = E.pagina(E.status_data())
+        for ident in ('pl1', 'pl2'):
+            with self.subTest(faixa=ident):
+                self.assertIn('<label class="campo" for="%s">' % ident, html)
+                self.assertRegex(html, r'id="%s"[^>]*aria-describedby="d-%s"' % (ident, ident))
+                self.assertEqual(len(re.findall(r'id="d-%s"' % ident, html)), 1)
+
 
 class Compose(unittest.TestCase):
     def test_compose_embutido_esta_sincronizado_com_o_codigo(self):
