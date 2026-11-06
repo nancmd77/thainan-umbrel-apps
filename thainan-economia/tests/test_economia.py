@@ -440,24 +440,29 @@ class ConferenciaLog(unittest.TestCase):
 
     def setUp(self):
         carregar()
-        E.ULTIMO_REAPLICADO.clear()
+        E.ULTIMO_STATUS.clear()
+        E.COMPARANDO['gen'] = None
 
     def test_limite_w_dentro_da_tolerancia_e_ok(self):
-        self.assertEqual(E.conferir_w('PL1 MSR', 35_000_000, 35_250_000)['status'], 'ok')
+        e = E.conferir('PL1 MSR', 35_000_000, [35_250_000], E.igual_w, E.texto_w)
+        self.assertEqual(e['status'], 'ok')
 
     def test_limite_w_fora_da_tolerancia_nao_pegou(self):
-        e = E.conferir_w('PL1 MSR', 35_000_000, 40_000_000)
+        e = E.conferir('PL1 MSR', 35_000_000, [40_000_000], E.igual_w, E.texto_w)
         self.assertEqual(e['status'], 'nao_pegou')
         self.assertTrue(E.linha_conferencia(e).startswith('NÃO PEGOU: PL1 MSR'))
 
-    def test_cpu_todas_com_pedido_e_ok(self):
-        e = E.conferir_por_cpu('EPP', 'power', [('cpu0', 'power'), ('cpu1', 'power')])
-        self.assertEqual(e['status'], 'ok')
+    def test_varias_cpus_com_pedido_sao_ok(self):
+        e = E.conferir('EPP', 'power', ['power', 'power'], E.igual_valor)
+        self.assertEqual((e['status'], e['lido']), ('ok', 'power em 2 CPUs'))
 
-    def test_cpu_uma_divergente_nao_pegou_com_cpu_citada(self):
-        e = E.conferir_por_cpu('EPP', 'power', [('cpu0', 'power'), ('cpu1', 'balance_power')])
+    def test_uma_cpu_divergente_nao_pegou_e_mostra_valor_lido(self):
+        e = E.conferir('EPP', 'power', ['power', 'balance_power'], E.igual_valor)
         self.assertEqual(e['status'], 'nao_pegou')
-        self.assertIn('cpu1=balance_power', e['lido'])
+        self.assertEqual(e['lido'], 'divergente: balance_power, power')
+
+    def test_sem_leitura_nao_e_ok(self):
+        self.assertEqual(E.conferir('EPP', 'power', [], E.igual_valor)['status'], 'nao_pegou')
 
     def test_aspm_le_token_entre_colchetes(self):
         original = E.rd(E.ASPM)
@@ -501,6 +506,41 @@ class ConferenciaLog(unittest.TestCase):
             E.ciclo_periodico()
         linhas = [c.args[0] for c in lg.call_args_list if 'reaplicado' in c.args[0]]
         self.assertEqual(len(linhas), 1)
+
+    def test_ciclo_relogga_depois_que_controle_voltou_a_bater(self):
+        def divergir():
+            E.wr('/sys/devices/system/cpu/cpu1/cpufreq/energy_performance_preference',
+                 'power' if E.ESTADO['epp'] != 'power' else 'balance_power')
+        E.apply()
+        divergir()
+        with mock.patch.object(E, 'log') as lg:
+            E.ciclo_periodico()
+            E.ciclo_periodico()
+            divergir()
+            E.ciclo_periodico()
+        linhas = [c.args[0] for c in lg.call_args_list if 'reaplicado' in c.args[0]]
+        self.assertEqual(len(linhas), 2)
+
+    def test_conferir_tudo_so_le(self):
+        with mock.patch.object(E, 'wr') as wr, mock.patch.object(E, 'escrever') as esc:
+            E.conferir_tudo()
+        wr.assert_not_called()
+        esc.assert_not_called()
+
+    def test_fans_auto_em_comparacao_fica_pendente_mesmo_com_alvo_mudando(self):
+        E.ESTADO['fans'] = 'auto'
+        E.COMPARANDO['gen'] = E.GEN['v']
+        self.addCleanup(E.COMPARANDO.update, {'gen': None})
+        with mock.patch.object(E, 'alvo_fans', side_effect=['quiet', 'low-power']):
+            estados = [[e['status'] for e in E.conferir_tudo() if e['controle'] == 'perfil de fans'] for _ in range(2)]
+        self.assertEqual(estados, [['pendente'], ['pendente']])
+
+    def test_fans_auto_fora_da_comparacao_confere_o_alvo(self):
+        E.ESTADO['fans'] = 'auto'
+        E.COMPARANDO['gen'] = None
+        with mock.patch.object(E, 'alvo_fans', return_value=E.rd(E.PP)):
+            fans = [e for e in E.conferir_tudo() if e['controle'] == 'perfil de fans']
+        self.assertEqual([e['status'] for e in fans], ['ok'])
 
     def test_acao_expoe_resultado_em_status_json(self):
         with mock.patch.object(E, 'log') as lg:

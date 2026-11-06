@@ -86,7 +86,8 @@ services:
         ESTADO = {}
         FLASH = {'v': None}
         ULTIMA_ACAO = {'v': None}  # última ação do usuário + conferência; vai para /status.json
-        ULTIMO_REAPLICADO = {}  # último caso divergente logado pelo ciclo de 5 min (evita repetir)
+        ULTIMO_STATUS = {}  # {controle: status após a última reaplicação logada}; some quando o controle volta a bater
+        COMPARANDO = {'gen': None}  # geração da comparação de perfis de fans em curso
         GEN = {'v': 0}
         RESCAN = {'done': False}
         FAN = {'estado': 'verificando...', 'alvo': None}
@@ -542,11 +543,25 @@ services:
             log('comparação de perfis (RPM, média dos últimos 2 min): ' + ', '.join('%s %.0f' % (q, res[q]) for q in cand) + ' -> ' + FAN['alvo'])
 
 
+        def comparando():
+            return ESTADO.get('fans') == 'auto' and COMPARANDO['gen'] == GEN['v']
+
+
         def iniciar_comparacao():
             if ESTADO.get('fans') != 'auto' or not ex(PP):
                 return
             GEN['v'] += 1
-            threading.Thread(target=comparar_perfis, args=(GEN['v'],), daemon=True).start()
+            COMPARANDO['gen'] = GEN['v']
+            threading.Thread(target=_comparar_em_fundo, args=(GEN['v'],), daemon=True).start()
+
+
+        def _comparar_em_fundo(gen):
+            try:
+                comparar_perfis(gen)
+            finally:
+                with LOCK:
+                    if COMPARANDO['gen'] == gen:
+                        COMPARANDO['gen'] = None
 
 
         def nomes_containers():
@@ -679,33 +694,40 @@ services:
             return {'controle': controle, 'pedido': pedido, 'lido': lido, 'status': status, 'motivo': motivo}
 
 
-        def conferir_w(controle, pedido_uw, lido_uw):
-            ok = abs(lido_uw - pedido_uw) <= TOL_W * 1e6
-            return entrada(controle, '%.1f W' % (pedido_uw / 1e6), '%.1f W' % (lido_uw / 1e6), 'ok' if ok else 'nao_pegou')
+        def igual_valor(pedido, lido):
+            return pedido == lido
 
 
-        def conferir_valor(controle, pedido, lido):
-            return entrada(controle, pedido, lido, 'ok' if pedido == lido else 'nao_pegou')
+        def igual_w(pedido_uw, lido_uw):
+            return abs(lido_uw - pedido_uw) <= TOL_W * 1e6
 
 
-        def conferir_por_cpu(controle, pedido, lidos):
-            """lidos: [(cpu, valor)]; ok só se todas as CPUs que expõem o atributo deram o pedido."""
-            divergem = [(c, v) for c, v in lidos if v != pedido]
-            if not divergem:
-                return entrada(controle, pedido, '%s em %d CPUs' % (pedido, len(lidos)), 'ok')
-            return entrada(controle, pedido, 'divergente: ' + ', '.join('%s=%s' % cv for cv in divergem), 'nao_pegou')
+        def texto_w(uw):
+            return '%.1f W' % (uw / 1e6)
+
+
+        def conferir(controle, pedido, lido_list, igual, fmt=str):
+            """Puro: compara cada leitura com o pedido. Não lê nem escreve hardware."""
+            if not lido_list:
+                return entrada(controle, fmt(pedido), 'sem leitura', 'nao_pegou')
+            distintos = sorted({fmt(v) for v in lido_list})
+            sufixo = '' if len(lido_list) == 1 else ' em %d CPUs' % len(lido_list)
+            if all(igual(pedido, v) for v in lido_list):
+                return entrada(controle, fmt(pedido), distintos[0] + sufixo, 'ok')
+            if len(distintos) == 1:
+                return entrada(controle, fmt(pedido), distintos[0] + sufixo, 'nao_pegou')
+            return entrada(controle, fmt(pedido), 'divergente: ' + ', '.join(distintos), 'nao_pegou')
 
 
         def lidos_cpufreq(arq):
-            return [(os.path.basename(os.path.dirname(c)), rd(c + '/' + arq))
-                    for c in sorted(gl('/sys/devices/system/cpu/cpu[0-9]*/cpufreq')) if ex(c + '/' + arq)]
+            return [rd(c + '/' + arq) for c in sorted(gl('/sys/devices/system/cpu/cpu[0-9]*/cpufreq')) if ex(c + '/' + arq)]
 
 
         def aspm_ativo():
             return next((t[1:-1] for t in rd(ASPM, '').split() if t.startswith('[')), rd(ASPM))
 
 
-        def conferir_rtx(forcar):
+        def conferir_rtx():
             devs = nvidia_devs()
             presente = 'presente (%s)' % ', '.join(devs) if devs else 'ausente do barramento'
             if ESTADO['rtx'] == 'on':
@@ -713,34 +735,36 @@ services:
             if not devs:
                 return entrada('RTX', 'removida', 'ausente do barramento', 'ok')
             usos = gpu_users()
-            if usos and not forcar:
+            if usos:
                 return entrada('RTX', 'removida', presente, 'pendente', 'GPU em uso por ' + ', '.join(u['processo'] for u in usos))
             return entrada('RTX', 'removida', presente, 'nao_pegou')
 
 
-        def conferir_tudo(forcar=False):
-            """Relê o hardware e compara com ESTADO. Não escreve nada."""
+        def conferir_tudo():
+            """Só lê o hardware e compara com ESTADO. Nunca escreve."""
             out = []
             for z, i, rotulo, kind in restricoes_cpu():
-                out.append(conferir_w(rotulo, alvo_limite(z, i, kind), rd_int(z + '/constraint_%d_power_limit_uw' % i, 0)))
+                out.append(conferir(rotulo, alvo_limite(z, i, kind), [rd_int(z + '/constraint_%d_power_limit_uw' % i, 0)], igual_w, texto_w))
             if ex(NO_TURBO):
                 lido = {'0': 'ligado', '1': 'desligado'}.get(rd(NO_TURBO), rd(NO_TURBO))
-                out.append(conferir_valor('turbo', 'desligado' if ESTADO['turbo'] == 'off' else 'ligado', lido))
-            out.append(conferir_rtx(forcar))
+                out.append(conferir('turbo', 'desligado' if ESTADO['turbo'] == 'off' else 'ligado', [lido], igual_valor))
+            out.append(conferir_rtx())
             if ex(PP):
                 alvo = alvo_fans()
-                if alvo:
-                    out.append(conferir_valor('perfil de fans', alvo, rd(PP)))
+                if comparando():
+                    out.append(entrada('perfil de fans', 'auto', rd(PP), 'pendente', 'comparando perfis (RPM)'))
+                elif alvo:
+                    out.append(conferir('perfil de fans', alvo, [rd(PP)], igual_valor))
                 elif ESTADO['fans'] != 'auto':
                     out.append(entrada('perfil de fans', ESTADO['fans'], rd(PP), 'nao_pegou', 'sem perfil equivalente neste notebook'))
             epp = lidos_cpufreq('energy_performance_preference')
             if epp:
-                out.append(conferir_por_cpu('EPP', ESTADO['epp'], epp))
+                out.append(conferir('EPP', ESTADO['epp'], epp, igual_valor))
             gov = lidos_cpufreq('scaling_governor')
             if gov:
-                out.append(conferir_por_cpu('governor', ESTADO['governor'], gov))
+                out.append(conferir('governor', ESTADO['governor'], gov, igual_valor))
             if ex(ASPM):
-                out.append(conferir_valor('ASPM', ESTADO['aspm'], aspm_ativo()))
+                out.append(conferir('ASPM', ESTADO['aspm'], [aspm_ativo()], igual_valor))
             return out
 
 
@@ -767,21 +791,25 @@ services:
 
 
         def ciclo_periodico():
-            """Reaplica a cada 5 min. Loga só o que divergiu antes da reaplicação e não repete o mesmo caso."""
+            """Reaplica a cada 5 min. Loga só controles que divergiram antes da reaplicação; não repete enquanto seguem divergindo."""
             with LOCK:
                 antes = conferir_tudo()
                 apply()
                 depois = {e['controle']: e for e in conferir_tudo()}
                 for e in antes:
+                    c = e['controle']
+                    if e['status'] == 'ok':
+                        ULTIMO_STATUS.pop(c, None)
+                        continue
                     if e['status'] != 'nao_pegou':
-                        ULTIMO_REAPLICADO.pop(e['controle'], None)
                         continue
-                    d = depois.get(e['controle'], e)
-                    chave = (e['lido'], d['status'], d['lido'])
-                    if ULTIMO_REAPLICADO.get(e['controle']) == chave:
+                    d = depois.get(c, e)
+                    anterior = ULTIMO_STATUS.get(c)
+                    ULTIMO_STATUS[c] = d['status']
+                    if anterior == 'nao_pegou':
                         continue
-                    ULTIMO_REAPLICADO[e['controle']] = chave
-                    log('reaplicado: %s pedido %s, lido %s; depois: %s (lido %s)' % (e['controle'], e['pedido'], e['lido'], d['status'], d['lido']))
+                    log('reaplicado: %s pedido %s, lido %s; depois: %s (lido %s)' % (c, e['pedido'], e['lido'], d['status'], d['lido']))
+
 
         def mudar(campos, confirmar, msg, controle, fmt, pedido_txt=None):
             """Valida, persiste, aplica e confere uma ação. Retorna {'confirmar': True, 'usos': [...]} se a remoção da RTX precisa de confirmação."""
@@ -808,7 +836,7 @@ services:
                 acao = '%s %s → %s' % (controle, antes_txt, pedido)
                 log('ação: ' + acao)
                 apply(forcar=confirmar)
-                conferencia = conferir_tudo(forcar=confirmar)
+                conferencia = conferir_tudo()
                 for item in conferencia:
                     log(linha_conferencia(item))
                 ULTIMA_ACAO['v'] = {'momento': hora_sp('%d/%m %H:%M:%S'), 'acao': acao,
