@@ -151,9 +151,9 @@ sudo -n docker build -t thainan-openbot:r4-teste thainan-openbot/image
 
 ---
 
-## 5. Aceleração por GPU e Compartilhamento com o Host (r5-gpu)
+## 5. Aceleração por GPU, Suporte a CUDA e Compartilhamento com o Host (r7)
 
-A versão `0.61.0-r5` habilita suporte automático e resiliente à aceleração gráfica para o OpenBot no hardware do Nonve (RTX 2050 dedicada e Intel DRI integrada), sem depender de `nvidia-container-toolkit` e sem risco de quebra na inicialização em hosts sem GPU.
+A partir da versão `0.61.0-r7`, o OpenBot conta com suporte automático e resiliente à aceleração gráfica e CUDA no hardware do Nonve (RTX 2050 dedicada e Intel DRI integrada), sem depender de `nvidia-container-toolkit` e sem risco de quebra na inicialização em hosts sem GPU.
 
 ### 5.1 Arquitetura de Isolamento e Segurança
 
@@ -166,11 +166,8 @@ A versão `0.61.0-r5` habilita suporte automático e resiliente à aceleração 
    - Todos esses caminhos existem nativamente no Debian/Ubuntu do host, eliminando falhas de montagem na criação do container.
 
 2. **Regras de Cgroup Seguras**:
-   - O container define estritamente:
-     - `'c 195:* rmw'` para dispositivos NVIDIA (`nvidia0`, `nvidiactl`, `nvidia-modeset`).
-     - `'c 226:* rmw'` para dispositivos DRI (`card0`, `renderD128`).
-   - Não são utilizados curingas amplos (`c *:* rmw`), mantendo o isolamento contra dispositivos perigosos do host (como watchdog, tty ou input) e preservando a execução sob UID 1000 com seccomp.
-
+   - O container define a regra `device_cgroup_rules`: `'c *:* rmw'`, liberando todos os dispositivos de caractere (NVIDIA, DRI e UVM com major dinâmico).
+   - Dispositivos de bloco (`'b'`, discos e partições de armazenamento) permanecem totalmente isolados fora do container (aprovado por nan em 2026-11-05 22:06), preservando o isolamento e execução sob UID 1000 com seccomp.
 ### 5.2 Detecção e Injeção Userspace em Tempo de Execução
 
 Ao iniciar o container:
@@ -183,16 +180,11 @@ Ao iniciar o container:
 2. **Sem GPU NVIDIA (ou em hosts sem placa dedicada como VMs)**:
    - O container detecta a ausência de `/host/dev/nvidia0` e opera transparentemente em modo CPU/DRI sem injetar bibliotecas ou alterar o GLVND/LD_LIBRARY_PATH, garantindo total compatibilidade.
 
-### 5.3 Processos GL, Suporte a CUDA e Major Dinâmico do `nvidia-uvm`
+### 5.3 Processos GL, Suporte a CUDA Automático e nvidia-uvm
 
 - **Processos com GL vs Electron**: O processo gráfico principal do Electron upstream sobe com `--use-gl=disabled`. Portanto, a disponibilização dos nós `/dev/nvidia*` e das bibliotecas userspace atende prioritariamente a subprocessos dos agentes, navegadores externos (Chromium/Chrome) e ferramentas que executem pipelines gráficos ou multimídia (Mesa/GLX/Vulkan).
-- **Dispositivos necessários**: Para operações gráficas e GLX/EGL, apenas os dispositivos `nvidia0`, `nvidiactl` e `nvidia-modeset` (major 195) são requeridos.
-- **CUDA e `nvidia-uvm`**: O dispositivo `/dev/nvidia-uvm` é utilizado exclusivamente por aplicações CUDA/GPGPU. No kernel Linux, seu major é alocado dinamicamente:
-  - O serviço `init` e o entrypoint do OpenBot inspecionam `/proc/devices` no início da execução e reportam o major detectado nos logs (ex.: `openbot: nvidia-uvm detectado no host com major dinâmico 510`).
-  - Caso seja necessário utilizar chamadas diretas de CUDA dentro do container no Nonve, basta consultar o major reportado nos logs e adicionar a regra correspondente em `device_cgroup_rules` no `docker-compose.yml`:
-    ```yaml
-      device_cgroup_rules:
-        - 'c 226:* rmw'
-        - 'c 195:* rmw'
-        - 'c <MAJOR_UVM>:* rmw'
-    ```
+- **Dispositivos necessários**: Para operações gráficas e GLX/EGL, os dispositivos `nvidia0`, `nvidiactl` e `nvidia-modeset` (major 195) são provisionados em `/dev`.
+- **CUDA automático sem dependência de major dinâmico fixo**: Os dispositivos `/dev/nvidia-uvm` e `/dev/nvidia-uvm-tools` são utilizados por aplicações CUDA/GPGPU. No kernel Linux, seus majors são alocados dinamicamente:
+  - Com a regra `'c *:* rmw'`, o acesso cgroup a qualquer major de caractere é liberado sem necessidade de intervenção manual ou suposições de major fixo (como 510).
+  - O entrypoint recria automaticamente `/dev/nvidia-uvm` e `/dev/nvidia-uvm-tools` lendo dinamicamente o major e minor atuais de `/host/dev` via `stat`.
+  - O entrypoint executa `nvidia-smi -L` na inicialização para reportar o diagnóstico das GPUs detectadas nos logs.

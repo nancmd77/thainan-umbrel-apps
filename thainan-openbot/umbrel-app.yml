@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.61.0-r6"
+version: "0.61.0-r7"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -20,7 +20,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.61.0-r6: suporte a CUDA liberado com regra device_cgroup_rules para nvidia-uvm (major 510 no host Nonve), recriação resiliente de /dev/nvidia-uvm e /dev/nvidia-uvm-tools no entrypoint, aviso automático se o major do kernel divergir e verificação de GPUs via nvidia-smi -L no start.
+  Versão 0.61.0-r7: CUDA automático com regra device_cgroup_rules 'c *:* rmw' (todos os dispositivos de caractere; discos isolados), recriação resiliente de /dev/nvidia-uvm e uvm-tools via stat sem depender de major fixo e diagnóstico com nvidia-smi -L.
 dependencies: []
 path: ""
 defaultUsername: ""
