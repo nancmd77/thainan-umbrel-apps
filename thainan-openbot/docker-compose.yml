@@ -17,6 +17,7 @@ services:
       - ${APP_DATA_DIR}/run:/run/openbot
       - ${APP_DATA_DIR}/config:/config
       - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
+      - ${APP_DATA_DIR}/../thainan-supermemory/data:/sm:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -296,6 +297,7 @@ services:
         ## Jeito Hark (sempre)
         - Antes de qualquer resposta ou tarefa, siga a skill jeito-hark (tom, autonomia, navegador, formulários ask_ui/ask_user).
         - Em toda ação no navegador ou na área remota, siga a skill cursor-hark (bolinha do Hark visível, clique em dois tempos, md e decide).
+        - Memória: siga a skill supermemory (sm buscar antes de responder, sm gravar decisões e resultados no mesmo turno).
         - Skills em ~/.agents/skills. Se não achar, avise o Nan.
         <!-- jeito-hark:fim -->
         FIM_HARK
@@ -317,6 +319,122 @@ services:
         while :; do sleep 20; inject; done
         FIM_HARK
         chmod 755 /data/bin/regras-hark.sh
+        # Supermemory (r4): CLI sm, skill e chave local do app thainan-supermemory
+        mkdir -p /data/.agents/skills/supermemory
+        cat <<'FIM_HARK' > /data/.agents/skills/supermemory/SKILL.md
+        ---
+        name: supermemory
+        description: Use SEMPRE, em toda conversa e toda tarefa. Memória compartilhada do Nan (Supermemory local no Nonve): buscar contexto antes de responder e gravar decisões, preferências e resultados no fim.
+        ---
+
+        # Supermemory (memória do Nan)
+
+        É a mesma memória que o Hark e os outros agentes do Nan usam. Comando: `sm`.
+
+        ## Antes de responder (toda mensagem do Nan com conteúdo)
+        `sm buscar "<a mensagem do Nan ou o assunto>"`
+        Use o perfil e as memórias pra moldar a resposta em silêncio. Não diga ao Nan que consultou. Se contradizer o que ele disse agora, vale o mais recente. Em tarefa longa, busque de novo a cada assunto novo.
+
+        ## Gravar (no mesmo turno, sem esperar o fim)
+        `sm gravar <tipo> "texto em português, autossuficiente, com contexto e porquê" [projeto] [id]`
+        - Tipos: decisao, ideia, sugestao, lembrete, preferencia, fato, estado, desfecho.
+        - Toda requisição do Nan gera ao menos 1 item (o pedido e o que foi feito). Exceção: "oi", "valeu", "ok".
+        - Use um `id` estável quando for atualizar o mesmo assunto.
+
+        ## Nunca
+        - Gravar senhas, cartões, tokens, chaves, documentos de identidade ou assinaturas.
+        - Imprimir ou pedir a chave do Supermemory.
+        - Travar a tarefa se a memória falhar: siga e avise só se repetir.
+        FIM_HARK
+        cat <<'FIM_HARK' > /data/bin/sm
+        #!/usr/bin/env python3
+        """sm: memória compartilhada do Nan (Supermemory local no Nonve).
+        Uso:
+          sm buscar "pergunta ou mensagem do Nan"
+          sm gravar <decisao|ideia|sugestao|lembrete|preferencia|fato|estado|desfecho> "texto" [projeto] [id]
+        Nunca grave senhas, cartões, tokens ou documentos.
+        """
+        import datetime, json, os, sys, urllib.request
+
+        BASE = os.environ.get("SM_BASE", "http://192.168.18.171:8567").rstrip("/")
+        NS = os.environ.get("SM_NS", "sm_project_default")
+        TIPOS = {"decisao", "ideia", "sugestao", "lembrete", "preferencia", "fato", "estado", "desfecho", "dump", "documento"}
+
+        def chave():
+            k = os.environ.get("SUPERMEMORY_API_KEY", "").strip()
+            if k:
+                return k
+            for p in (os.environ.get("SUPERMEMORY_KEY_FILE", ""), "/config/supermemory.key", os.path.expanduser("~/.config/supermemory/local_key")):
+                if p and os.path.isfile(p):
+                    try:
+                        k = open(p, encoding="utf-8").read().strip()
+                        if k:
+                            return k
+                    except OSError:
+                        pass
+            return ""
+
+        def post(path, body, timeout):
+            req = urllib.request.Request(BASE + "/ns/" + NS + path, data=json.dumps(body).encode(), method="POST",
+                headers={"Authorization": "Bearer " + K, "Content-Type": "application/json", "User-Agent": "supermemory/5.0.1"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode() or "{}")
+
+        def buscar(q):
+            try:
+                p = post("/profile", {}, 30)
+            except Exception as e:
+                p = {"erro": str(e)[:200]}
+            pr = p.get("profile") or {}
+            print("## Perfil (fixo)")
+            for m in (pr.get("static") or [])[:15]:
+                print("-", m.get("memory", ""))
+            print("## Perfil (recente)")
+            for m in (pr.get("dynamic") or [])[:15]:
+                print("-", m.get("memory", ""))
+            print("## Memórias relevantes")
+            try:
+                s = post("/search", {"query": q, "searchMode": "hybrid", "limit": 10, "threshold": 0.4, "rerank": "order", "rewriteQuery": True}, 60)
+            except Exception as e:
+                print("- (memória indisponível agora: %s)" % str(e)[:120]); return 0
+            rs = s.get("results") or []
+            for r in rs:
+                print("- (%.2f) %s" % (r.get("similarity", 0) or 0, (r.get("memory") or r.get("chunk") or "")[:300]))
+            if not rs:
+                print("- (nada)")
+            return 0
+
+        def gravar(tipo, texto, projeto="geral", sid=""):
+            if tipo not in TIPOS:
+                print("tipo inválido: use " + "|".join(sorted(TIPOS))); return 1
+            content = "[%s] (%s) %s" % (datetime.date.today().isoformat(), tipo, texto)
+            doc = {"content": content, "metadata": {"source": "openbot", "agente": os.environ.get("SM_AGENTE", "openbot"), "tipo": tipo, "projeto": projeto or "geral"}, "dreaming": "dynamic"}
+            if len(content) > 2000 or tipo in ("dump", "documento"):
+                doc["taskType"] = "superrag"
+            if sid:
+                doc["id"] = sid
+            try:
+                r = post("/document", doc, 60)
+            except Exception as e:
+                print("não gravou (memória indisponível: %s); siga a tarefa" % str(e)[:120]); return 0
+            print("gravado", r.get("id", ""))
+            return 0
+
+        if __name__ == "__main__":
+            a = sys.argv[1:]
+            K = chave()
+            if not a or a[0] in ("-h", "--help"):
+                print(__doc__); sys.exit(0)
+            if not K:
+                print("(Supermemory sem chave: /config/supermemory.key ausente)"); sys.exit(0)
+            if a[0] == "buscar" and len(a) >= 2:
+                sys.exit(buscar(" ".join(a[1:])))
+            if a[0] == "gravar" and len(a) >= 3:
+                sys.exit(gravar(a[1], a[2], a[3] if len(a) > 3 else "geral", a[4] if len(a) > 4 else ""))
+            print(__doc__); sys.exit(1)
+        FIM_HARK
+        chmod 755 /data/bin/sm
+        if [ -s /sm/local_key ]; then tr -d '\r\n' < /sm/local_key > /config/supermemory.key; chown 1000:1000 /config/supermemory.key; chmod 600 /config/supermemory.key; echo 'init: supermemory: chave copiada'; else echo 'init: supermemory: chave ausente'; fi
         for f in /data/OpenBot/Agents/*/AGENTS.md; do [ -f "$$f" ] && sed -i '/<!-- jeito-hark:inicio/,/<!-- jeito-hark:fim -->/d' "$$f"; done
         sh /data/bin/regras-hark.sh once
         chown -R 1000:1000 /data/.agents /data/bin/regras-hark.sh 2>/dev/null || true
@@ -2695,6 +2813,8 @@ services:
       - |
         [ -n "$$OPENBOT_9ROUTER_KEY" ] || { [ -s /data/9router_key ] && export OPENBOT_9ROUTER_KEY=$$(tr -d '\r\n' < /data/9router_key); }
         unset NO_AT_BRIDGE
+        # Supermemory (r4): CLI sm sempre atualizado
+        [ -f /data/bin/sm ] && { sudo cp -f /data/bin/sm /usr/local/bin/sm 2>/dev/null; sudo chmod 755 /usr/local/bin/sm 2>/dev/null; } || true
         # Jeito Hark (r3): mantém o bloco no AGENTS.md de agentes criados depois
         [ -x /data/bin/regras-hark.sh ] && { nohup sh /data/bin/regras-hark.sh >/dev/null 2>&1 & }
         # Suporte a mira visual Moondream e CLI md (r8)
