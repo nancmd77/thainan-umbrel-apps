@@ -76,6 +76,54 @@ class MockOpenBotUnixHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+class MockExternalAPIHandler(http.server.BaseHTTPRequestHandler):
+    liquid_response = None
+    liquid_status = 200
+    typesafe_response = None
+    typesafe_status = 200
+    moondream_response = None
+    moondream_status = 200
+    requests_log = []
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length).decode("utf-8", errors="replace")
+        try:
+            body = json.loads(raw)
+        except Exception:
+            body = raw
+
+        MockExternalAPIHandler.requests_log.append({
+            "path": self.path,
+            "headers": dict(self.headers),
+            "body": body,
+        })
+
+        if self.path.startswith("/liquid"):
+            self.send_response(MockExternalAPIHandler.liquid_status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            resp = MockExternalAPIHandler.liquid_response or {}
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
+        elif self.path.startswith("/typesafe"):
+            self.send_response(MockExternalAPIHandler.typesafe_status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            resp = MockExternalAPIHandler.typesafe_response or {}
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
+        elif self.path.startswith("/moondream"):
+            self.send_response(MockExternalAPIHandler.moondream_status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            resp = MockExternalAPIHandler.moondream_response or {}
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
 
 class UnixServer(http.server.HTTPServer):
     address_family = socket.AF_UNIX
@@ -83,7 +131,6 @@ class UnixServer(http.server.HTTPServer):
     def server_bind(self):
         self.socket.bind(self.server_address)
         self.server_address = self.socket.getsockname()
-
 
 class TestServer(unittest.TestCase):
     @classmethod
@@ -104,8 +151,26 @@ class TestServer(unittest.TestCase):
         cls.t_web.start()
         cls.base_url = f"http://127.0.0.1:{cls.web_port}"
 
+        # Start external mock server
+        cls.ext_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), MockExternalAPIHandler)
+        cls.ext_port = cls.ext_server.server_address[1]
+        cls.t_ext = threading.Thread(target=cls.ext_server.serve_forever, daemon=True)
+        cls.t_ext.start()
+
+        cls.orig_liquid_url = server.LIQUID_API_URL
+        cls.orig_typesafe_url = server.TYPESAFE_API_URL
+        cls.orig_moondream_url = server.MOONDREAM_API_URL
+        server.LIQUID_API_URL = f"http://127.0.0.1:{cls.ext_port}/liquid"
+        server.TYPESAFE_API_URL = f"http://127.0.0.1:{cls.ext_port}/typesafe"
+        server.MOONDREAM_API_URL = f"http://127.0.0.1:{cls.ext_port}/moondream"
+
     @classmethod
     def tearDownClass(cls):
+        server.LIQUID_API_URL = cls.orig_liquid_url
+        server.TYPESAFE_API_URL = cls.orig_typesafe_url
+        server.MOONDREAM_API_URL = cls.orig_moondream_url
+        cls.ext_server.shutdown()
+        cls.ext_server.server_close()
         cls.web_server.shutdown()
         cls.web_server.server_close()
         cls.mock_openbot.shutdown()
@@ -114,6 +179,13 @@ class TestServer(unittest.TestCase):
 
     def setUp(self):
         self.mock_openbot.logged_in = False
+        MockExternalAPIHandler.requests_log.clear()
+        MockExternalAPIHandler.liquid_response = None
+        MockExternalAPIHandler.liquid_status = 200
+        MockExternalAPIHandler.typesafe_response = None
+        MockExternalAPIHandler.typesafe_status = 200
+        MockExternalAPIHandler.moondream_response = None
+        MockExternalAPIHandler.moondream_status = 200
 
     def test_ansi_to_html(self):
         res = ansi_to_html("\x1b[40m\x1b[37m▀▄ \x1b[0m")
@@ -337,5 +409,274 @@ class TestServer(unittest.TestCase):
                 server.LIQUID_KEY_PATH = orig_liq
                 server.TYPESAFE_KEY_PATH = orig_ts
 
+    def test_api_testar_invalid_params(self):
+        # Sem parametro
+        req = urllib.request.Request(f"{self.base_url}/api/testar")
+        try:
+            urllib.request.urlopen(req)
+            self.fail("Deveria retornar 400")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 400)
+            data = json.loads(exc.read().decode("utf-8"))
+            self.assertFalse(data["ok"])
+            self.assertIn("ausente", data["erro"])
+
+        # Servico desconhecido
+        req_unk = urllib.request.Request(f"{self.base_url}/api/testar?servico=invalid")
+        try:
+            urllib.request.urlopen(req_unk)
+            self.fail("Deveria retornar 400")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 400)
+            data = json.loads(exc.read().decode("utf-8"))
+            self.assertFalse(data["ok"])
+            self.assertIn("desconhecido", data["erro"])
+
+    def test_api_testar_liquid(self):
+        # 1. Chave ausente
+        with tempfile.TemporaryDirectory() as td:
+            orig_liq = server.LIQUID_KEY_PATH
+            orig_env = os.environ.pop("LIQUID_API_KEY", None)
+            server.LIQUID_KEY_PATH = os.path.join(td, "nonexistent.key")
+            try:
+                req = urllib.request.Request(f"{self.base_url}/api/testar?servico=liquid")
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertFalse(data["ok"])
+                    self.assertIsNone(data["http"])
+                    self.assertEqual(data["modelo"], "d1-ultra")
+                    self.assertIn("não configurada", data["erro"])
+
+                # 2. Sucesso com Liquid
+                test_token = "example-mock-liquid-key-1234"
+                server.LIQUID_KEY_PATH = os.path.join(td, "liquid.key")
+                with open(server.LIQUID_KEY_PATH, "w") as f:
+                    f.write(test_token)
+
+                MockExternalAPIHandler.liquid_response = {
+                    "model": "d1-ultra",
+                    "answers": {
+                        "decisao": {
+                            "type": "choice",
+                            "choice": "clicar_enviar",
+                            "confidence": 0.94,
+                            "probabilities": {
+                                "clicar_enviar": 0.94,
+                                "esperar": 0.06,
+                            },
+                        }
+                    },
+                }
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(data["ok"])
+                    self.assertEqual(data["http"], 200)
+                    self.assertEqual(data["modelo"], "d1-ultra")
+                    self.assertEqual(data["resultado"]["opcao"], "clicar_enviar")
+                    self.assertEqual(data["resultado"]["confianca"], 0.94)
+                    self.assertIsNone(data["erro"])
+                    # Inviolavel: NUNCA vazar a chave
+                    self.assertNotIn(test_token, json.dumps(data))
+
+                # Verifica requisicao recebida pelo mock
+                self.assertEqual(len(MockExternalAPIHandler.requests_log), 1)
+                req_info = MockExternalAPIHandler.requests_log[0]
+                self.assertEqual(req_info["path"], "/liquid")
+                self.assertEqual(req_info["headers"].get("Authorization"), f"Bearer {test_token}")
+                self.assertEqual(req_info["body"]["model"], "d1-ultra")
+                self.assertEqual(req_info["body"]["state"], "Tela: botao Enviar visivel, campo de mensagem preenchido. Objetivo: enviar a mensagem.")
+                criteria = req_info["body"]["questions"]["decisao"]["criteria"]
+                self.assertIn("clicar_enviar", criteria)
+                self.assertIn("esperar", criteria)
+
+                # 3. Erro HTTP 401 com tentativa de vazamento no corpo de erro
+                MockExternalAPIHandler.requests_log.clear()
+                MockExternalAPIHandler.liquid_status = 401
+                MockExternalAPIHandler.liquid_response = {"error": f"Invalid token {test_token}"}
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertFalse(data["ok"])
+                    self.assertEqual(data["http"], 401)
+                    self.assertIsNone(data["resultado"])
+                    self.assertIn("401", data["erro"])
+                    # Inviolavel: chave DEVE ser sanitizada mesmo no erro retornado pela API
+                    self.assertNotIn(test_token, json.dumps(data))
+            finally:
+                server.LIQUID_KEY_PATH = orig_liq
+                if orig_env:
+                    os.environ["LIQUID_API_KEY"] = orig_env
+
+    def test_api_testar_typesafe(self):
+        with tempfile.TemporaryDirectory() as td:
+            orig_ts = server.TYPESAFE_KEY_PATH
+            orig_env = os.environ.pop("TYPESAFE_API_KEY", None)
+            server.TYPESAFE_KEY_PATH = os.path.join(td, "nonexistent_ts.key")
+            try:
+                # 1. Chave ausente
+                req = urllib.request.Request(f"{self.base_url}/api/testar?servico=typesafe")
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertFalse(data["ok"])
+                    self.assertIsNone(data["http"])
+                    self.assertEqual(data["modelo"], "jev-latest")
+                    self.assertIn("não configurada", data["erro"])
+
+                # 2. Sucesso com TypeSafe
+                test_token = "example-mock-typesafe-key-5678"
+                server.TYPESAFE_KEY_PATH = os.path.join(td, "typesafe.key")
+                with open(server.TYPESAFE_KEY_PATH, "w") as f:
+                    f.write(test_token)
+
+                MockExternalAPIHandler.typesafe_response = {
+                    "model": "jev-latest",
+                    "answers": {
+                        "decisao": {
+                            "type": "choice",
+                            "choice": "clicar_enviar",
+                            "confidence": 0.91,
+                            "probabilities": {
+                                "clicar_enviar": 0.91,
+                                "esperar": 0.09,
+                            },
+                        }
+                    },
+                }
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(data["ok"])
+                    self.assertEqual(data["http"], 200)
+                    self.assertEqual(data["modelo"], "jev-latest")
+                    self.assertEqual(data["resultado"]["opcao"], "clicar_enviar")
+                    self.assertEqual(data["resultado"]["confianca"], 0.91)
+                    self.assertNotIn(test_token, json.dumps(data))
+
+                self.assertEqual(len(MockExternalAPIHandler.requests_log), 1)
+                req_info = MockExternalAPIHandler.requests_log[0]
+                self.assertEqual(req_info["path"], "/typesafe")
+                self.assertEqual(req_info["headers"].get("Authorization"), f"Bearer {test_token}")
+                self.assertEqual(req_info["body"]["model"], "jev-latest")
+                self.assertEqual(req_info["body"]["state"], "Tela: botao Enviar visivel, campo de mensagem preenchido. Objetivo: enviar a mensagem.")
+            finally:
+                server.TYPESAFE_KEY_PATH = orig_ts
+                if orig_env:
+                    os.environ["TYPESAFE_API_KEY"] = orig_env
+
+    def test_api_testar_moondream(self):
+        with tempfile.TemporaryDirectory() as td:
+            orig_md = server.MOONDREAM_KEY_PATH
+            orig_env = os.environ.pop("MOONDREAM_API_KEY", None)
+            server.MOONDREAM_KEY_PATH = os.path.join(td, "nonexistent_md.key")
+            try:
+                # 1. Chave ausente
+                req = urllib.request.Request(f"{self.base_url}/api/testar?servico=moondream")
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertFalse(data["ok"])
+                    self.assertEqual(data["modelo"], "point")
+                    self.assertIn("não configurada", data["erro"])
+
+                # 2. Sucesso com Moondream
+                test_token = "example-mock-moondream-key-9999"
+                server.MOONDREAM_KEY_PATH = os.path.join(td, "moondream.key")
+                with open(server.MOONDREAM_KEY_PATH, "w") as f:
+                    f.write(test_token)
+
+                MockExternalAPIHandler.moondream_response = {
+                    "points": [{"x": 0.5, "y": 0.5}],
+                }
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(data["ok"])
+                    self.assertEqual(data["http"], 200)
+                    self.assertEqual(data["modelo"], "point")
+                    self.assertEqual(data["resultado"], {"x": 320, "y": 180})
+                    self.assertNotIn(test_token, json.dumps(data))
+
+                self.assertEqual(len(MockExternalAPIHandler.requests_log), 1)
+                req_info = MockExternalAPIHandler.requests_log[0]
+                self.assertEqual(req_info["path"], "/moondream")
+                self.assertEqual(req_info["headers"].get("X-Moondream-Auth"), test_token)
+                self.assertEqual(req_info["body"]["object"], "Send button")
+                img_url = req_info["body"]["image_url"]
+                self.assertTrue(img_url.startswith("data:image/png;base64,"))
+                # Verifica que a imagem decodificada e valida
+                raw_b64 = img_url.split(",")[1]
+                png_bytes = base64.b64decode(raw_b64)
+                self.assertEqual(png_bytes[:8], b"\x89PNG\r\n\x1a\n")
+            finally:
+                server.MOONDREAM_KEY_PATH = orig_md
+                if orig_env:
+                    os.environ["MOONDREAM_API_KEY"] = orig_env
+
+    def test_api_testar_decide(self):
+        with tempfile.TemporaryDirectory() as td:
+            orig_liq = server.LIQUID_KEY_PATH
+            orig_env_liq = os.environ.get("LIQUID_API_KEY")
+            orig_env_ts = os.environ.get("TYPESAFE_API_KEY")
+
+            test_token = "example-mock-decide-key-4321"
+            server.LIQUID_KEY_PATH = os.path.join(td, "liquid.key")
+            with open(server.LIQUID_KEY_PATH, "w") as f:
+                f.write(test_token)
+
+            MockExternalAPIHandler.liquid_response = {
+                "model": "d1-ultra",
+                "answers": {
+                    "decisao": {
+                        "type": "choice",
+                        "choice": "clicar_enviar",
+                        "confidence": 0.88,
+                        "probabilities": {
+                            "clicar_enviar": 0.88,
+                            "esperar": 0.12,
+                        },
+                    }
+                },
+                "usage": {"cost": 0.0001},
+            }
+
+            try:
+                req = urllib.request.Request(f"{self.base_url}/api/testar?servico=decide")
+                with urllib.request.urlopen(req) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(data["ok"])
+                    self.assertEqual(data["http"], 200)
+                    self.assertIn("resultado", data)
+                    self.assertEqual(data["resultado"]["opcao"], "clicar_enviar")
+                    self.assertNotIn(test_token, json.dumps(data))
+            finally:
+                server.LIQUID_KEY_PATH = orig_liq
+                if orig_env_liq:
+                    os.environ["LIQUID_API_KEY"] = orig_env_liq
+                if orig_env_ts:
+                    os.environ["TYPESAFE_API_KEY"] = orig_env_ts
+
+    def test_config_page_buttons_and_results(self):
+        req = urllib.request.Request(f"{self.base_url}/config")
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            html_body = resp.read().decode("utf-8")
+            # Verifica botoes Testar em cada cartao
+            self.assertIn('id="btn-test-liquid"', html_body)
+            self.assertIn('id="btn-test-typesafe"', html_body)
+            self.assertIn('id="btn-test-moondream"', html_body)
+            self.assertIn('id="btn-test-decide"', html_body)
+            # Verifica containers de resultado embaixo dos botoes
+            self.assertIn('id="result-liquid"', html_body)
+            self.assertIn('id="result-typesafe"', html_body)
+            self.assertIn('id="result-moondream"', html_body)
+            self.assertIn('id="result-decide"', html_body)
+            # Verifica classes e estilo
+            self.assertIn('.test-result', html_body)
+            self.assertIn('border-radius: 0', html_body)
+            self.assertIn('testarServico', html_body)
 if __name__ == "__main__":
     unittest.main()

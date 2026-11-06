@@ -316,7 +316,7 @@ services:
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "thainan-openbot-decide/0.62.0-r1",
+                "User-Agent": "thainan-openbot-decide/0.62.0-r2",
             }
             if extra_headers:
                 headers.update(extra_headers)
@@ -1029,6 +1029,7 @@ services:
     volumes:
       - ${APP_DATA_DIR}/run:/run/openbot
       - ${APP_DATA_DIR}/config:/config
+      - ${APP_DATA_DIR}/data/bin:/data/bin:ro
     environment:
       CONFIG_KEY_PATH: /config/moondream.key
       MOONDREAM_API_KEY: ${MOONDREAM_API_KEY:-}
@@ -1048,65 +1049,518 @@ services:
         import html
         import http.client
         import http.server
+        import io
         import json
         import os
         import re
+        import shutil
         import socket
+        import subprocess
         import sys
+        import time
+        import urllib.error
         import urllib.parse
-
+        import urllib.request
         SOCKET_PATH = os.environ.get("OPENBOT_SOCKET_PATH", "/run/openbot/control.sock")
         SERVER_PORT = int(os.environ.get("OPENBOT_WEB_PORT", "8592"))
         DEFAULT_EMAIL = "thainancaldeira75@gmail.com"
         MOONDREAM_KEY_PATH = os.environ.get("CONFIG_KEY_PATH", "/config/moondream.key")
         LIQUID_KEY_PATH = os.environ.get("LIQUID_KEY_PATH", "/config/liquid.key")
         TYPESAFE_KEY_PATH = os.environ.get("TYPESAFE_KEY_PATH", "/config/typesafe.key")
+        LIQUID_API_URL = os.environ.get("LIQUID_API_URL", "https://api.liquid.ai/decisions/v1/systemone")
+        TYPESAFE_API_URL = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemone")
+        MOONDREAM_API_URL = os.environ.get("MOONDREAM_API_URL", "https://api.moondream.ai/v1/point")
+        REQUEST_TIMEOUT = 15
+
+        # PNG sintetico 640x360 embutido com botao Send (fundo escuro #0f172a, retangulo azul e texto SEND)
+        EMBEDDED_SYNTHETIC_PNG_B64 = (
+            "iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoCAIAAABIUN0GAAAFbUlEQVR42u3cMQqFMBBAQW9g6QlsvJbH9xCxtp"
+            "EkrkuUCVP+gITAK5b8aV42ACDZ5AgAQIABQIABAAEGAAEGAAQYAAQYABBgABBgAECAAUCAAUCAAQABBgABBgAE"
+            "GAAEGAAQYAAQYABAgAFAgAFAgAEAAQYAAQYABBgABBgAEGAAEGAAQIABQIABQIABAAEGAAEGAAQYAAQYABBgAB"
+            "BgAECAAUCAAUCAAQABBgABBgAEGAAEGAAQYAAQYABAgAFAgAFAgAEAAQYAAQYABBgABBgAEGAAEGAAQIABQIAB"
+            "QIABAAEGAAEGAAQYAAQYABBgABBgAECAAUCAAUCAAQABBgABBgAEGAAEGAAQYAAQYABAgAFAgAFAgAEAAQYAAQ"
+            "YABBgABBgAEGAAEGAAQIABQIABQICdAgAIMAAIMAAgwAAgwACAAAOAAAMAAgwAAgwACDAACDAACDAAIMAAIMAA"
+            "gAADgAADAAIMAAIMAAgwAAgwAAgwACDAACDAAIAAA4AAAwACDAACDAAIMAAIMAAIMAAgwAAgwACAAAOAAAMAAg"
+            "wAAgwACDAACDAACDAAIMAAIMAAgAADgAADAAIMAAIMAAgwAAgwAAgwACDAACDAAIAAA4AAAwACDAACDAAIMAAI"
+            "MAAIMAAgwAAgwACAAAOAAAMAAgwAAgwACDAACDAACDAAIMCQrlhZy2UDAYZLgNf94G0CDAIMAizAIMAgwAIMAg"
+            "wCjACDAIMACzAIMAgwAgwCDAIswCDAIMAIMAgwCLAAgwCDACPAIMAgwAIMAgwCLMAgwCDACDAIMAiwAIMAgwAj"
+            "wCDAIMACDAIMAowAgwDDAAEuFavpxze7aj6j78MEGAQYBFiAQYBBgAVYgEGAYZwA9zXs4a6b7VHZFmAQYBBgAQ"
+            "YBBgEWYAEGAYZPzIAfDoyb4irAIMAgwAIswCDAIMACDAIM/wtw39OgqMlx+OMlAQYBBgEWYBBgEGABFmAQYBjn"
+            "GVL4DNg/YYEAgwALsACDAIMACzAIMJgBI8AgwCDAAgwCDAIswO4bCDAIsACDAIMACzAIMAgwAgwCDAIswCDAIM"
+            "AIMAgwCLAAgwCDACPAIMAgwAIMAgwCLMACDAIMAizAIMAgwAIMAgwCjACDAIMACzAIMAgwAgwCDAIswCDAIMAIM"
+            "AgwCLAAgwCDACPAIMAgwAIMAgwCLMAgwCDACDAIMAiwAIMAgwAjwCDAIMACDAIMXw+wlbNcNhBgABBgABBgAECA"
+            "AUCAAQABBgABBgAEGAAEGAAQYAAQYAAQYABAgAFAgAEAAQYAAQYABBgABBgAEGAAEGAAEGAAQIABQIABAAEGAA"
+            "EGAAQYAAQYABBgABBgABBgAECAAUCAAQABBgABBgAEGAAEGAAQYAAQYAAQYABAgAFAgAEAAQYAAQYABBgABBgA"
+            "EGAAEGAAEGAAQIABQIABAAEGAAEGAAQYAAQYABBgABBgABBgAECAAUCAAQABBgABBgAEGAAEGAAQYAAQYAAQYA"
+            "BAgAFAgAEAAQYAAQYABBgABBgAEGAAEGAAEGBHAAACDAACDAAIMAAIMAAgwAAgwACAAAOAAAMAAgwAAgwAAgwA"
+            "CDAACDAAIMAAIMAAgAADgAADAAIMAAIMAAIMAAgwAAgwACDAACDAAIAAA4AAAwACDAACDAACDAAIMAAIMAAgwA"
+            "AgwACAAAOAAAMAAgwAAgwAAgwACDAACDAAIMAAIMAAgAADgAADAAIMAAIMAAIMAAgwAAgwACDAACDAAIAAA4AA"
+            "AwACDAACDAACDAAIMAAIMAAgwAAgwACAAAOAAAMAAgwAAgwAAgwACDAACDAAIMAAIMAAgAADgAADAAIMAAIMAA"
+            "IMAOQ6AQ8fSpEvP2k8AAAAAElFTkSuQmCC"
+        )
 
 
-        def get_moondream_status():
-            env_key = os.environ.get("MOONDREAM_API_KEY", "").strip()
-            if env_key:
-                return True, env_key[-4:] if len(env_key) >= 4 else env_key
-            if os.path.isfile(MOONDREAM_KEY_PATH):
-                try:
-                    with open(MOONDREAM_KEY_PATH, "r", encoding="utf-8") as f:
-                        c = f.read().strip()
-                        if c:
-                            return True, c[-4:] if len(c) >= 4 else c
-                except Exception:
-                    pass
-            return False, ""
-
-        def get_liquid_status():
+        def get_raw_liquid_key():
             env_key = os.environ.get("LIQUID_API_KEY", "").strip()
             if env_key:
-                return True, env_key[-4:] if len(env_key) >= 4 else env_key
-            if os.path.isfile(LIQUID_KEY_PATH):
-                try:
-                    with open(LIQUID_KEY_PATH, "r", encoding="utf-8") as f:
-                        c = f.read().strip()
-                        if c:
-                            return True, c[-4:] if len(c) >= 4 else c
-                except Exception:
-                    pass
-            return False, ""
+                return env_key
+            for p in [LIQUID_KEY_PATH, "/data/config/liquid.key"]:
+                if os.path.isfile(p):
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            c = f.read().strip()
+                            if c:
+                                return c
+                    except Exception:
+                        pass
+            return ""
 
 
-        def get_typesafe_status():
+        def get_raw_typesafe_key():
             env_key = os.environ.get("TYPESAFE_API_KEY", "").strip()
             if env_key:
-                return True, env_key[-4:] if len(env_key) >= 4 else env_key
+                return env_key
             for p in [TYPESAFE_KEY_PATH, "/data/config/typesafe.key"]:
                 if os.path.isfile(p):
                     try:
                         with open(p, "r", encoding="utf-8") as f:
                             c = f.read().strip()
                             if c:
-                                return True, c[-4:] if len(c) >= 4 else c
+                                return c
                     except Exception:
                         pass
+            return ""
+
+
+        def get_raw_moondream_key():
+            env_key = os.environ.get("MOONDREAM_API_KEY", "").strip()
+            if env_key:
+                return env_key
+            for p in [MOONDREAM_KEY_PATH, "/data/config/moondream.key"]:
+                if os.path.isfile(p):
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            c = f.read().strip()
+                            if c:
+                                return c
+                    except Exception:
+                        pass
+            return ""
+
+
+        def get_moondream_status():
+            k = get_raw_moondream_key()
+            if k:
+                return True, k[-4:] if len(k) >= 4 else k
             return False, ""
 
+
+        def get_liquid_status():
+            k = get_raw_liquid_key()
+            if k:
+                return True, k[-4:] if len(k) >= 4 else k
+            return False, ""
+
+
+        def get_typesafe_status():
+            k = get_raw_typesafe_key()
+            if k:
+                return True, k[-4:] if len(k) >= 4 else k
+            return False, ""
+
+
+        def sanitize_secret(text, secret):
+            if not text or not secret:
+                return text
+            return str(text).replace(secret, "[CHAVE_OCULTA]")
+
+
+        def sanitize_all_secrets(obj, secrets):
+            if not secrets:
+                return obj
+            valid_secrets = [s for s in secrets if s and isinstance(s, str)]
+            if not valid_secrets:
+                return obj
+            if isinstance(obj, str):
+                res = obj
+                for s in valid_secrets:
+                    res = res.replace(s, "[CHAVE_OCULTA]")
+                return res
+            elif isinstance(obj, dict):
+                return {k: sanitize_all_secrets(v, valid_secrets) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_all_secrets(v, valid_secrets) for v in obj]
+            return obj
+
+
+        def generate_send_button_png():
+            try:
+                from PIL import Image, ImageDraw
+                img = Image.new("RGB", (640, 360), color=(15, 23, 42))
+                draw = ImageDraw.Draw(img)
+                draw.rectangle([260, 150, 380, 210], fill=(37, 99, 235), outline=(255, 255, 255), width=2)
+                draw.text((298, 172), "Send", fill=(255, 255, 255))
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                return buf.getvalue()
+            except Exception:
+                return base64.b64decode(EMBEDDED_SYNTHETIC_PNG_B64)
+
+
+        def find_decide_binary():
+            env_bin = os.environ.get("DECIDE_BIN_PATH", "").strip()
+            if env_bin and os.path.isfile(env_bin):
+                return env_bin
+            candidates = [
+                shutil.which("decide"),
+                "/data/bin/decide",
+                "/usr/local/bin/decide",
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "bin", "decide")),
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "decide")),
+                "/bin/decide",
+            ]
+            for c in candidates:
+                if c and os.path.isfile(c):
+                    return c
+            return None
+
+
+        def run_test_service(service_name):
+            service_name = (service_name or "").strip().lower()
+            all_keys = [get_raw_liquid_key(), get_raw_typesafe_key(), get_raw_moondream_key()]
+
+            if service_name == "liquid":
+                key = get_raw_liquid_key()
+                if not key:
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": 0,
+                        "modelo": "d1-ultra",
+                        "resultado": None,
+                        "erro": "Chave Liquid AI não configurada.",
+                    }
+                payload = {
+                    "model": "d1-ultra",
+                    "state": "Tela: botao Enviar visivel, campo de mensagem preenchido. Objetivo: enviar a mensagem.",
+                    "questions": {
+                        "decisao": {
+                            "type": "choice",
+                            "instructions": "Enviar a mensagem",
+                            "criteria": {
+                                "clicar_enviar": "Clicar no botao Enviar",
+                                "esperar": "Esperar",
+                            },
+                        }
+                    },
+                }
+                req_data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    LIQUID_API_URL,
+                    data=req_data,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "thainan-openbot-web/0.62.0-r2",
+                    },
+                    method="POST",
+                )
+                t0 = time.time()
+                try:
+                    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                        elapsed_ms = int((time.time() - t0) * 1000)
+                        body = resp.read().decode("utf-8", errors="replace")
+                        resp_json = json.loads(body)
+                        modelo = resp_json.get("model", "d1-ultra")
+                        answers = resp_json.get("answers", {})
+                        decisao = answers.get("decisao", {})
+                        choice = decisao.get("choice")
+                        conf = decisao.get("confidence")
+                        probs = decisao.get("probabilities", {})
+                        resultado = {
+                            "opcao": choice,
+                            "confianca": conf,
+                            "probabilidades": probs,
+                        }
+                        return {
+                            "ok": True,
+                            "http": resp.getcode(),
+                            "ms": elapsed_ms,
+                            "modelo": modelo,
+                            "resultado": sanitize_all_secrets(resultado, all_keys),
+                            "erro": None,
+                        }
+                except urllib.error.HTTPError as exc:
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    err_body = exc.read().decode("utf-8", errors="replace")
+                    err_msg = f"HTTP {exc.code}: {err_body[:300]}"
+                    return {
+                        "ok": False,
+                        "http": exc.code,
+                        "ms": elapsed_ms,
+                        "modelo": "d1-ultra",
+                        "resultado": None,
+                        "erro": sanitize_all_secrets(err_msg, all_keys),
+                    }
+                except Exception as exc:
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": elapsed_ms,
+                        "modelo": "d1-ultra",
+                        "resultado": None,
+                        "erro": sanitize_all_secrets(str(exc), all_keys),
+                    }
+
+            elif service_name == "typesafe":
+                key = get_raw_typesafe_key()
+                if not key:
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": 0,
+                        "modelo": "jev-latest",
+                        "resultado": None,
+                        "erro": "Chave TypeSafe não configurada.",
+                    }
+                payload = {
+                    "model": "jev-latest",
+                    "state": "Tela: botao Enviar visivel, campo de mensagem preenchido. Objetivo: enviar a mensagem.",
+                    "questions": {
+                        "decisao": {
+                            "type": "choice",
+                            "instructions": "Enviar a mensagem",
+                            "criteria": {
+                                "clicar_enviar": "Clicar no botao Enviar",
+                                "esperar": "Esperar",
+                            },
+                        }
+                    },
+                }
+                req_data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    TYPESAFE_API_URL,
+                    data=req_data,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "thainan-openbot-web/0.62.0-r2",
+                    },
+                    method="POST",
+                 )
+                t0 = time.time()
+                try:
+                    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                        elapsed_ms = int((time.time() - t0) * 1000)
+                        body = resp.read().decode("utf-8", errors="replace")
+                        resp_json = json.loads(body)
+                        modelo = resp_json.get("model", "jev-latest")
+                        answers = resp_json.get("answers", {})
+                        decisao = answers.get("decisao", {})
+                        choice = decisao.get("choice")
+                        conf = decisao.get("confidence")
+                        probs = decisao.get("probabilities", {})
+                        resultado = {
+                            "opcao": choice,
+                            "confianca": conf,
+                            "probabilidades": probs,
+                        }
+                        return {
+                            "ok": True,
+                            "http": resp.getcode(),
+                            "ms": elapsed_ms,
+                            "modelo": modelo,
+                            "resultado": sanitize_all_secrets(resultado, all_keys),
+                            "erro": None,
+                        }
+                except urllib.error.HTTPError as exc:
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    err_body = exc.read().decode("utf-8", errors="replace")
+                    err_msg = f"HTTP {exc.code}: {err_body[:300]}"
+                    return {
+                        "ok": False,
+                        "http": exc.code,
+                        "ms": elapsed_ms,
+                        "modelo": "jev-latest",
+                        "resultado": None,
+                        "erro": sanitize_all_secrets(err_msg, all_keys),
+                    }
+                except Exception as exc:
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": elapsed_ms,
+                        "modelo": "jev-latest",
+                        "resultado": None,
+                        "erro": sanitize_all_secrets(str(exc), all_keys),
+                    }
+
+            elif service_name == "moondream":
+                key = get_raw_moondream_key()
+                if not key:
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": 0,
+                        "modelo": "point",
+                        "resultado": None,
+                        "erro": "Chave Moondream não configurada.",
+                    }
+                png_bytes = generate_send_button_png()
+                data_uri = f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}"
+                payload = {
+                    "image_url": data_uri,
+                    "object": "Send button",
+                }
+                req_data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    MOONDREAM_API_URL,
+                    data=req_data,
+                    headers={
+                        "X-Moondream-Auth": key,
+                        "Content-Type": "application/json",
+                        "User-Agent": "thainan-openbot-web/0.62.0-r2",
+                    },
+                    method="POST",
+                )
+                t0 = time.time()
+                try:
+                    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                        elapsed_ms = int((time.time() - t0) * 1000)
+                        body = resp.read().decode("utf-8", errors="replace")
+                        resp_json = json.loads(body)
+                        points = resp_json.get("points", [])
+                        if points:
+                            primary = points[0]
+                            nx = float(primary.get("x", 0.0))
+                            ny = float(primary.get("y", 0.0))
+                            real_x = int(round(nx * 640)) if nx <= 1.0 else int(round(nx))
+                            real_y = int(round(ny * 360)) if ny <= 1.0 else int(round(ny))
+                            resultado = {"x": real_x, "y": real_y}
+                        else:
+                            resultado = {"x": None, "y": None}
+                        return {
+                            "ok": True,
+                            "http": resp.getcode(),
+                            "ms": elapsed_ms,
+                            "modelo": "point",
+                            "resultado": sanitize_all_secrets(resultado, all_keys),
+                            "erro": None,
+                        }
+                except urllib.error.HTTPError as exc:
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    err_body = exc.read().decode("utf-8", errors="replace")
+                    err_msg = f"HTTP {exc.code}: {err_body[:300]}"
+                    return {
+                        "ok": False,
+                        "http": exc.code,
+                        "ms": elapsed_ms,
+                        "modelo": "point",
+                        "resultado": None,
+                        "erro": sanitize_all_secrets(err_msg, all_keys),
+                    }
+                except Exception as exc:
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": elapsed_ms,
+                        "modelo": "point",
+                        "resultado": None,
+                        "erro": sanitize_all_secrets(str(exc), all_keys),
+                    }
+
+            elif service_name == "decide":
+                decide_bin = find_decide_binary()
+                if not decide_bin:
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": 0,
+                        "modelo": "decide",
+                        "resultado": None,
+                        "erro": "Binário CLI 'decide' não encontrado.",
+                    }
+                cmd = [
+                    sys.executable,
+                    decide_bin,
+                    "--objetivo", "Enviar a mensagem",
+                    "--estado", "Tela: botao Enviar visivel, campo de mensagem preenchido. Objetivo: enviar a mensagem.",
+                    "--opcao", "clicar_enviar=Clicar no botao Enviar",
+                    "--opcao", "esperar=Esperar",
+                    "--json",
+                ]
+                if LIQUID_API_URL:
+                    cmd.extend(["--liquid-url", LIQUID_API_URL])
+                if TYPESAFE_API_URL:
+                    cmd.extend(["--typesafe-url", TYPESAFE_API_URL])
+
+                env = os.environ.copy()
+                k_liquid = get_raw_liquid_key()
+                if k_liquid and not env.get("LIQUID_API_KEY"):
+                    env["LIQUID_API_KEY"] = k_liquid
+                k_typesafe = get_raw_typesafe_key()
+                if k_typesafe and not env.get("TYPESAFE_API_KEY"):
+                    env["TYPESAFE_API_KEY"] = k_typesafe
+
+                t0 = time.time()
+                try:
+                    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=REQUEST_TIMEOUT)
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    if proc.returncode in (0, 3):
+                        try:
+                            out_dict = json.loads(proc.stdout)
+                        except Exception:
+                            out_dict = {"raw": proc.stdout.strip()}
+                        modelo = out_dict.get("provedor") or "decide"
+                        return {
+                            "ok": True,
+                            "http": 200,
+                            "ms": elapsed_ms,
+                            "modelo": modelo,
+                            "resultado": sanitize_all_secrets(out_dict, all_keys),
+                            "erro": None,
+                        }
+                    else:
+                        err_text = (proc.stderr or proc.stdout).strip() or f"Código de saída {proc.returncode}"
+                        return {
+                            "ok": False,
+                            "http": None,
+                            "ms": elapsed_ms,
+                            "modelo": "decide",
+                            "resultado": None,
+                            "erro": sanitize_all_secrets(err_text, all_keys),
+                        }
+                except subprocess.TimeoutExpired:
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": 15000,
+                        "modelo": "decide",
+                        "resultado": None,
+                        "erro": "Tempo limite de 15 s excedido.",
+                    }
+                except Exception as exc:
+                    elapsed_ms = int((time.time() - t0) * 1000)
+                    return {
+                        "ok": False,
+                        "http": None,
+                        "ms": elapsed_ms,
+                        "modelo": "decide",
+                        "resultado": None,
+                        "erro": sanitize_all_secrets(str(exc), all_keys),
+                    }
+
+            return {
+                "ok": False,
+                "http": 400,
+                "ms": 0,
+                "modelo": None,
+                "resultado": None,
+                "erro": f"Serviço desconhecido '{service_name}'. Esperado: liquid, typesafe, moondream ou decide.",
+            }
 
         class UnixHTTPConnection(http.client.HTTPConnection):
             def __init__(self, sock_path, timeout=15):
@@ -1311,7 +1765,9 @@ services:
                 </div>
                 <div class="actions">
                   <button type="submit" id="btn-moondream" class="btn btn-secondary">Salvar</button>
+                  <button type="button" id="btn-test-moondream" class="btn btn-secondary" onclick="testarServico('moondream', this)">Testar</button>
                 </div>
+                <div id="result-moondream" class="test-result"></div>
               </form>
             </div>
             """
@@ -1335,7 +1791,9 @@ services:
                 </div>
                 <div class="actions">
                   <button type="submit" id="btn-liquid" class="btn btn-secondary">Salvar</button>
+                  <button type="button" id="btn-test-liquid" class="btn btn-secondary" onclick="testarServico('liquid', this)">Testar</button>
                 </div>
+                <div id="result-liquid" class="test-result"></div>
               </form>
             </div>
             """
@@ -1360,8 +1818,23 @@ services:
                 </div>
                 <div class="actions">
                   <button type="submit" id="btn-typesafe" class="btn btn-secondary">Salvar</button>
+                  <button type="button" id="btn-test-typesafe" class="btn btn-secondary" onclick="testarServico('typesafe', this)">Testar</button>
                 </div>
+                <div id="result-typesafe" class="test-result"></div>
               </form>
+            </div>
+            """
+
+            decide_section = f"""
+            <div class="card">
+              <div class="status-row">
+                <h2>Pipeline de decisão CLI (decide)</h2>
+              </div>
+              <p class="subtitle">Executa a CLI decide no container com fallback automático (Liquid AI &rarr; TypeSafe).</p>
+              <div class="actions">
+                <button type="button" id="btn-test-decide" class="btn btn-secondary" onclick="testarServico('decide', this)">Testar</button>
+              </div>
+              <div id="result-decide" class="test-result"></div>
             </div>
             """
 
@@ -1571,6 +2044,24 @@ services:
               color: #000000;
               user-select: all;
             }}
+            .test-result {{
+              margin-top: 12px;
+              font-size: 13px;
+              line-height: 1.4;
+              min-height: 1.4em;
+            }}
+            .test-result:empty {{
+              display: none;
+            }}
+            .test-result.loading {{
+              color: var(--text-muted);
+            }}
+            .test-result.success {{
+              color: #4ade80;
+            }}
+            .test-result.error {{
+              color: #f87171;
+            }}
             footer {{
               margin-top: 32px;
               text-align: center;
@@ -1608,7 +2099,7 @@ services:
             {liquid_section}
             {typesafe_section}
             {moondream_section}
-
+            {decide_section}
             <footer>
               <p>OpenBot rodando no Nonve via Umbrel</p>
             </footer>
@@ -1683,6 +2174,43 @@ services:
                 }}
               }});
             }}
+
+            async function testarServico(servico, btn) {{
+              const resultEl = document.getElementById("result-" + servico);
+              if (!resultEl) return;
+              if (btn) btn.disabled = true;
+              resultEl.className = "test-result loading";
+              resultEl.textContent = "Testando conexão com " + servico + "...";
+              try {{
+                const res = await fetch("/api/testar?servico=" + encodeURIComponent(servico));
+                const data = await res.json();
+                if (data.ok) {{
+                  resultEl.className = "test-result success";
+                  let detalhe = "";
+                  if (servico === "moondream" && data.resultado) {{
+                    detalhe = "Ponto detectado em x: " + data.resultado.x + ", y: " + data.resultado.y + ".";
+                  }} else if (data.resultado && data.resultado.opcao) {{
+                    const confTxt = (data.resultado.confianca !== undefined && data.resultado.confianca !== null) ? " (confiança: " + data.resultado.confianca + ")" : "";
+                    detalhe = "Decisão: " + data.resultado.opcao + confTxt + ".";
+                  }} else if (typeof data.resultado === "object" && data.resultado !== null) {{
+                    detalhe = "Resultado: " + JSON.stringify(data.resultado) + ".";
+                  }} else if (data.resultado) {{
+                    detalhe = "Resultado: " + data.resultado + ".";
+                  }}
+                  resultEl.textContent = "Sucesso: modelo " + (data.modelo || servico) + " respondeu em " + data.ms + " ms. " + detalhe;
+                }} else {{
+                  resultEl.className = "test-result error";
+                  const statusTxt = data.http ? " (HTTP " + data.http + ")" : "";
+                  const msTxt = data.ms ? " em " + data.ms + " ms" : "";
+                  resultEl.textContent = "Falha no teste" + statusTxt + msTxt + ": " + (data.erro || "Erro desconhecido.");
+                }}
+              }} catch (err) {{
+                resultEl.className = "test-result error";
+                resultEl.textContent = "Falha de comunicação: " + err;
+              }} finally {{
+                if (btn) btn.disabled = false;
+              }}
+            }}
           </script>
         </body>
         </html>"""
@@ -1749,6 +2277,22 @@ services:
                         "version": info.get("version", "0.62.0"),
                         "message": info.get("message") or info.get("account_message") or info.get("server_message") or "",
                     })
+                elif path == "/api/testar":
+                    query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    servico = query.get("servico", [""])[0].strip().lower()
+                    if not servico:
+                        self._reply_json(400, {
+                            "ok": False,
+                            "http": 400,
+                            "ms": 0,
+                            "modelo": None,
+                            "resultado": None,
+                            "erro": "Parâmetro 'servico' ausente. Esperado: liquid, typesafe, moondream ou decide.",
+                        })
+                        return
+                    res = run_test_service(servico)
+                    status_code = 200 if servico in ("liquid", "typesafe", "moondream", "decide") else 400
+                    self._reply_json(status_code, res)
                 else:
                     self.send_response(404)
                     self.end_headers()
@@ -1974,11 +2518,12 @@ services:
 
         if __name__ == "__main__":
             run()
+
         PY
         exec python3 -u /tmp/server.py
 
   openbot:
-    image: ghcr.io/nancmd77/thainan-openbot:0.62.0-r1
+    image: ghcr.io/nancmd77/thainan-openbot:0.62.0-r2
     restart: unless-stopped
     user: "1000:1000"
     depends_on:

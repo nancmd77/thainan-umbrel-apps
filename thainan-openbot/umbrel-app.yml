@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.62.0-r1"
+version: "0.62.0-r2"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.62.0-r1: base upstream OpenBot v0.62.0 com correção do ChatGPT em início lento, login do Hermes Agent em servidor próprio, Computer Use do Codex sempre carregado, integração com TickTick e mensagens não lidas em threads.
+  Versão 0.62.0-r2: teste real de chaves na página de config (porta 8592) para Liquid, TypeSafe, Moondream e CLI decide, com feedback direto em texto sentence case sem pilulas.
 dependencies: []
 path: ""
 defaultUsername: ""
