@@ -9,7 +9,7 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
 
 2. **decide escolhe (Decisao por Passo)**:
    - Execute a CLI `decide --objetivo '<meta>' --estado '<lista AT-SPI>' --opcao id='descricao' ...`.
-   - O modelo leve calibrado (Liquid AI `d1-ultra` com reserva Jev `~typesafe/jev-latest` via 9Router) seleciona a melhor opcao com confianca e custo minimo.
+   - O modelo leve calibrado (Liquid AI `d1-ultra` com reserva Jev `jev-latest` via API oficial da TypeSafe) seleciona a melhor opcao com confianca e custo minimo.
 
 3. **Clique pela arvore**:
    - Apos a escolha do `decide`, clique diretamente no no da arvore AT-SPI correspondente ao elemento.
@@ -30,7 +30,7 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
   `decide --objetivo '<meta>' --estado '<estado>' --opcao id='descricao' --limiar 0.40 --json`
 - **Chaves de API**:
   - Liquid AI: `LIQUID_API_KEY` ou `/config/liquid.key` (perm 600).
-  - 9Router (Jev reserva): `NINEROUTER_API_KEY` ou `/config/9router.key` (perm 600).
+  - TypeSafe (Jev reserva): `TYPESAFE_API_KEY` ou `/config/typesafe.key` (perm 600).
   - Configuraveis no painel web na porta `8592` (rotas `/config` e `/moondream`).
 
 ## Ferramenta CLI `md`

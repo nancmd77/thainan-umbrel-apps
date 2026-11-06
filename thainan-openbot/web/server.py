@@ -20,7 +20,7 @@ SERVER_PORT = int(os.environ.get("OPENBOT_WEB_PORT", "8592"))
 DEFAULT_EMAIL = "thainancaldeira75@gmail.com"
 MOONDREAM_KEY_PATH = os.environ.get("CONFIG_KEY_PATH", "/config/moondream.key")
 LIQUID_KEY_PATH = os.environ.get("LIQUID_KEY_PATH", "/config/liquid.key")
-NINEROUTER_KEY_PATH = os.environ.get("NINEROUTER_KEY_PATH", "/config/9router.key")
+TYPESAFE_KEY_PATH = os.environ.get("TYPESAFE_KEY_PATH", "/config/typesafe.key")
 
 
 def get_moondream_status():
@@ -52,11 +52,11 @@ def get_liquid_status():
     return False, ""
 
 
-def get_9router_status():
-    env_key = os.environ.get("NINEROUTER_API_KEY", "").strip() or os.environ.get("OPENBOT_9ROUTER_KEY", "").strip()
+def get_typesafe_status():
+    env_key = os.environ.get("TYPESAFE_API_KEY", "").strip()
     if env_key:
         return True, env_key[-4:] if len(env_key) >= 4 else env_key
-    for p in [NINEROUTER_KEY_PATH, "/data/9router_key"]:
+    for p in [TYPESAFE_KEY_PATH, "/data/config/typesafe.key"]:
         if os.path.isfile(p):
             try:
                 with open(p, "r", encoding="utf-8") as f:
@@ -66,7 +66,6 @@ def get_9router_status():
             except Exception:
                 pass
     return False, ""
-
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -254,14 +253,14 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
         """
     has_md, md_last4 = get_moondream_status()
     if has_md:
-        md_badge = f'<span class="badge" style="background-color:#16a34a">salva (termina em {html.escape(md_last4)})</span>'
+        md_badge = f'<span class="badge" style="background-color:#16a34a">Salva (termina em {html.escape(md_last4)})</span>'
     else:
-        md_badge = '<span class="badge" style="background-color:#d97706">chave ausente</span>'
+        md_badge = '<span class="badge" style="background-color:#d97706">Chave ausente</span>'
 
     moondream_section = f"""
     <div class="card">
       <div class="status-row">
-        <h2>Mira Visual Moondream</h2>
+        <h2>Mira visual Moondream</h2>
         {md_badge}
       </div>
       <p class="subtitle">Chave de API do Moondream Cloud para mira visual e computer use de agentes.</p>
@@ -278,14 +277,14 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
     """
     has_liquid, liquid_last4 = get_liquid_status()
     if has_liquid:
-        liquid_badge = f'<span class="badge" style="background-color:#16a34a">salva (termina em {html.escape(liquid_last4)})</span>'
+        liquid_badge = f'<span class="badge" style="background-color:#16a34a">Salva (termina em {html.escape(liquid_last4)})</span>'
     else:
-        liquid_badge = '<span class="badge" style="background-color:#d97706">chave ausente</span>'
+        liquid_badge = '<span class="badge" style="background-color:#d97706">Chave ausente</span>'
 
     liquid_section = f"""
     <div class="card">
       <div class="status-row">
-        <h2>Modelo de Decisão Liquid AI (SystemOne)</h2>
+        <h2>Modelo de decisão Liquid AI (SystemOne)</h2>
         {liquid_badge}
       </div>
       <p class="subtitle">Chave de API do Liquid AI (modelo d1-ultra) para decisão rápida de passos em Computer Use.</p>
@@ -301,26 +300,26 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
     </div>
     """
 
-    has_9r, ninerouter_last4 = get_9router_status()
-    if has_9r:
-        ninerouter_badge = f'<span class="badge" style="background-color:#16a34a">salva (termina em {html.escape(ninerouter_last4)})</span>'
+    has_ts, typesafe_last4 = get_typesafe_status()
+    if has_ts:
+        typesafe_badge = f'<span class="badge" style="background-color:#16a34a">Salva (termina em {html.escape(typesafe_last4)})</span>'
     else:
-        ninerouter_badge = '<span class="badge" style="background-color:#d97706">chave ausente</span>'
+        typesafe_badge = '<span class="badge" style="background-color:#d97706">Chave ausente</span>'
 
-    ninerouter_section = f"""
+    typesafe_section = f"""
     <div class="card">
       <div class="status-row">
-        <h2>Decisão Reserva Jev (9Router)</h2>
-        {ninerouter_badge}
+        <h2>Decisao reserva Jev (TypeSafe)</h2>
+        {typesafe_badge}
       </div>
-      <p class="subtitle">Chave da API 9Router (modelo ~typesafe/jev-latest) usada como reserva imediata quando o Liquid AI falhar.</p>
-      <form id="form-9router" method="POST" action="/9router/save">
+      <p class="subtitle">Chave da API oficial da TypeSafe (modelo jev-latest), usada como reserva quando a Liquid AI falhar.</p>
+      <form id="form-typesafe" method="POST" action="/typesafe/save">
         <div class="field">
-          <label for="ninerouter-key">Chave 9Router</label>
-          <input type="password" id="ninerouter-key" name="key" placeholder="Cole sua chave 9Router aqui..." autocomplete="off" required />
+          <label for="typesafe-key">Chave TypeSafe</label>
+          <input type="password" id="typesafe-key" name="key" placeholder="Cole sua chave TypeSafe aqui..." autocomplete="off" required />
         </div>
         <div class="actions">
-          <button type="submit" id="btn-9router" class="btn btn-secondary">Salvar</button>
+          <button type="submit" id="btn-typesafe" class="btn btn-secondary">Salvar</button>
         </div>
       </form>
     </div>
@@ -406,6 +405,7 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
       font-size: 12px;
       font-weight: 600;
       color: #ffffff;
+      border-radius: 0;
       background-color: {badge_color};
     }}
     .info-list {{
@@ -431,13 +431,19 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
       margin-bottom: 6px;
       color: var(--text);
     }}
-    input[type="email"], input[type="text"] {{
+    input[type="email"],
+    input[type="text"],
+    input[type="password"] {{
+      display: block;
       width: 100%;
-      padding: 10px 12px;
+      height: 40px;
+      padding: 10px;
       background-color: #0b1120;
       border: 1px solid var(--border);
+      border-radius: 0;
       color: var(--text);
       font-size: 14px;
+      box-sizing: border-box;
     }}
     input:focus {{
       outline: 2px solid var(--primary);
@@ -459,6 +465,7 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
       font-weight: 500;
       cursor: pointer;
       border: 1px solid transparent;
+      border-radius: 0;
       text-align: center;
       text-decoration: none;
     }}
@@ -559,7 +566,7 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
     {login_section}
     {actions_section}
     {liquid_section}
-    {ninerouter_section}
+    {typesafe_section}
     {moondream_section}
 
     <footer>
@@ -861,8 +868,8 @@ class OpenBotWebHandler(http.server.BaseHTTPRequestHandler):
                     page = render_html_page(error_msg=f"Erro ao salvar: {exc}")
                     self._reply_html(500, page)
 
-        # API: 9Router Key
-        elif path in ("/9router/save", "/api/9router/save"):
+        # API: TypeSafe Key
+        elif path in ("/typesafe/save", "/api/typesafe/save"):
             data = self._read_form_or_json()
             key = data.get("key", "").strip()
             if not key:
@@ -874,12 +881,12 @@ class OpenBotWebHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             try:
-                os.makedirs(os.path.dirname(NINEROUTER_KEY_PATH), exist_ok=True)
-                with open(NINEROUTER_KEY_PATH, "w", encoding="utf-8") as f:
+                os.makedirs(os.path.dirname(TYPESAFE_KEY_PATH), exist_ok=True)
+                with open(TYPESAFE_KEY_PATH, "w", encoding="utf-8") as f:
                     f.write(key)
-                os.chmod(NINEROUTER_KEY_PATH, 0o600)
+                os.chmod(TYPESAFE_KEY_PATH, 0o600)
                 last4 = key[-4:] if len(key) >= 4 else key
-                msg = f"Chave 9Router salva (termina em {last4})"
+                msg = f"Chave TypeSafe salva (termina em {last4})"
                 if path.startswith("/api/"):
                     self._reply_json(200, {"ok": True, "message": msg, "last4": last4})
                 else:
@@ -912,11 +919,11 @@ def run():
     else:
         sys.stderr.write("liquid: chave ausente\n")
 
-    has_9r, _ = get_9router_status()
-    if has_9r:
-        sys.stderr.write("9router: chave presente\n")
+    has_ts, _ = get_typesafe_status()
+    if has_ts:
+        sys.stderr.write("typesafe: chave presente\n")
     else:
-        sys.stderr.write("9router: chave ausente\n")
+        sys.stderr.write("typesafe: chave ausente\n")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

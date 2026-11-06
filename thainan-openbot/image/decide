@@ -2,7 +2,7 @@
 """
 CLI de Decisao (decide) por passo para agentes de Computer Use no OpenBot.
 API Principal: Liquid AI SystemOne (d1-ultra).
-Reserva: Jev (~typesafe/jev-latest) via 9Router.
+Reserva: Jev (jev-latest) via API oficial da TypeSafe.
 """
 
 import argparse
@@ -16,9 +16,9 @@ import urllib.parse
 import urllib.request
 
 LIQUID_API_URL = os.environ.get("LIQUID_API_URL", "https://api.liquid.ai/decisions/v1/systemone")
-NINEROUTER_API_URL = os.environ.get("NINEROUTER_API_URL", "http://192.168.18.171:20128/v1/systemone")
+TYPESAFE_API_URL = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemone")
 DEFAULT_LIQUID_MODEL = "d1-ultra"
-DEFAULT_JEV_MODEL = "~typesafe/jev-latest"
+DEFAULT_JEV_MODEL = "jev-latest"
 DEFAULT_THRESHOLD = 0.35
 REQUEST_TIMEOUT = 5.0
 
@@ -54,24 +54,22 @@ def get_liquid_key():
     return None
 
 
-def get_9router_key():
-    """Busca a chave 9Router/Jev na variavel de ambiente ou em arquivos restritos."""
-    for env_var in ["NINEROUTER_API_KEY", "OPENBOT_9ROUTER_KEY"]:
-        env_key = os.environ.get(env_var, "").strip()
-        if env_key:
-            return env_key
+def get_typesafe_key():
+    """Busca a chave TypeSafe na variavel de ambiente ou em arquivos restritos."""
+    env_key = os.environ.get("TYPESAFE_API_KEY", "").strip()
+    if env_key:
+        return env_key
 
     candidate_files = []
     app_data = os.environ.get("APP_DATA_DIR")
     if app_data:
-        candidate_files.append(os.path.join(app_data, "config", "9router.key"))
+        candidate_files.append(os.path.join(app_data, "config", "typesafe.key"))
 
     candidate_files.extend([
-        "/config/9router.key",
-        "/data/config/9router.key",
-        "/data/9router_key",
-        os.path.expanduser("~/.config/9router/9router.key"),
-        os.path.expanduser("~/.config/9router.key"),
+        "/config/typesafe.key",
+        "/data/config/typesafe.key",
+        os.path.expanduser("~/.config/typesafe/typesafe.key"),
+        os.path.expanduser("~/.config/typesafe.key"),
     ])
 
     for path in candidate_files:
@@ -118,17 +116,21 @@ def prepare_image(image_path):
     return f"data:{mime};base64,{b64_data}"
 
 
-def call_systemone_api(url, payload, api_key, timeout=REQUEST_TIMEOUT):
+def call_systemone_api(url, payload, api_key, timeout=REQUEST_TIMEOUT, extra_headers=None):
     """Envia POST com autenticacao Bearer para o endpoint SystemOne."""
     data_bytes = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "thainan-openbot-decide/0.61.0-r10",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+
     req = urllib.request.Request(
         url,
         data=data_bytes,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "thainan-openbot-decide/0.61.0-r9",
-        },
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -206,7 +208,7 @@ def main(argv=None):
     parser.add_argument("--limiar", type=float, default=DEFAULT_THRESHOLD, help="Limiar de confianca minima (padrao 0.35)")
     parser.add_argument("--json", action="store_true", help="Saida estruturada em formato JSON")
     parser.add_argument("--liquid-url", default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--ninerouter-url", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--typesafe-url", default=None, help=argparse.SUPPRESS)
 
     args = parser.parse_args(argv)
 
@@ -221,14 +223,14 @@ def main(argv=None):
             sys.exit(1)
 
     liquid_key = get_liquid_key()
-    jev_key = get_9router_key()
+    jev_key = get_typesafe_key()
 
     if not liquid_key and not jev_key:
         sys.stderr.write("erro: chave ausente\n")
         sys.exit(1)
 
     liquid_url = args.liquid_url or LIQUID_API_URL
-    ninerouter_url = args.ninerouter_url or NINEROUTER_API_URL
+    typesafe_url = args.typesafe_url or TYPESAFE_API_URL
 
     base_question = {
         "type": "choice",
@@ -244,7 +246,6 @@ def main(argv=None):
         payload_liquid = {
             "model": DEFAULT_LIQUID_MODEL,
             "state": args.estado,
-            "context": args.estado,
             "questions": {
                 "decisao": base_question,
             },
@@ -258,16 +259,15 @@ def main(argv=None):
         except Exception:
             resp = None
 
-    # 2. Fallback para Jev via 9Router se Liquid falhou ou nao tinha chave
+    # 2. Fallback para Jev via API oficial da TypeSafe se Liquid falhou ou nao tinha chave
     if resp is None:
         if not jev_key:
-            sys.stderr.write("erro: Liquid AI falhou e chave 9Router/Jev nao esta configurada\n")
+            sys.stderr.write("erro: Liquid AI falhou e chave TypeSafe nao esta configurada\n")
             sys.exit(1)
 
         payload_jev = {
             "model": DEFAULT_JEV_MODEL,
             "state": args.estado,
-            "context": args.estado,
             "questions": {
                 "decisao": base_question,
             },
@@ -275,13 +275,16 @@ def main(argv=None):
         if image_data_uri:
             payload_jev["images"] = [image_data_uri]
 
+        extra_headers = {}
+        if image_data_uri:
+            extra_headers["TypeSafe-Danger-Zone-Images"] = "true"
+
         try:
-            resp = call_systemone_api(ninerouter_url, payload_jev, jev_key, timeout=REQUEST_TIMEOUT)
+            resp = call_systemone_api(typesafe_url, payload_jev, jev_key, timeout=REQUEST_TIMEOUT, extra_headers=extra_headers)
             used_provider = "jev"
         except Exception as exc:
-            sys.stderr.write(f"erro: falha ao consultar Liquid AI e Jev 9Router: {exc}\n")
+            sys.stderr.write(f"erro: falha ao consultar Liquid AI e Jev TypeSafe: {exc}\n")
             sys.exit(1)
-
     choice, confidence, probabilities, cost = extract_decision(resp)
     is_escalate = confidence < args.limiar
 
