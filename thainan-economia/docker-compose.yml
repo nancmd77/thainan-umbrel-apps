@@ -85,6 +85,8 @@ services:
         LOCK = threading.RLock()
         ESTADO = {}
         FLASH = {'v': None}
+        ULTIMA_ACAO = {'v': None}  # última ação do usuário + conferência; vai para /status.json
+        ULTIMO_REAPLICADO = {}  # último caso divergente logado pelo ciclo de 5 min (evita repetir)
         GEN = {'v': 0}
         RESCAN = {'done': False}
         FAN = {'estado': 'verificando...', 'alvo': None}
@@ -458,42 +460,51 @@ services:
         def alvo_limite(z, i, kind):
             v = ESTADO['cpu_pl1' if kind == 'long' else 'cpu_pl2']
             if v != 'fabrica':
-                return int(v * 1e6), 'ajustado (%g W)' % v
+                return int(v * 1e6)
             m = rd_int(z + '/constraint_%d_max_power_uw' % i, 0)
             if m > 0:
-                return m, 'fábrica (max_power)'
-            return FALLBACK_W[kind] * 1000000, 'fábrica (fallback %dW)' % FALLBACK_W[kind]
+                return m
+            return FALLBACK_W[kind] * 1000000
 
 
-        def aplicar_cpu():
+        def restricoes_cpu():
+            """[(zona, índice, rótulo, kind)] dos limites RAPL existentes."""
+            out = []
             for z in ZONES:
                 if not isdir(z):
                     continue
-                wr(z + '/enabled', 1)
+                origem = 'MSR' if z == ZONES[0] else 'MMIO'
                 for i in (0, 1):
                     n = rd(z + '/constraint_%d_name' % i, '')
                     if not n:
                         continue
                     kind = tipo_limite(n, i)
-                    val, src = alvo_limite(z, i, kind)
-                    ok = wr(z + '/constraint_%d_power_limit_uw' % i, val)
-                    log('limite CPU %s c%d (%s): %.1f W [%s]%s' % (os.path.basename(z), i, n, val / 1e6, src, '' if ok else ' (falhou)'))
+                    out.append((z, i, ('PL2' if kind == 'short' else 'PL1') + ' ' + origem, kind))
+            return out
+
+
+        def aplicar_cpu():
+            for z in ZONES:
+                if isdir(z):
+                    wr(z + '/enabled', 1)
+            for z, i, _, kind in restricoes_cpu():
+                wr(z + '/constraint_%d_power_limit_uw' % i, alvo_limite(z, i, kind))
+
+
+        def alvo_fans():
+            """Perfil de plataforma que deve estar ativo agora; None se o pedido não tem equivalente."""
+            ch = opcoes_fans()
+            if ESTADO['fans'] == 'auto':
+                return FAN.get('alvo') or next((q for q in QUIET_ORDEM if q in ch), None)
+            return resolver_fans(ESTADO['fans'], ch)
 
 
         def resolver_e_aplicar_fans():
             if not ex(PP):
                 return
-            ch = opcoes_fans()
-            if ESTADO['fans'] == 'auto':
-                alvo = FAN.get('alvo') or next((q for q in QUIET_ORDEM if q in ch), None)
-            else:
-                alvo = resolver_fans(ESTADO['fans'], ch)
-                if not alvo:
-                    log('perfil de fans %s indisponível (opções: %s)' % (ESTADO['fans'], ' '.join(ch)))
-                    return
+            alvo = alvo_fans()
             if alvo and rd(PP) != alvo:
-                ok = wr(PP, alvo)
-                log('perfil ' + alvo + (' aplicado' if ok else ' falhou') + ' (opções: ' + ' '.join(ch) + ')')
+                wr(PP, alvo)
 
 
         def rpm():
@@ -593,25 +604,18 @@ services:
             if SIM:
                 simular_gpu(True)
             time.sleep(2)
-            log('após rescan PCI: ' + (', '.join(nvidia_devs()) or 'RTX ainda ausente'))
 
 
         def aplicar_rtx(forcar):
             devs = nvidia_devs()
             if ESTADO['rtx'] == 'on':
-                if devs:
-                    log('RTX mantida no barramento (RTX=on): ' + ', '.join(devs))
-                elif not RESCAN['done']:
-                    log('RTX (01:00.x) ausente do barramento; acionando /sys/bus/pci/rescan uma vez...')
+                if not devs and not RESCAN['done']:
                     rescan()
-                else:
-                    log('RTX ausente do barramento (rescan PCI já executado)')
                 return
             if not devs:
                 return
             usos = gpu_users()
             if usos and not forcar:
-                log('RTX em uso (%s): remoção adiada até confirmação no painel' % ', '.join(u['processo'] for u in usos))
                 return
             for a in sorted(devs, key=lambda a: a.endswith('.0')):
                 d = '/sys/bus/pci/devices/' + a
@@ -621,9 +625,7 @@ services:
                     remover_pci(d)
                 except Exception as x:
                     log('remover %s travou: %s' % (a, x))
-                ok = not ex(d)
-                log('NVIDIA ' + a + (' removida do barramento' if ok else ' ainda presente'))
-                if ok:
+                if not ex(d):
                     wr(parent + '/power/control', 'auto')
 
 
@@ -657,9 +659,7 @@ services:
             with LOCK:
                 resolver_e_aplicar_fans()
                 aplicar_cpu()
-                no_turbo = 1 if ESTADO['turbo'] == 'off' else 0
-                ok = wr(NO_TURBO, no_turbo)
-                log('turbo %s (no_turbo=%d)%s' % ('ligado' if no_turbo == 0 else 'desligado', no_turbo, '' if ok else ' (falhou)'))
+                wr(NO_TURBO, 1 if ESTADO['turbo'] == 'off' else 0)
                 for c in gl('/sys/devices/system/cpu/cpu[0-9]*/cpufreq'):
                     wr(c + '/scaling_governor', ESTADO['governor'])
                     wr(c + '/energy_performance_preference', ESTADO['epp'])
@@ -672,8 +672,119 @@ services:
                 BAT['v'] = bat_limit()
 
 
-        def mudar(campos, confirmar, msg):
-            """Valida, persiste e aplica uma mudança. Retorna {'confirmar': True, 'usos': [...]} se precisa de confirmação."""
+        TOL_W = 0.5  # RAPL arredonda em 1/8 W; folga evita NÃO PEGOU falso
+
+
+        def entrada(controle, pedido, lido, status, motivo=''):
+            return {'controle': controle, 'pedido': pedido, 'lido': lido, 'status': status, 'motivo': motivo}
+
+
+        def conferir_w(controle, pedido_uw, lido_uw):
+            ok = abs(lido_uw - pedido_uw) <= TOL_W * 1e6
+            return entrada(controle, '%.1f W' % (pedido_uw / 1e6), '%.1f W' % (lido_uw / 1e6), 'ok' if ok else 'nao_pegou')
+
+
+        def conferir_valor(controle, pedido, lido):
+            return entrada(controle, pedido, lido, 'ok' if pedido == lido else 'nao_pegou')
+
+
+        def conferir_por_cpu(controle, pedido, lidos):
+            """lidos: [(cpu, valor)]; ok só se todas as CPUs que expõem o atributo deram o pedido."""
+            divergem = [(c, v) for c, v in lidos if v != pedido]
+            if not divergem:
+                return entrada(controle, pedido, '%s em %d CPUs' % (pedido, len(lidos)), 'ok')
+            return entrada(controle, pedido, 'divergente: ' + ', '.join('%s=%s' % cv for cv in divergem), 'nao_pegou')
+
+
+        def lidos_cpufreq(arq):
+            return [(os.path.basename(os.path.dirname(c)), rd(c + '/' + arq))
+                    for c in sorted(gl('/sys/devices/system/cpu/cpu[0-9]*/cpufreq')) if ex(c + '/' + arq)]
+
+
+        def aspm_ativo():
+            return next((t[1:-1] for t in rd(ASPM, '').split() if t.startswith('[')), rd(ASPM))
+
+
+        def conferir_rtx(forcar):
+            devs = nvidia_devs()
+            presente = 'presente (%s)' % ', '.join(devs) if devs else 'ausente do barramento'
+            if ESTADO['rtx'] == 'on':
+                return entrada('RTX', 'presente', presente, 'ok' if devs else 'nao_pegou')
+            if not devs:
+                return entrada('RTX', 'removida', 'ausente do barramento', 'ok')
+            usos = gpu_users()
+            if usos and not forcar:
+                return entrada('RTX', 'removida', presente, 'pendente', 'GPU em uso por ' + ', '.join(u['processo'] for u in usos))
+            return entrada('RTX', 'removida', presente, 'nao_pegou')
+
+
+        def conferir_tudo(forcar=False):
+            """Relê o hardware e compara com ESTADO. Não escreve nada."""
+            out = []
+            for z, i, rotulo, kind in restricoes_cpu():
+                out.append(conferir_w(rotulo, alvo_limite(z, i, kind), rd_int(z + '/constraint_%d_power_limit_uw' % i, 0)))
+            if ex(NO_TURBO):
+                lido = {'0': 'ligado', '1': 'desligado'}.get(rd(NO_TURBO), rd(NO_TURBO))
+                out.append(conferir_valor('turbo', 'desligado' if ESTADO['turbo'] == 'off' else 'ligado', lido))
+            out.append(conferir_rtx(forcar))
+            if ex(PP):
+                alvo = alvo_fans()
+                if alvo:
+                    out.append(conferir_valor('perfil de fans', alvo, rd(PP)))
+                elif ESTADO['fans'] != 'auto':
+                    out.append(entrada('perfil de fans', ESTADO['fans'], rd(PP), 'nao_pegou', 'sem perfil equivalente neste notebook'))
+            epp = lidos_cpufreq('energy_performance_preference')
+            if epp:
+                out.append(conferir_por_cpu('EPP', ESTADO['epp'], epp))
+            gov = lidos_cpufreq('scaling_governor')
+            if gov:
+                out.append(conferir_por_cpu('governor', ESTADO['governor'], gov))
+            if ex(ASPM):
+                out.append(conferir_valor('ASPM', ESTADO['aspm'], aspm_ativo()))
+            return out
+
+
+        def linha_conferencia(e):
+            if e['status'] == 'ok':
+                return 'conferido: %s = %s (ok)' % (e['controle'], e['lido'])
+            if e['status'] == 'pendente':
+                return 'pendente: %s pedido %s, lido %s (%s)' % (e['controle'], e['pedido'], e['lido'], e['motivo'])
+            return 'NÃO PEGOU: %s pedido %s, lido %s%s' % (e['controle'], e['pedido'], e['lido'], ' (' + e['motivo'] + ')' if e['motivo'] else '')
+
+
+        def resultado(conferencia):
+            st = {e['status'] for e in conferencia}
+            return 'nao_pegou' if 'nao_pegou' in st else ('pendente' if 'pendente' in st else 'ok')
+
+
+        def arranque():
+            with LOCK:
+                log('arranque: aplicando estado salvo (%s)' % nome_perfil(ESTADO))
+                apply()
+                log('bateria: ' + BAT['v'])
+                for e in conferir_tudo():
+                    log(linha_conferencia(e))
+
+
+        def ciclo_periodico():
+            """Reaplica a cada 5 min. Loga só o que divergiu antes da reaplicação e não repete o mesmo caso."""
+            with LOCK:
+                antes = conferir_tudo()
+                apply()
+                depois = {e['controle']: e for e in conferir_tudo()}
+                for e in antes:
+                    if e['status'] != 'nao_pegou':
+                        ULTIMO_REAPLICADO.pop(e['controle'], None)
+                        continue
+                    d = depois.get(e['controle'], e)
+                    chave = (e['lido'], d['status'], d['lido'])
+                    if ULTIMO_REAPLICADO.get(e['controle']) == chave:
+                        continue
+                    ULTIMO_REAPLICADO[e['controle']] = chave
+                    log('reaplicado: %s pedido %s, lido %s; depois: %s (lido %s)' % (e['controle'], e['pedido'], e['lido'], d['status'], d['lido']))
+
+        def mudar(campos, confirmar, msg, controle, fmt, pedido_txt=None):
+            """Valida, persiste, aplica e confere uma ação. Retorna {'confirmar': True, 'usos': [...]} se a remoção da RTX precisa de confirmação."""
             with LOCK:
                 ctx = contexto_hw()
                 novo = dict(ESTADO)
@@ -684,6 +795,8 @@ services:
                     usos = gpu_users()
                     if usos and not confirmar:
                         return {'confirmar': True, 'usos': usos}
+                antes_txt = fmt(dict(ESTADO))
+                pedido = pedido_txt or fmt(novo)
                 ESTADO.clear()
                 ESTADO.update(novo)
                 salvar_estado()
@@ -692,10 +805,17 @@ services:
                     FAN['alvo'] = None
                 if campos.get('rtx') == 'on':
                     RESCAN['done'] = False
+                acao = '%s %s → %s' % (controle, antes_txt, pedido)
+                log('ação: ' + acao)
                 apply(forcar=confirmar)
+                conferencia = conferir_tudo(forcar=confirmar)
+                for item in conferencia:
+                    log(linha_conferencia(item))
+                ULTIMA_ACAO['v'] = {'momento': hora_sp('%d/%m %H:%M:%S'), 'acao': acao,
+                                    'resultado': resultado(conferencia), 'conferencia': conferencia}
+                FLASH['v'] = {'tipo': 'ok', 'texto': msg, 'conferencia': conferencia}
                 if 'fans' in campos:
                     iniciar_comparacao()
-                FLASH['v'] = ('ok', msg)
             return {}
 
 
@@ -908,6 +1028,7 @@ services:
                 'gpu': probe_gpu(),
                 'gpu_em_uso_por': usos,
                 'controles': dict(ESTADO),
+                'ultima_acao': ULTIMA_ACAO['v'],
                 'opcoes': {'epp': opcoes_lista(EPP_LISTA), 'governor': opcoes_lista(GOV_LISTA),
                            'aspm': opcoes_aspm(), 'fans': ch},
                 'limites': lim_,
@@ -926,28 +1047,29 @@ services:
             if p['fans'] != 'auto' and resolver_fans(p['fans'], opcoes_fans()) is None:
                 campos['fans'] = 'auto'
                 extra = ' Fans: nenhum perfil %s neste notebook; mantido automático.' % p['fans']
-            return mudar(campos, confirmar, 'Perfil %s aplicado.%s' % (p['nome'], extra))
+            return mudar(campos, confirmar, 'Perfil %s aplicado.%s' % (p['nome'], extra), 'perfil', nome_perfil, p['nome'])
 
 
         def acao_cpu(f, confirmar):
-            return mudar({'cpu_pl1': f.get('pl1', ''), 'cpu_pl2': f.get('pl2', '')}, confirmar, 'Limites da CPU aplicados.')
+            return mudar({'cpu_pl1': f.get('pl1', ''), 'cpu_pl2': f.get('pl2', '')}, confirmar, 'Limites da CPU aplicados.', 'CPU (PL1/PL2)', descricao_cpu)
 
 
-        def acao_unico(campo, titulo):
+        def acao_unico(campo, titulo, controle, rotulos=None):
             def acao(f, confirmar):
-                return mudar({campo: f.get('valor', '')}, confirmar, '%s atualizado.' % titulo)
+                return mudar({campo: f.get('valor', '')}, confirmar, '%s atualizado.' % titulo, controle,
+                             lambda est: (rotulos or {}).get(est[campo], est[campo]))
             return acao
 
 
         ROTAS_POST = {
             '/acao/perfil': acao_perfil,
             '/acao/cpu': acao_cpu,
-            '/acao/turbo': acao_unico('turbo', 'Turbo'),
-            '/acao/rtx': acao_unico('rtx', 'RTX'),
-            '/acao/fans': acao_unico('fans', 'Perfil de fans'),
-            '/acao/epp': acao_unico('epp', 'EPP'),
-            '/acao/governor': acao_unico('governor', 'Governor'),
-            '/acao/aspm': acao_unico('aspm', 'ASPM'),
+            '/acao/turbo': acao_unico('turbo', 'Turbo', 'turbo', {'on': 'ligado', 'off': 'desligado'}),
+            '/acao/rtx': acao_unico('rtx', 'RTX', 'RTX', {'on': 'presente', 'off': 'removida'}),
+            '/acao/fans': acao_unico('fans', 'Perfil de fans', 'perfil de fans'),
+            '/acao/epp': acao_unico('epp', 'EPP', 'EPP'),
+            '/acao/governor': acao_unico('governor', 'Governor', 'governor'),
+            '/acao/aspm': acao_unico('aspm', 'ASPM', 'ASPM'),
         }
 
 
@@ -1016,6 +1138,8 @@ services:
         .aviso{border-left:4px solid var(--cor-aviso-borda);background:var(--cor-aviso-fundo);padding:12px;margin:0 0 16px}
         .aviso.ok{border-left-color:var(--cor-ok-borda);background:var(--cor-ok-fundo)}
         .aviso.erro{border-left-color:var(--cor-erro-borda);background:var(--cor-erro-fundo)}
+        .aviso p{margin:0 0 4px}
+        .aviso ul{margin:8px 0 0;padding-left:20px}
         pre{background:var(--cor-pre-fundo);color:var(--cor-texto);padding:12px;white-space:pre-wrap;font-size:15px;overflow-wrap:anywhere;margin:0}
         a{color:var(--cor-link);text-decoration:underline}
         .acoes{margin:16px 0}
@@ -1206,11 +1330,38 @@ services:
                     '<option value="escuro">Escuro</option><option value="sistema" selected>Sistema</option></select></span>')
 
 
+        def aviso_html(aviso):
+            conf = aviso.get('conferencia') or []
+            if aviso['tipo'] == 'erro' or not conf:
+                return '<div class="aviso %s" role="status"><p>%s</p></div>' % ('erro' if aviso['tipo'] == 'erro' else 'ok', e(aviso['texto']))
+            res = resultado(conf)
+            n = sum(1 for c in conf if c['status'] == 'nao_pegou')
+            titulos = {'ok': 'Aplicado e conferido no hardware.', 'pendente': 'Aplicado, com controle pendente.'}
+            if res == 'nao_pegou':
+                titulo = 'Atenção: 1 controle não pegou no hardware.' if n == 1 else 'Atenção: %d controles não pegaram no hardware.' % n
+            else:
+                titulo = titulos[res]
+            itens = []
+            for c in conf:
+                if c['status'] == 'ok':
+                    txt = '%s: ok, lido %s.' % (c['controle'], c['lido'])
+                elif c['status'] == 'pendente':
+                    txt = '%s: pendente. %s.' % (c['controle'], c['motivo'])
+                else:
+                    txt = '%s: não pegou. Pedido %s, lido %s.' % (c['controle'], c['pedido'], c['lido'])
+                    if c['motivo']:
+                        txt += ' ' + c['motivo'] + '.'
+                itens.append('<li>%s</li>' % e(txt))
+            classe = {'nao_pegou': 'erro', 'pendente': '', 'ok': 'ok'}[res]
+            return ('<div class="aviso %s" role="status"><p><strong>%s</strong></p><p>%s</p><ul>%s</ul></div>'
+                    % (classe, e(titulo), e(aviso['texto']), ''.join(itens)))
+
+
         def pagina(d, aviso=None):
             corpo = ['<header><h1>Economia de energia</h1><p>Atualizado %s · <a href="/">Atualizar estado</a> · <a href="/status.json">Ver estado em JSON</a> · %s%s</p></header>'
                      % (e(d['atualizado']), seletor_tema(), ' · <strong>Modo simulado: nada é alterado</strong>' if SIM else '')]
             if aviso:
-                corpo.append('<p class="aviso %s" role="status">%s</p>' % (aviso[0], e(aviso[1])))
+                corpo.append(aviso_html(aviso))
             corpo.append(secao_perfis(d, perfil_ativo(ESTADO)))
             corpo.append(secao_estado(d))
             corpo.append(secao_controles(d))
@@ -1298,10 +1449,10 @@ services:
                 try:
                     res = acao(form, confirmar)
                 except ErroValidacao as x:
-                    FLASH['v'] = ('erro', str(x))
+                    FLASH['v'] = {'tipo': 'erro', 'texto': str(x), 'conferencia': []}
                 except Exception as x:
                     log('erro na ação %s: %s' % (caminho, x))
-                    FLASH['v'] = ('erro', 'Falha interna ao aplicar; veja o registro.')
+                    FLASH['v'] = {'tipo': 'erro', 'texto': 'Falha interna ao aplicar; veja o registro.', 'conferencia': []}
                 if res.get('confirmar'):
                     return self._html(200, pagina_confirmacao(caminho, form, res['usos']))
                 self._enviar(303, b'', 'text/plain; charset=utf-8', {'Location': '/'})
@@ -1333,15 +1484,16 @@ services:
                 setup_fans()
             except Exception as x:
                 log('setup_fans: %s' % x)
+            try:
+                arranque()
+            except Exception as x:
+                log('arranque: %s' % x)
             while True:
-                try:
-                    apply()
-                except Exception as x:
-                    log('apply: %s' % x)
-                with LOCK:
-                    log('limites: MSR %s | MMIO %s | turbo %s | ASPM %s | bateria %s | perfil %s'
-                        % (lim(ZONES[0]), lim(ZONES[1]), ESTADO['turbo'], rd(ASPM), BAT['v'], nome_perfil(ESTADO)))
                 time.sleep(300)
+                try:
+                    ciclo_periodico()
+                except Exception as x:
+                    log('reaplicação: %s' % x)
 
 
         if __name__ == '__main__':

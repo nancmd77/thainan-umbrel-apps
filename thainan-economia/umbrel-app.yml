@@ -4,7 +4,7 @@ name: Economia
 tagline: Nonve com CPU nos limites de fábrica, RTX ativa no barramento e turbo ativado
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-desempenho/icon.png
 category: Developer
-version: "1.1.0"
+version: "1.1.1"
 port: 8535
 description: >-
   Painel de energia do Nonve (Acer Nitro, RTX 2050). Perfis com um clique (Economia, Equilíbrio, Desempenho e Fábrica) e controles individuais de CPU (PL1/PL2), turbo, RTX no barramento PCI, fans, EPP, governor e ASPM. Bateria travada em 80% quando o kernel suporta. Estado salvo em disco e reaplicado a cada 5 minutos e no boot. Painel na porta 8535, atrás do login do Umbrel.
@@ -16,7 +16,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Versão 1.1.0: painel de controle completo (perfis, controles individuais, estado com perfil ativo ou Personalizado, POST com validação no servidor). Estado salvo em /data/estado.json. Modo simulado via ECONOMIA_SIMULADO=1. Código do painel embutido no docker-compose.yml. Atualização automática do painel removida; use o botão Atualizar.
+  Versão 1.1.1: log de ações com conferência no hardware (cada ação mostra o valor anterior, o pedido e se o controle pegou ou não). Aviso no topo da página com o resultado. Última ação em /status.json. Reaplicação de 5 min loga só quando algo divergiu.
 dependencies: []
 path: ""
 defaultUsername: ""

@@ -1,4 +1,4 @@
-# Economia de energia (thainan-economia) 1.1.0
+# Economia de energia (thainan-economia) 1.1.1
 
 Painel de controle de energia para o notebook Acer Nitro (RTX 2050), rodando no Umbrel.
 Porta interna 8536, exposta pelo app proxy do Umbrel, que exige login.
