@@ -114,9 +114,10 @@ jobs:
             thainan-openbot/docker-compose.yml thainan-openbot/umbrel-app.yml
           git commit -m "auto-update: thainan-openbot -> $REV (base OpenBot v$NEW_VERSION)"
           git pull --rebase origin main
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar xz -C /tmp gitleaks
+          /tmp/gitleaks git --no-banner --redact --log-opts="-1" . || { echo "Segredo detectado no commit; push cancelado."; exit 1; }
           git tag -a "thainan-openbot-v$REV" -m "thainan-openbot $REV"
-          git push origin HEAD:main
-          git push origin "refs/tags/thainan-openbot-v$REV"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/thainan-openbot-v$REV"
 
       - name: Abrir issue se algo falhar
         if: failure()
@@ -127,4 +128,4 @@ jobs:
         run: |
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "OpenBot ${NEW_VERSION:-upstream}: atualização automática falhou" \
-            --body "A atualização automática do thainan-openbot falhou. main não foi alterado (o commit só sai depois do build e do smoke test). Log: $RUN_URL"
+            --body "A atualização automática do thainan-openbot falhou. O push é atômico (main + tag): se falhou, nenhum dos dois mudou. Veja a run e reexecute com workflow_dispatch. Log: $RUN_URL"
