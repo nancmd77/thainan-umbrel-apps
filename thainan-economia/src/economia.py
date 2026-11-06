@@ -969,8 +969,8 @@ section{background:var(--cor-superficie);border:1px solid var(--cor-borda-ui);pa
 table{width:100%;border-collapse:collapse;font-size:16px}
 th,td{padding:8px;border-bottom:1px solid var(--cor-divisor);vertical-align:top;text-align:left;overflow-wrap:anywhere}
 th[scope=row]{width:36%;font-weight:600;color:var(--cor-texto-2)}
-.tema{background:var(--cor-superficie);border:1px solid var(--cor-borda-ui);padding:12px 16px;margin:0 0 16px}
-.tema .campo{margin:0 0 4px}
+.tema-grupo{white-space:nowrap}.tema-grupo .campo{display:inline;margin:0}
+.tema-sel{width:auto;max-width:none;min-height:32px;font-size:15px;padding:2px 6px;margin:0 0 0 4px}
 .perfis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
 .perfis form{margin:0}
 .perfil{display:block;width:100%;min-height:44px;text-align:left;padding:12px;border:2px solid var(--cor-borda-forte);background:var(--cor-superficie);color:var(--cor-texto);font:inherit;cursor:pointer}
@@ -1176,15 +1176,15 @@ def secao_registro():
     return '<section aria-labelledby="h-reg"><h2 id="h-reg">Registro</h2><pre>%s</pre></section>' % e('\n'.join(LOG[-12:]))
 
 
-def secao_tema():
-    return ('<div class="tema"><label class="campo" for="tema">Tema</label>'
-            '<select id="tema" name="tema"><option value="claro">Claro</option>'
-            '<option value="escuro">Escuro</option><option value="sistema" selected>Sistema</option></select></div>')
+def seletor_tema():
+    return ('<span class="tema-grupo"><label class="campo" for="tema">Tema</label> '
+            '<select id="tema" name="tema" class="tema-sel"><option value="claro">Claro</option>'
+            '<option value="escuro">Escuro</option><option value="sistema" selected>Sistema</option></select></span>')
 
 
 def pagina(d, aviso=None):
-    corpo = [secao_tema(), '<header><h1>Economia de energia</h1><p>Atualizado %s · <a href="/">Atualizar estado</a> · <a href="/status.json">Ver estado em JSON</a>%s</p></header>'
-             % (e(d['atualizado']), ' · <strong>Modo simulado: nada é alterado</strong>' if SIM else '')]
+    corpo = ['<header><h1>Economia de energia</h1><p>Atualizado %s · <a href="/">Atualizar estado</a> · <a href="/status.json">Ver estado em JSON</a> · %s%s</p></header>'
+             % (e(d['atualizado']), seletor_tema(), ' · <strong>Modo simulado: nada é alterado</strong>' if SIM else '')]
     if aviso:
         corpo.append('<p class="aviso %s" role="status">%s</p>' % (aviso[0], e(aviso[1])))
     corpo.append(secao_perfis(d, perfil_ativo(ESTADO)))

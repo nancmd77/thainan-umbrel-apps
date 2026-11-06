@@ -371,15 +371,16 @@ class Tema(unittest.TestCase):
     def test_os_dois_temas_definem_as_mesmas_variaveis(self):
         self.assertEqual(set(E.TEMAS['claro']), set(E.TEMAS['escuro']))
 
-    def test_pagina_traz_seletor_de_tema_no_topo_com_tres_opcoes(self):
+    def test_seletor_de_tema_fica_na_linha_do_cabecalho_com_rotulo_e_tres_opcoes(self):
         import re
         html = E.pagina(E.status_data())
-        corpo = html[html.index('<main>'):]
-        self.assertTrue(corpo.startswith('<main><div class="tema">'), corpo[:80])
-        seletor = re.search(r'<select id="tema".*?</select>', html, re.S)
+        cabecalho = re.search(r'<header>.*?</header>', html, re.S).group(0)
+        self.assertLess(cabecalho.index('Ver estado em JSON'), cabecalho.index('<select id="tema"'))
+        self.assertIn('<label class="campo" for="tema">Tema</label>', cabecalho)
+        seletor = re.search(r'<select id="tema".*?</select>', cabecalho, re.S)
         opcoes = re.findall(r'<option value="(\w+)"', seletor.group(0))
         self.assertEqual(opcoes, ['claro', 'escuro', 'sistema'])
-        self.assertIn('<select id="tema" name="tema">', html)
+        self.assertNotIn('class="tema"', html)
 
     def test_script_do_tema_fica_no_head_antes_do_css(self):
         html = E.pagina(E.status_data())
