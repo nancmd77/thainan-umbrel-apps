@@ -2,7 +2,7 @@
 
 Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando no hardware do Nonve (Umbrel, amd64).
 
-- **Imagem**: `ghcr.io/nancmd77/thainan-openbot:0.61.0-r4` (imagem derivada enxuta baseada na upstream oficial `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`, com build definido em `thainan-openbot/image/Dockerfile`).
+- **Imagem**: `ghcr.io/nancmd77/thainan-openbot:0.61.0-r9` (imagem derivada enxuta baseada na upstream oficial `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`, com build definido em `thainan-openbot/image/Dockerfile`).
 - **Segurança e Privilégios**:
   - `seccomp=${APP_DATA_DIR}/seccomp.json`: perfil seccomp dedicado do upstream oficial permitindo `clone` e `unshare` para o sandbox do Electron.
   - `apparmor=unconfined`: contorna a restrição de criação de user namespace (`CLONE_NEWUSER`) imposta pelo perfil `docker-default` do AppArmor em kernels modernos. **Documentação de risco**: com `apparmor=unconfined`, perde-se o confinamento de regras do perfil AppArmor `docker-default`; continuam ativos o perfil seccomp do upstream, execução como usuário UID 1000 e o isolamento interno do próprio Electron sandbox.
@@ -21,7 +21,7 @@ Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando 
   - Captura direta da tela no display dos agentes (`:1`), com redução proporcional para largura <=1280px em JPEG q85 para máxima velocidade e menor latência de rede.
   - **Ordem obrigatória para agentes**: (1) AT-SPI primeiro via árvore de acessibilidade; (2) `md point` como fallback para interfaces sem suporte a a11y (canvas, jogos, apps legados).
   - **Cursor estilo Hark**: movimentação com glide suave via `xdotool` em 12 passos (~180 ms, smoothstep easing) e anel de pulso visual ciano de 400 ms ao clicar (override-redirect sem roubar foco). Suporte à flag `--sem-cursor` para automação sem animação.
-  - **Gestão de Chave**: lida da variável de ambiente `MOONDREAM_API_KEY` ou de `${APP_DATA_DIR}/config/moondream.key` (permissão 600). Mini página de configuração dedicada na porta 8593 e rota `/moondream` na porta 8592 com máscara segura (nunca exibe a chave).
+  - **Gestão de Chave**: lida da variável de ambiente `MOONDREAM_API_KEY` ou de `${APP_DATA_DIR}/config/moondream.key` (permissão 600). Página de configuração unificada na porta 8592 (rotas `/config` e `/moondream`) com máscara segura (nunca exibe a chave).
 ---
 
 ## 1. Login e Vinculação da Conta
@@ -172,7 +172,7 @@ A partir da versão `0.61.0-r7`, o OpenBot conta com suporte automático e resil
    - Todos esses caminhos existem nativamente no Debian/Ubuntu do host, eliminando falhas de montagem na criação do container.
 
 2. **Regras de Cgroup Seguras**:
-   - O container define a regra `device_cgroup_rules`: `'c *:* rmw'`, liberando todos os dispositivos de caractere (NVIDIA, DRI e UVM com major dinâmico).
+   - O container define exclusivamente a regra `device_cgroup_rules`: `'c *:* rmw'`, liberando todos os nós de caractere do host (NVIDIA, DRI e UVM) sem necessidade de regras de major dinâmico fixo (como o antigo 510).
    - Dispositivos de bloco (`'b'`, discos e partições de armazenamento) permanecem totalmente isolados fora do container (aprovado por nan em 2026-11-05 22:06), preservando o isolamento e execução sob UID 1000 com seccomp.
 ### 5.2 Detecção e Injeção Userspace em Tempo de Execução
 
@@ -191,10 +191,9 @@ Ao iniciar o container:
 - **Processos com GL vs Electron**: O processo gráfico principal do Electron upstream sobe com `--use-gl=disabled`. Portanto, a disponibilização dos nós `/dev/nvidia*` e das bibliotecas userspace atende prioritariamente a subprocessos dos agentes, navegadores externos (Chromium/Chrome) e ferramentas que executem pipelines gráficos ou multimídia (Mesa/GLX/Vulkan).
 - **Dispositivos necessários**: Para operações gráficas e GLX/EGL, os dispositivos `nvidia0`, `nvidiactl` e `nvidia-modeset` (major 195) são provisionados em `/dev`.
 - **CUDA automático sem dependência de major dinâmico fixo**: Os dispositivos `/dev/nvidia-uvm` e `/dev/nvidia-uvm-tools` são utilizados por aplicações CUDA/GPGPU. No kernel Linux, seus majors são alocados dinamicamente:
-  - Com a regra `'c *:* rmw'`, o acesso cgroup a qualquer major de caractere é liberado sem necessidade de intervenção manual ou suposições de major fixo (como 510).
+  - A regra cgroup atual é exclusivamente `'c *:* rmw'`, e não regras pontuais de major fixo (como 510). O acesso cgroup a qualquer major de caractere é liberado sem necessidade de intervenção manual.
   - O entrypoint recria automaticamente `/dev/nvidia-uvm` e `/dev/nvidia-uvm-tools` lendo dinamicamente o major e minor atuais de `/host/dev` via `stat`.
   - O entrypoint executa `nvidia-smi -L` na inicialização para reportar o diagnóstico das GPUs detectadas nos logs.
-
 ---
 
 ## 6. Mira Visual com Moondream Cloud (r8)
@@ -225,6 +224,56 @@ md ask "Qual formulário está aberto na tela?"
 ```
 
 ### 6.3 Configuração da Chave
-- **Página Web**: Acesse diretamente na porta 8593 (`http://<host>:8593/`) ou pela rota `/moondream` na porta principal 8592. O painel grava o arquivo `/config/moondream.key` com permissão restrita `600` e exibe apenas os últimos 4 dígitos.
+- **Página Web**: Acesse pela rota `/config` ou `/moondream` na porta principal 8592. O painel grava o arquivo `/config/moondream.key` com permissão restrita `600` e exibe apenas os últimos 4 dígitos.
 - **Variável de Ambiente**: Defina `MOONDREAM_API_KEY=<sua-chave>` no arquivo de ambiente do Umbrel ou no compose.
 - **Diagnóstico nos Logs**: O OpenBot e o serviço de configuração reportam `moondream: chave presente` ou `moondream: chave ausente` na inicialização.
+
+---
+
+## 7. Modelo de Decisão por Passo com Liquid AI e Jev (r9)
+
+A partir da versão `0.61.0-r9`, o OpenBot integra a CLI `decide` para que agentes de computer use tomem decisões determinísticas, rápidas e calibradas por passo sem overhead de geração textual.
+
+### 7.1 Pipeline de Decisão CUA
+1. **AT-SPI**: Leitura semântica imediata da árvore de acessibilidade da janela ativa.
+2. **decide escolhe**: Seleção da melhor opção com a CLI `decide`, calibrada com probabilidades reais.
+3. **Clique pela árvore**: Disparo da ação diretamente no nó acessível escolhido.
+4. **md point**: Mira visual quando o alvo não possuir rótulo acessível ou estiver em canvas/bitmaps.
+5. **Modelo grande se exit 3**: Se a confiança do `decide` for inferior ao limiar (`--limiar`, padrão 0.35), a ferramenta imprime `ESCALAR` e sai com código 3, delegando o passo ao modelo grande de raciocínio.
+
+### 7.2 Comandos da CLI `decide`
+```bash
+# Decisão entre opções semânticas
+decide --objetivo "Confirmar encerramento da sessão" \
+       --estado "Janela de diálogo: [btn: 'Sim, sair', id=btn_ok], [btn: 'Cancelar', id=btn_cancel]" \
+       --opcao btn_ok='Confirmar saída da conta' \
+       --opcao btn_cancel='Cancelar e continuar na sessão'
+
+# Saída com JSON estruturado
+decide --objetivo "Escolher aba ativa" \
+       --estado "Abas: [id=tab_1, Perfil], [id=tab_2, Segurança]" \
+       --opcao tab_1='Aba Perfil' \
+       --opcao tab_2='Aba Segurança' \
+       --json
+
+# Com imagem de apoio opcional e limiar customizado
+decide --objetivo "Clicar no ícone de salvar" \
+       --estado "Toolbar de botões sem texto" \
+       --opcao save='Botão com disquete' \
+       --opcao discard='Botão com lixeira' \
+       --imagem /tmp/toolbar.png \
+       --limiar 0.40
+```
+
+### 7.3 Arquitetura de Provedores e Fallback Resiliente
+1. **Liquid AI (Principal)**:
+   - Endpoint: `POST https://api.liquid.ai/decisions/v1/systemone`
+   - Modelo: `d1-ultra`
+   - Chave: lida de `LIQUID_API_KEY` ou `/config/liquid.key` (permissão `600`).
+2. **Jev via 9Router (Reserva)**:
+   - Endpoint: `POST http://192.168.18.171:20128/v1/systemone`
+   - Modelo: `~typesafe/jev-latest` (mesmo schema da API Liquid)
+   - Chave: lida de `NINEROUTER_API_KEY`, `OPENBOT_9ROUTER_KEY` ou `/config/9router.key` (permissão `600`).
+   - Acionado automaticamente quando o Liquid AI falhar (erro HTTP ou timeout de 5 segundos).
+3. **Gestão de Chaves na Web**:
+   - Ambas as chaves podem ser configuradas no painel web unificado na porta `8592` (rotas `/config` e `/moondream`), nunca criando portas adicionais.

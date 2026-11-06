@@ -29,6 +29,8 @@ RUN apt-get update \
 ENV BASH_ENV=/etc/profile.d/a11y.sh
 COPY md /usr/local/bin/md
 RUN chmod 0755 /usr/local/bin/md
+COPY decide /usr/local/bin/decide
+RUN chmod 0755 /usr/local/bin/decide
 
 
 USER 1000
