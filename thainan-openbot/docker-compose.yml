@@ -787,14 +787,16 @@ services:
       - apparmor=unconfined
     shm_size: 1g
     stop_grace_period: 60s
-    # Aceleração gráfica por GPU (r5-gpu):
+    # Aceleração gráfica por GPU e suporte a CUDA (r6):
     # Suporte resiliente a GPU Intel (DRI) e NVIDIA RTX 2050 sem exigir nvidia-container-toolkit.
     # /dev do host é montado ro em /host/dev preservando /dev/shm (shm_size: 1g) e /dev/pts.
-    # device_cgroup_rules restringe acesso a majors 195 (nvidia) e 226 (dri).
-    # nvidia-uvm é exclusivo para CUDA (não afeta renderização gráfica GLX/EGL do Electron/Chromium).
+    # device_cgroup_rules restringe acesso a majors 195 (nvidia), 226 (dri) e 510 (nvidia-uvm).
+    # nvidia-uvm (CUDA; major lido no host Nonve hoje = 510)
     device_cgroup_rules:
       - 'c 226:* rmw'
       - 'c 195:* rmw'
+      # nvidia-uvm (CUDA; major lido no host Nonve hoje = 510)
+      - 'c 510:* rmw'
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/run:/run/openbot
@@ -915,10 +917,6 @@ services:
           if [ ! -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ] && [ ! -L /usr/share/glvnd/egl_vendor.d/*nvidia*.json 2>/dev/null ]; then
             printf '{\n  "file_format_version": "1.0.0",\n  "ICD": {\n    "library_path": "libEGL_nvidia.so.0"\n  }\n}\n' | sudo tee /usr/share/glvnd/egl_vendor.d/10_nvidia.json >/dev/null
           fi
-          # Symlink de nvidia-smi se presente no host
-          if [ -x /host/bin/nvidia-smi ]; then
-            sudo ln -sf /host/bin/nvidia-smi /usr/local/bin/nvidia-smi 2>/dev/null || true
-          fi
           # Configuracao do linker e variaveis de ambiente
           echo "/usr/local/nvidia/lib" | sudo tee /etc/ld.so.conf.d/00-nvidia.conf >/dev/null
           sudo ldconfig 2>/dev/null || true
@@ -929,12 +927,32 @@ services:
         else
           echo "openbot: nenhuma GPU NVIDIA detectada (/host/dev/nvidia0 ausente); seguindo em modo padrao sem alteracoes"
         fi
-        # Leitura de /proc/devices para logar o major do nvidia-uvm (caso CUDA venha a ser habilitado)
+        # Recriacao de nos nvidia-uvm e nvidia-uvm-tools se existirem no host
+        for f in /host/dev/nvidia-uvm /host/dev/nvidia-uvm-tools; do
+          if [ -e "$$f" ]; then
+            base=$$(basename "$$f")
+            major=$$((0x$$(stat -c "%t" "$$f")))
+            minor=$$((0x$$(stat -c "%T" "$$f")))
+            sudo rm -f "/dev/$$base"
+            sudo mknod -m 666 "/dev/$$base" c "$$major" "$$minor" 2>/dev/null || true
+            echo "openbot: dispositivo CUDA $$base provisionado em /dev (major $$major, minor $$minor)"
+          fi
+        done
+        # Leitura de /proc/devices para verificar o major do nvidia-uvm (regra cgroup 510)
         if [ -f /proc/devices ]; then
           uvm_major=$$(awk '$$2=="nvidia-uvm" {print $$1}' /proc/devices)
           if [ -n "$$uvm_major" ]; then
-            echo "openbot: nvidia-uvm detectado no host com major dinâmico $$uvm_major (regra cgroup sugerida para CUDA: 'c $$uvm_major:* rmw')"
+            if [ "$$uvm_major" != "510" ]; then
+              echo "openbot: AVISO nvidia-uvm major $$uvm_major != 510, CUDA bloqueado; atualizar regra"
+            else
+              echo "openbot: nvidia-uvm detectado no host com major $$uvm_major (CUDA liberado via cgroup 510)"
+            fi
           fi
+        fi
+        # Execucao diagnostica de nvidia-smi se presente no host
+        if [ -e /host/bin/nvidia-smi ] || [ -L /host/bin/nvidia-smi ]; then
+          echo "openbot: GPUs detectadas via nvidia-smi -L:"
+          /usr/local/bin/nvidia-smi -L 2>&1 || /host/bin/nvidia-smi -L 2>&1 || echo "openbot: nvidia-smi -L falhou"
         fi
         export ACCESSIBILITY_ENABLED=1
         export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
