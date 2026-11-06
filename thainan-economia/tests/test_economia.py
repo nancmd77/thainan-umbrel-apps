@@ -215,17 +215,17 @@ class PainelSimulado(unittest.TestCase):
     def test_rejeita_valor_invalido_sem_alterar_estado(self):
         antes = dict(E.ESTADO)
         with self.assertRaises(E.ErroValidacao):
-            E.mudar({'cpu_pl1': 999}, False, 'x')
+            E.mudar({'cpu_pl1': 999}, False, 'x', 'CPU', E.descricao_cpu)
         self.assertEqual(E.ESTADO, antes)
 
     def test_remover_rtx_com_gpu_em_uso_pede_confirmacao_e_nao_persiste(self):
-        res = E.mudar({'rtx': 'off'}, False, 'x')
+        res = E.mudar({'rtx': 'off'}, False, 'x', 'RTX', lambda est: est['rtx'])
         self.assertTrue(res.get('confirmar'))
         self.assertTrue(res['usos'])
         self.assertEqual(E.ESTADO['rtx'], 'on')
 
     def test_remover_rtx_confirmado_persiste(self):
-        res = E.mudar({'rtx': 'off'}, True, 'x')
+        res = E.mudar({'rtx': 'off'}, True, 'x', 'RTX', lambda est: est['rtx'])
         self.assertEqual(res, {})
         self.assertEqual(E.ESTADO['rtx'], 'off')
 
@@ -430,6 +430,91 @@ def setUpModule():
 def tearDownModule():
     PATCH_COMPARACAO.stop()
     shutil.rmtree(TMP, ignore_errors=True)
+
+
+class ConferenciaLog(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        E.criar_simulacao()
+        carregar()
+
+    def setUp(self):
+        carregar()
+        E.ULTIMO_REAPLICADO.clear()
+
+    def test_limite_w_dentro_da_tolerancia_e_ok(self):
+        self.assertEqual(E.conferir_w('PL1 MSR', 35_000_000, 35_250_000)['status'], 'ok')
+
+    def test_limite_w_fora_da_tolerancia_nao_pegou(self):
+        e = E.conferir_w('PL1 MSR', 35_000_000, 40_000_000)
+        self.assertEqual(e['status'], 'nao_pegou')
+        self.assertTrue(E.linha_conferencia(e).startswith('NÃO PEGOU: PL1 MSR'))
+
+    def test_cpu_todas_com_pedido_e_ok(self):
+        e = E.conferir_por_cpu('EPP', 'power', [('cpu0', 'power'), ('cpu1', 'power')])
+        self.assertEqual(e['status'], 'ok')
+
+    def test_cpu_uma_divergente_nao_pegou_com_cpu_citada(self):
+        e = E.conferir_por_cpu('EPP', 'power', [('cpu0', 'power'), ('cpu1', 'balance_power')])
+        self.assertEqual(e['status'], 'nao_pegou')
+        self.assertIn('cpu1=balance_power', e['lido'])
+
+    def test_aspm_le_token_entre_colchetes(self):
+        original = E.rd(E.ASPM)
+        self.addCleanup(E.wr, E.ASPM, original)
+        E.wr(E.ASPM, 'default [powersave] powersupersave')
+        self.assertEqual(E.aspm_ativo(), 'powersave')
+
+    def test_apply_deixa_hardware_conferido(self):
+        E.apply()
+        self.assertEqual([e for e in E.conferir_tudo() if e['status'] != 'ok'], [])
+
+    def test_escrita_divergente_aparece_como_nao_pegou(self):
+        E.apply()
+        E.wr('/sys/devices/system/cpu/cpu1/cpufreq/energy_performance_preference',
+             'power' if E.ESTADO['epp'] != 'power' else 'balance_power')
+        epp = [e for e in E.conferir_tudo() if e['controle'] == 'EPP'][0]
+        self.assertEqual(epp['status'], 'nao_pegou')
+
+    def test_ciclo_silencioso_quando_tudo_ok(self):
+        E.apply()
+        with mock.patch.object(E, 'log') as lg:
+            E.ciclo_periodico()
+        self.assertEqual([c for c in lg.call_args_list if 'reaplicado' in c.args[0]], [])
+
+    def test_ciclo_reaplica_e_loga_divergencia_uma_vez(self):
+        E.apply()
+        E.wr('/sys/devices/system/cpu/cpu1/cpufreq/energy_performance_preference',
+             'power' if E.ESTADO['epp'] != 'power' else 'balance_power')
+        with mock.patch.object(E, 'log') as lg:
+            E.ciclo_periodico()
+        linhas = [c.args[0] for c in lg.call_args_list if 'reaplicado' in c.args[0]]
+        self.assertEqual(len(linhas), 1)
+        self.assertIn('EPP', linhas[0])
+
+    def test_ciclo_nao_repete_caso_que_continua_divergindo(self):
+        E.apply()
+        E.wr('/sys/devices/system/cpu/cpu1/cpufreq/energy_performance_preference',
+             'power' if E.ESTADO['epp'] != 'power' else 'balance_power')
+        with mock.patch.object(E, 'apply'), mock.patch.object(E, 'log') as lg:
+            E.ciclo_periodico()
+            E.ciclo_periodico()
+        linhas = [c.args[0] for c in lg.call_args_list if 'reaplicado' in c.args[0]]
+        self.assertEqual(len(linhas), 1)
+
+    def test_acao_expoe_resultado_em_status_json(self):
+        with mock.patch.object(E, 'log') as lg:
+            E.acao_perfil({'perfil': 'equilibrio'}, True)
+        linhas = [c.args[0] for c in lg.call_args_list]
+        self.assertTrue(any('ação: perfil ' in l and '→ Equilíbrio' in l for l in linhas))
+        self.assertEqual(E.status_data()['ultima_acao']['resultado'], 'ok')
+
+    def test_aviso_com_divergencia_usa_classe_erro_e_lista(self):
+        falha = E.entrada('EPP', 'power', 'balance_power', 'nao_pegou')
+        html = E.aviso_html({'tipo': 'ok', 'texto': 'Perfil aplicado.', 'conferencia': [falha]})
+        self.assertIn('class="aviso erro"', html)
+        self.assertIn('1 controle não pegou', html)
+        self.assertIn('EPP: não pegou. Pedido power, lido balance_power.', html)
 
 
 if __name__ == '__main__':
