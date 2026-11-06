@@ -517,5 +517,64 @@ class ConferenciaLog(unittest.TestCase):
         self.assertIn('EPP: não pegou. Pedido power, lido balance_power.', html)
 
 
+class GovernorEPP(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        E.criar_simulacao()
+        carregar()
+
+    def setUp(self):
+        carregar()
+        E.ULTIMO_REAPLICADO.clear()
+        E.mudar({'governor': 'powersave', 'epp': 'balance_performance'}, True, 'x', 'EPP', lambda est: est['epp'])
+
+    def cpus(self):
+        return E.gl('/sys/devices/system/cpu/cpu[0-9]*/cpufreq')
+
+    def governor_hw(self, valor):
+        for c in self.cpus():
+            E.wr(c + '/scaling_governor', valor)
+
+    def test_epp_travado_em_performance_e_liberado_trocando_governor(self):
+        self.governor_hw('performance')
+        epp0 = self.cpus()[0] + '/energy_performance_preference'
+        self.assertFalse(E.wr(epp0, 'power'))  # simulação do EBUSY: EPP não muda com governor performance
+        self.assertEqual(E.rd(epp0), 'balance_performance')
+        E.mudar({'epp': 'power'}, True, 'x', 'EPP', lambda est: est['epp'])
+        self.assertEqual(E.ESTADO['governor'], 'powersave')
+        self.assertEqual({v for _, v in E.lidos_cpufreq('energy_performance_preference')}, {'power'})
+        self.assertEqual({v for _, v in E.lidos_cpufreq('scaling_governor')}, {'powersave'})
+        self.assertEqual([e for e in E.conferir_tudo() if e['status'] != 'ok'], [])
+        self.assertEqual(E.FLASH['v']['notas'], [E.MSG_GOV_TROCADO])
+
+    def test_governor_performance_manual_avisa_que_epp_fica_preso(self):
+        E.mudar({'governor': 'performance'}, True, 'x', 'Governor', lambda est: est['governor'])
+        self.assertEqual(E.ESTADO['governor'], 'performance')
+        self.assertEqual(E.ESTADO['epp'], 'balance_performance')
+        self.assertEqual(E.FLASH['v']['notas'], [E.MSG_EPP_PRESO])
+
+    def test_epp_nao_pegou_com_governor_performance_explica_motivo(self):
+        self.governor_hw('performance')
+        E.ESTADO['epp'] = 'power'
+        epp = [e for e in E.conferir_tudo() if e['controle'] == 'EPP'][0]
+        self.assertEqual(epp['status'], 'nao_pegou')
+        self.assertEqual(epp['motivo'], 'governor em performance prende o EPP')
+
+    def test_apply_escreve_todos_os_governors_antes_dos_epps(self):
+        ordem = []
+        real = E.wr
+
+        def gravar(p, v):
+            if p.endswith(('scaling_governor', 'energy_performance_preference')):
+                ordem.append(p.rsplit('/', 1)[1])
+            return real(p, v)
+
+        with mock.patch.object(E, 'wr', side_effect=gravar):
+            E.apply()
+        n = len(ordem) // 2
+        self.assertGreater(n, 0)
+        self.assertEqual(ordem, ['scaling_governor'] * n + ['energy_performance_preference'] * n)
+
+
 if __name__ == '__main__':
     unittest.main()

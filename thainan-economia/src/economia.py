@@ -55,6 +55,10 @@ ROT_EPP = {'default': 'padrão', 'performance': 'desempenho', 'balance_performan
 ROT_GOV = {'powersave': 'powersave (a EPP decide a frequência)', 'performance': 'performance (frequência máxima fixa)'}
 ROT_ASPM = {'default': 'padrão do kernel', 'performance': 'performance (sem economia no PCIe)', 'powersave': 'powersave',
             'powersupersave': 'powersupersave (economia máxima)'}
+GOV_CPU0 = '/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'
+DRIVER_CPU0 = '/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver'
+MSG_GOV_TROCADO = 'O governor foi trocado para powersave porque, em performance, o processador ignora o EPP. Ele ainda acelera sob carga.'
+MSG_EPP_PRESO = 'Atenção: o EPP fica preso em performance enquanto o governor estiver em performance. Para o EPP valer, use powersave.'
 PASSO_COMPARACAO = 1 if SIM else 30
 
 LOG = []
@@ -116,7 +120,14 @@ def escrever(p, txt):
         f.write(str(txt))
 
 
+def epp_travado(p):
+    """Simulação do intel_pstate: com governor performance o kernel recusa escrever EPP (EBUSY)."""
+    return p.endswith('/energy_performance_preference') and rd(os.path.dirname(p) + '/scaling_governor') == 'performance'
+
+
 def wr(p, v):
+    if SIM and epp_travado(p):
+        return False
     try:
         with open(P(p), 'w') as f:
             f.write(str(v))
@@ -198,6 +209,7 @@ def criar_simulacao():
             escrever(z + '/constraint_%d_max_power_uw' % i, uw)
     for c in range(4):
         d = '/sys/devices/system/cpu/cpu%d/cpufreq' % c
+        escrever(d + '/scaling_driver', 'intel_pstate')
         escrever(d + '/scaling_governor', 'powersave')
         escrever(d + '/scaling_available_governors', 'performance powersave')
         escrever(d + '/energy_performance_preference', 'balance_performance')
@@ -636,8 +648,10 @@ def apply(forcar=False):
         resolver_e_aplicar_fans()
         aplicar_cpu()
         wr(NO_TURBO, 1 if ESTADO['turbo'] == 'off' else 0)
-        for c in gl('/sys/devices/system/cpu/cpu[0-9]*/cpufreq'):
+        cpus = gl('/sys/devices/system/cpu/cpu[0-9]*/cpufreq')
+        for c in cpus:
             wr(c + '/scaling_governor', ESTADO['governor'])
+        for c in cpus:
             wr(c + '/energy_performance_preference', ESTADO['epp'])
         wr(ASPM, ESTADO['aspm'])
         nic = real('/sys/class/net/' + NIC + '/device')
@@ -711,7 +725,10 @@ def conferir_tudo(forcar=False):
             out.append(entrada('perfil de fans', ESTADO['fans'], rd(PP), 'nao_pegou', 'sem perfil equivalente neste notebook'))
     epp = lidos_cpufreq('energy_performance_preference')
     if epp:
-        out.append(conferir_por_cpu('EPP', ESTADO['epp'], epp))
+        e_epp = conferir_por_cpu('EPP', ESTADO['epp'], epp)
+        if e_epp['status'] == 'nao_pegou' and rd(GOV_CPU0) == 'performance':
+            e_epp['motivo'] = 'governor em performance prende o EPP'
+        out.append(e_epp)
     gov = lidos_cpufreq('scaling_governor')
     if gov:
         out.append(conferir_por_cpu('governor', ESTADO['governor'], gov))
@@ -771,6 +788,14 @@ def mudar(campos, confirmar, msg, controle, fmt, pedido_txt=None):
             usos = gpu_users()
             if usos and not confirmar:
                 return {'confirmar': True, 'usos': usos}
+        notas = []
+        if 'epp' in campos and novo['epp'] != 'performance' and rd(DRIVER_CPU0) == 'intel_pstate' \
+                and (novo['governor'] == 'performance' or rd(GOV_CPU0) == 'performance'):
+            novo['governor'] = 'powersave'
+            log('governor trocado para powersave para liberar o EPP')
+            notas.append(MSG_GOV_TROCADO)
+        elif 'governor' in campos and novo['governor'] == 'performance' and novo['epp'] != 'performance':
+            notas.append(MSG_EPP_PRESO)
         antes_txt = fmt(dict(ESTADO))
         pedido = pedido_txt or fmt(novo)
         ESTADO.clear()
@@ -789,7 +814,7 @@ def mudar(campos, confirmar, msg, controle, fmt, pedido_txt=None):
             log(linha_conferencia(item))
         ULTIMA_ACAO['v'] = {'momento': hora_sp('%d/%m %H:%M:%S'), 'acao': acao,
                             'resultado': resultado(conferencia), 'conferencia': conferencia}
-        FLASH['v'] = {'tipo': 'ok', 'texto': msg, 'conferencia': conferencia}
+        FLASH['v'] = {'tipo': 'ok', 'texto': msg, 'conferencia': conferencia, 'notas': notas}
         if 'fans' in campos:
             iniciar_comparacao()
     return {}
@@ -1280,20 +1305,21 @@ def secao_controles(d):
     else:
         fans = bloco('/acao/fans', 'Perfil de fans', '<p>Indisponível neste sistema.</p>', 'Aplicar fans')
     epp = _select_bloco('/acao/epp', 'EPP (preferência de energia)', o['epp'], ROT_EPP, est['epp'], 'Aplicar EPP', 'epp', 'Preferência de energia')
-    gov = _select_bloco('/acao/governor', 'Governor', o['governor'], ROT_GOV, est['governor'], 'Aplicar governor', 'governor', 'Governor de frequência')
+    gov_extra = ('<div class="aviso"><p>%s</p></div>' % e(MSG_EPP_PRESO)) if est['governor'] == 'performance' and est['epp'] != 'performance' else ''
+    gov = _select_bloco('/acao/governor', 'Governor', o['governor'], ROT_GOV, est['governor'], 'Aplicar governor', 'governor', 'Governor de frequência', gov_extra)
     aspm = _select_bloco('/acao/aspm', 'ASPM (energia do PCIe)', o['aspm'], ROT_ASPM, est['aspm'], 'Aplicar ASPM', 'aspm', 'Política ASPM')
     return ('<section aria-labelledby="h-controles"><h2 id="h-controles">Controles</h2>'
             '<p class="ajuda">Cada controle aplica só o seu item e salva. Os limites da CPU ficam sempre dentro da faixa segura.</p>'
             '%s%s%s%s%s%s%s</section>') % (cpu, turbo, rtx, fans, epp, gov, aspm)
 
 
-def _select_bloco(acao, legenda, opcoes, rot, atual, botao, ident, rotulo):
+def _select_bloco(acao, legenda, opcoes, rot, atual, botao, ident, rotulo, extra=''):
     if not opcoes:
         return bloco(acao, legenda, '<p>Indisponível neste sistema.</p>', botao)
     vals = [(v, rot.get(v, v)) for v in opcoes]
     atual_v = atual if atual in opcoes else opcoes[0]
     return bloco(acao, legenda, '<p class="atual">Atual: %s</p>' % e(rot.get(atual, atual)) +
-                 select(ident, rotulo, vals, atual_v), botao)
+                 select(ident, rotulo, vals, atual_v) + extra, botao)
 
 
 def secao_registro():
@@ -1308,8 +1334,9 @@ def seletor_tema():
 
 def aviso_html(aviso):
     conf = aviso.get('conferencia') or []
+    notas = ''.join('<p>%s</p>' % e(n) for n in aviso.get('notas') or [])
     if aviso['tipo'] == 'erro' or not conf:
-        return '<div class="aviso %s" role="status"><p>%s</p></div>' % ('erro' if aviso['tipo'] == 'erro' else 'ok', e(aviso['texto']))
+        return '<div class="aviso %s" role="status"><p>%s</p>%s</div>' % ('erro' if aviso['tipo'] == 'erro' else 'ok', e(aviso['texto']), notas)
     res = resultado(conf)
     n = sum(1 for c in conf if c['status'] == 'nao_pegou')
     titulos = {'ok': 'Aplicado e conferido no hardware.', 'pendente': 'Aplicado, com controle pendente.'}
@@ -1329,8 +1356,8 @@ def aviso_html(aviso):
                 txt += ' ' + c['motivo'] + '.'
         itens.append('<li>%s</li>' % e(txt))
     classe = {'nao_pegou': 'erro', 'pendente': '', 'ok': 'ok'}[res]
-    return ('<div class="aviso %s" role="status"><p><strong>%s</strong></p><p>%s</p><ul>%s</ul></div>'
-            % (classe, e(titulo), e(aviso['texto']), ''.join(itens)))
+    return ('<div class="aviso %s" role="status"><p><strong>%s</strong></p><p>%s</p>%s<ul>%s</ul></div>'
+            % (classe, e(titulo), e(aviso['texto']), notas, ''.join(itens)))
 
 
 def pagina(d, aviso=None):

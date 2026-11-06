@@ -1,4 +1,4 @@
-# Economia de energia (thainan-economia) 1.1.1
+# Economia de energia (thainan-economia) 1.1.2
 
 Painel de controle de energia para o notebook Acer Nitro (RTX 2050), rodando no Umbrel.
 Porta interna 8536, exposta pelo app proxy do Umbrel, que exige login.
@@ -15,6 +15,7 @@ Porta interna 8536, exposta pelo app proxy do Umbrel, que exige login.
 - Perfil ativo aparece no topo; se nenhum perfil bater com os valores atuais, aparece "Personalizado".
 - Fans: se o notebook não aceitar o perfil pedido, cai para `auto` e mostra aviso.
 - Governor fica em `powersave` em Desempenho para não travar a frequência.
+- EPP com governor `performance`: o intel_pstate recusa a escrita (EBUSY) e o EPP fica preso. Por isso, ao mudar o EPP com governor `performance`, o governor vai para `powersave` (nota na página e linha no registro). Governor `performance` escolhido sozinho mostra aviso de que o EPP fica preso.
 
 ## Controles individuais
 
