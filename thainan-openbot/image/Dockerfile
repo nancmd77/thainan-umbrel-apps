@@ -1,4 +1,4 @@
-FROM ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42
+FROM ghcr.io/nightly-labs/openbot:v0.62.0@sha256:e0673c02cf6a9e576a613f2fe2220d76fda64cacc2c563385e460450419dadac
 
 USER root
 

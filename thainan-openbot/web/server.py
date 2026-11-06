@@ -165,7 +165,7 @@ def render_html_page(status_info=None, notice=None, error_msg=None, challenge=No
     user_email = status_info.get("email", "")
     server_phase = status_info.get("server", "desconhecido")
     server_name = status_info.get("server_name", "OpenBot")
-    version = status_info.get("version", "0.61.0")
+    version = status_info.get("version", "0.62.0")
 
     if not is_ready:
         badge_text = "Iniciando"
@@ -706,7 +706,7 @@ class OpenBotWebHandler(http.server.BaseHTTPRequestHandler):
                 "email": info.get("email", ""),
                 "server": info.get("server", "unknown"),
                 "server_name": info.get("server_name", ""),
-                "version": info.get("version", "0.61.0"),
+                "version": info.get("version", "0.62.0"),
                 "message": info.get("message") or info.get("account_message") or info.get("server_message") or "",
             })
         else:

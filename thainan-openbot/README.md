@@ -2,7 +2,7 @@
 
 Servidor headless do [OpenBot](https://github.com/nightly-labs/openbot) rodando no hardware do Nonve (Umbrel, amd64).
 
-- **Imagem**: `ghcr.io/nancmd77/thainan-openbot:0.61.0-r10` (imagem derivada enxuta baseada na upstream oficial `ghcr.io/nightly-labs/openbot:v0.61.0@sha256:7eae38c2354f770bbf924657a908576e23c9bd3387efbf8e7fd52c059fe51a42`, com build definido em `thainan-openbot/image/Dockerfile`).
+- **Imagem**: `ghcr.io/nancmd77/thainan-openbot:0.62.0-r1` (imagem derivada enxuta baseada na upstream oficial `ghcr.io/nightly-labs/openbot:v0.62.0@sha256:e0673c02cf6a9e576a613f2fe2220d76fda64cacc2c563385e460450419dadac`, com build definido em `thainan-openbot/image/Dockerfile`).
 - **Segurança e Privilégios**:
   - `seccomp=${APP_DATA_DIR}/seccomp.json`: perfil seccomp dedicado do upstream oficial permitindo `clone` e `unshare` para o sandbox do Electron.
   - `apparmor=unconfined`: contorna a restrição de criação de user namespace (`CLONE_NEWUSER`) imposta pelo perfil `docker-default` do AppArmor em kernels modernos. **Documentação de risco**: com `apparmor=unconfined`, perde-se o confinamento de regras do perfil AppArmor `docker-default`; continuam ativos o perfil seccomp do upstream, execução como usuário UID 1000 e o isolamento interno do próprio Electron sandbox.
@@ -135,11 +135,11 @@ A imagem personalizada com `sudo`, `at-spi2-core`, `openbox` e neutralização d
 O repositório possui o workflow `.github/workflows/thainan-openbot.yml` que compila e publica automaticamente a imagem no GitHub Container Registry (GHCR):
 1. Acesse a aba **Actions** no repositório GitHub e selecione o workflow **Build and Publish thainan-openbot Image**.
 2. Clique em **Run workflow** (ou faça merge na branch `main` com alterações em `thainan-openbot/image/**`).
-3. A action publicará a tag `ghcr.io/nancmd77/thainan-openbot:0.61.0-r4`.
-4. Ao concluir, pegue o digest gerado na saída da action (ou via `docker pull ghcr.io/nancmd77/thainan-openbot:0.61.0-r4 && docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/nancmd77/thainan-openbot:0.61.0-r4`).
+3. A action publicará a tag `ghcr.io/nancmd77/thainan-openbot:0.62.0-r1`.
+4. Ao concluir, pegue o digest gerado na saída da action (ou via `docker pull ghcr.io/nancmd77/thainan-openbot:0.62.0-r1 && docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/nancmd77/thainan-openbot:0.62.0-r1`).
 5. Atualize o campo `image` em `thainan-openbot/docker-compose.yml` para fixar pelo digest:
    ```yaml
-   image: ghcr.io/nancmd77/thainan-openbot:0.61.0-r4@sha256:<DIGEST>
+   image: ghcr.io/nancmd77/thainan-openbot:0.62.0-r1@sha256:<DIGEST>
    ```
 
 ### Build e Teste Local
