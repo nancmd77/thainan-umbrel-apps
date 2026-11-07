@@ -56,6 +56,7 @@ services:
         EOF
 
         fi
+        if [ ! -e /data/AGENTS.md ]; then
         cat <<'EOF' > /data/AGENTS.md
         # Diretrizes para Agentes OpenBot (Computer Use)
 
@@ -111,6 +112,8 @@ services:
         Display padrao: `:1` (pode ser sobrescrito com `--display :0` ou variavel `DISPLAY`).
         Chave da API Moondream: `MOONDREAM_API_KEY` ou arquivo `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`).
         EOF
+        fi
+        if [ ! -s /data/skills/moondream.md ]; then
         cat <<'EOF' > /data/skills/moondream.md
         # Skill: moondream
 
@@ -143,7 +146,9 @@ services:
         md ask "Qual mensagem de erro esta em destaque?"
         ```
         EOF
+        fi
         cp -f /data/skills/moondream.md /data/.config/opencode/skills/moondream.md 2>/dev/null || true
+        if [ ! -s /data/skills/decide.md ]; then
         cat <<'EOF' > /data/skills/decide.md
         # Skill: decide
 
@@ -191,6 +196,7 @@ services:
         - `1`: Erro geral, chave ausente ou parâmetros inválidos.
         - `3`: Confiança `< limiar`. Saída: `ESCALAR`. O agente deve recorrer ao modelo grande de raciocínio.
         EOF
+        fi
         cp -f /data/skills/decide.md /data/.config/opencode/skills/decide.md 2>/dev/null || true
         # Jeito Hark (r3): skills globais em ~/.agents/skills e bloco no AGENTS.md de cada agente
         mkdir -p /data/.agents/skills/jeito-hark /data/.agents/skills/cursor-hark
@@ -244,6 +250,7 @@ services:
         ## Decisões baratas
         - Ao escolher entre opções fechadas (qual botão, qual caminho, qual resultado), use `decide` (veja cursor-hark). Se ele responder ESCALAR (saída 3), pense com calma ou pergunte ao Nan com ask_ui.
         FIM_HARK
+        if [ ! -s /data/.agents/skills/cursor-hark/SKILL.md ]; then
         cat <<'FIM_HARK' > /data/.agents/skills/cursor-hark/SKILL.md
         ---
         name: cursor-hark
@@ -289,9 +296,12 @@ services:
         - Se o hover falhar, faça o click normal e siga; diga ao Nan só se repetir.
         - As chaves do md e do decide já estão configuradas. Nunca imprima nem peça chaves.
         FIM_HARK
+        fi
+        if [ ! -s /data/.agents/skills/cursor-hark/cursor.js ]; then
         cat <<'FIM_HARK' > /data/.agents/skills/cursor-hark/cursor.js
-        (()=>{if(window.__hc&&document.getElementById('__hc'))return 'ok';const d=document,s=d.createElement('div');s.id='__hc';s.setAttribute('aria-hidden','true');s.style.cssText='position:fixed;left:-18px;top:-18px;width:36px;height:36px;border-radius:50%;z-index:2147483647;pointer-events:none;box-sizing:border-box;background:rgba(200,200,204,.38);border:3px solid rgba(255,255,255,.95);box-shadow:0 1px 6px rgba(0,0,0,.22),inset 0 0 0 1px rgba(0,0,0,.04);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);transition:transform .55s cubic-bezier(.22,1,.36,1);transform:translate(40vw,40vh)';(d.body||d.documentElement).appendChild(s);let x=0,y=0,k=1;const put=()=>{s.style.transform='translate('+x+'px,'+y+'px) scale('+k+')'};const mv=e=>{x=e.clientX;y=e.clientY;put()};const dn=e=>{mv(e);s.style.transition='transform .12s ease-out';k=.82;put()};const up=e=>{k=1;put();setTimeout(()=>{s.style.transition='transform .55s cubic-bezier(.22,1,.36,1)'},130)};addEventListener('mousemove',mv,true);addEventListener('pointermove',mv,true);addEventListener('mousedown',dn,true);addEventListener('mouseup',up,true);window.__hc={to:(a,b)=>mv({clientX:a,clientY:b})};return 'ok'})()
+        (()=>{if(window.__hc&&document.getElementById('__hc'))return 'ok';const d=document,s=d.createElement('div');s.id='__hc';s.setAttribute('aria-hidden','true');s.style.cssText='position:fixed;left:-18px;top:-18px;width:36px;height:36px;border-radius:50% !important;z-index:2147483647;pointer-events:none;box-sizing:border-box;background:rgba(200,200,204,.38);border:3px solid rgba(255,255,255,.95);box-shadow:0 1px 6px rgba(0,0,0,.22),inset 0 0 0 1px rgba(0,0,0,.04);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);transition:transform .55s cubic-bezier(.22,1,.36,1);transform:translate(40vw,40vh)';(d.body||d.documentElement).appendChild(s);let x=0,y=0,k=1;const put=()=>{s.style.transform='translate('+x+'px,'+y+'px) scale('+k+')'};const mv=e=>{x=e.clientX;y=e.clientY;put()};const dn=e=>{mv(e);s.style.transition='transform .12s ease-out';k=.82;put()};const up=e=>{k=1;put();setTimeout(()=>{s.style.transition='transform .55s cubic-bezier(.22,1,.36,1)'},130)};addEventListener('mousemove',mv,true);addEventListener('pointermove',mv,true);addEventListener('mousedown',dn,true);addEventListener('mouseup',up,true);window.__hc={to:(a,b)=>mv({clientX:a,clientY:b})};return 'ok'})()
         FIM_HARK
+        fi
         cat <<'FIM_HARK' > /data/.agents/regras-bloco.md
         <!-- jeito-hark:inicio (bloco gerenciado pelo app thainan-openbot; recriado a cada início) -->
         ## Jeito Hark (sempre)
@@ -347,6 +357,7 @@ services:
         - Imprimir ou pedir a chave do Supermemory.
         - Travar a tarefa se a memória falhar: siga e avise só se repetir.
         FIM_HARK
+        if [ ! -s /data/bin/sm ]; then
         cat <<'FIM_HARK' > /data/bin/sm
         #!/usr/bin/env python3
         """sm: memória compartilhada do Nan (Supermemory local no Nonve).
@@ -434,6 +445,7 @@ services:
                 sys.exit(gravar(a[1], a[2], a[3] if len(a) > 3 else "geral", a[4] if len(a) > 4 else ""))
             print(__doc__); sys.exit(1)
         FIM_HARK
+        fi
         chmod 755 /data/bin/sm
         if [ -s /sm/local_key ]; then tr -d '\r\n' < /sm/local_key > /config/supermemory.key; chown 1000:1000 /config/supermemory.key; chmod 600 /config/supermemory.key; echo 'init: supermemory: chave copiada'; else echo 'init: supermemory: chave ausente'; fi
         for f in /data/OpenBot/Agents/*/AGENTS.md; do [ -f "$$f" ] && sed -i '/<!-- jeito-hark:inicio/,/<!-- jeito-hark:fim -->/d' "$$f"; done
@@ -634,6 +646,7 @@ services:
         FIM_HARK
         chown -R 1000:1000 /data/.agents /data/bin/regras-hark.sh 2>/dev/null || true
         for d in /data/OpenBot/Agents/*/; do [ -f "$${d}AGENTS.md" ] && chown 1000:1000 "$${d}AGENTS.md"; done
+        if [ ! -s /data/bin/decide ]; then
         cat <<'EOF' > /data/bin/decide
         #!/usr/bin/env python3
         """
@@ -960,7 +973,9 @@ services:
         if __name__ == "__main__":
             main()
         EOF
+        fi
         chmod 755 /data/bin/decide
+        if [ ! -s /data/bin/md ]; then
         cat <<'EOF' > /data/bin/md
         #!/usr/bin/env python3
         """
@@ -1436,6 +1451,7 @@ services:
         if __name__ == "__main__":
             main()
         EOF
+        fi
         chmod 755 /data/bin/md
         if [ ! -s /data/9router_key ] && [ -s /vkb/config.json ]; then
           key=$$(sed -n 's/.*"llm_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /vkb/config.json | tr -d '\r\n ')
