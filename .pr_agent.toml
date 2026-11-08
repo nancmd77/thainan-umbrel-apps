@@ -1,0 +1,23 @@
+[config]
+model = "inception/mercury-3"
+fallback_models = []
+# Limite conservador para um modelo ainda ausente do catálogo de tokens do agente.
+custom_model_max_tokens = 32000
+response_language = "pt-BR"
+
+[github_action_config]
+auto_review = true
+auto_improve = true
+auto_describe = true
+pr_actions = ["opened", "reopened", "ready_for_review"]
+handle_push_trigger = true
+push_commands = ["/describe", "/review", "/improve"]
+
+[pr_reviewer]
+extra_instructions = "Responda sempre em português do Brasil (pt-BR)."
+
+[pr_code_suggestions]
+extra_instructions = "Responda sempre em português do Brasil (pt-BR)."
+
+[pr_description]
+extra_instructions = "Responda sempre em português do Brasil (pt-BR)."
