@@ -8,10 +8,12 @@ const ler = (n, d) => { try { return JSON.parse(fs.readFileSync(F(n), "utf8")); 
 const gravar = (n, v) => { fs.writeFileSync(F(n) + ".tmp", typeof v === "string" ? v : JSON.stringify(v, null, 1)); fs.renameSync(F(n) + ".tmp", F(n)); };
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json" };
 let REQ = null; const cacheGz = new Map();
+const verAsset = (rel) => { try { return crypto.createHash("sha1").update(fs.readFileSync(path.join(WEB, rel))).digest("hex").slice(0, 10); } catch { return String(Date.now()); } };
+const indexVersionado = (f) => fs.readFileSync(f, "utf8").replace(/(["'])(\.?\/?assets\/[\w.-]+\.(?:js|css))\1/g, (m, q, u) => q + u + "?v=" + verAsset(u.replace(/^\.?\//, "")) + q);
 const enviar = (res, code, body, tipo = "application/json; charset=utf-8", estatico = false) => {
   let buf = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
   const h = { "Content-Type": tipo, "X-Content-Type-Options": "nosniff", "Vary": "Accept-Encoding" };
-  if (estatico) { const tag = '"' + crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16) + '"'; h.ETag = tag; h["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400"; if (REQ && REQ.headers["if-none-match"] === tag) { res.writeHead(304, h); return res.end(); } }
+  if (estatico) { const tag = '"' + crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16) + '"'; h.ETag = tag; h["Cache-Control"] = REQ && /[?&]v=/.test(REQ.url || "") ? "public, max-age=31536000, immutable" : "no-cache"; if (REQ && REQ.headers["if-none-match"] === tag) { res.writeHead(304, h); return res.end(); } }
   else h["Cache-Control"] = "no-store";
   if (buf.length > 1024 && /gzip/.test((REQ && REQ.headers["accept-encoding"]) || "") && !/image\/png/.test(tipo)) {
     const k = estatico ? h.ETag : null; let gz = k && cacheGz.get(k); if (!gz) { gz = zlib.gzipSync(buf, { level: 6 }); if (k) cacheGz.set(k, gz); }
@@ -48,7 +50,7 @@ function juntarR(periodos) {
     for (const p of r.porque || []) if (!a.porque.includes(p)) a.porque.push(p);
     a.hn_pontos = Math.max(a.hn_pontos || 0, r.hn_pontos || 0);
     a.estrelas_semana = Math.max(numR(a.estrelas_semana), numR(r.estrelas_semana));
-    a.origem = a.origem || r.origem; a.github = a.github || r.github; a.link = a.link || r.link;
+    a.resumo = a.resumo || r.resumo; a.pra_voce = a.pra_voce || r.pra_voce; a.origem = a.origem || r.origem; a.github = a.github || r.github; a.link = a.link || r.link;
     if (r.afinidade != null) a.afinidade = Math.max(a.afinidade ?? -1, r.afinidade);
   }
   return [...m.values()];
@@ -86,7 +88,61 @@ const txt = (v, n) => String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").rep
 const urlOk = (v) => (/^https?:\/\/[^\s"'<>]+$/i.test(String(v || "")) ? String(v).slice(0, 400) : null);
 const slug = (s) => normR(s).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "lista";
 const novoId = (base, usados) => { let id = slug(base), i = 2; while (usados.includes(id)) id = slug(base) + "-" + i++; return id; };
-const lerListas = () => { const l = ler("listas.json", null); if (Array.isArray(l)) return l; const em = agoraISO(); return LISTAS_INICIAIS.map(([id, nome]) => ({ id, nome, criada_em: em, itens: [] })); };
+// salvos v2: listas só referenciam {repo, salvo_em, por, regra_id?, regra_nome?}; o que é do REPO (status, tags, nota, fixado, revisado) mora em salvos[repo]
+const STATUS = ["quero-testar", "usando", "gostei", "larguei", "so-interessante", "referencia"];
+const kR = (r) => String(r || "").toLowerCase();
+function migrarListas(raw, regras) {
+  const nomeR = (id) => (regras.find((r) => r.id === id) || {}).nome || null;
+  const em0 = agoraISO();
+  const listas = Array.isArray(raw) ? raw : LISTAS_INICIAIS.map(([id, nome]) => ({ id, nome, criada_em: em0, itens: [] }));
+  const salvos = {};
+  for (const L of listas) L.itens = (L.itens || []).filter((i) => i && i.repo).map((i) => {
+    const rid = /^regra:/.test(i.por || "") ? i.por.slice(6) : i.regra_id || null;
+    const por = rid || i.por === "regra" ? "regra" : "voce";
+    const m = { repo: i.repo, salvo_em: i.salvo_em || em0, por, ...(por === "regra" ? { regra_id: rid, regra_nome: i.regra_nome || nomeR(rid) } : {}) };
+    const k = kR(i.repo); const s = salvos[k];
+    if (!s) salvos[k] = { repo: i.repo, nome: i.nome || i.repo.split("/")[1], desc: i.desc || "", link: i.link || null, origem: i.origem || "GitHub", tipo: i.tipo || "repo",
+      salvo_em: m.salvo_em, por, ...(por === "regra" ? { regra_id: m.regra_id, regra_nome: m.regra_nome } : {}), revisado: por === "voce", status: "quero-testar", tags: [], fixado: false, nota: i.nota || "" };
+    else {
+      if (por === "voce") { s.por = "voce"; s.revisado = true; delete s.regra_id; delete s.regra_nome; }
+      if (i.nota && !s.nota.includes(i.nota)) s.nota = (s.nota ? s.nota + " · " : "") + i.nota;
+    }
+    return m;
+  });
+  return { versao: 2, listas, salvos };
+}
+const lerDados = () => {
+  const raw = ler("listas.json", null);
+  if (raw && !Array.isArray(raw) && Array.isArray(raw.listas)) { raw.salvos = raw.salvos || {}; return raw; }
+  return migrarListas(raw, lerRegras());
+};
+const lerListas = () => lerDados().listas;
+// lista com os itens completos (o que é do repo + o que é da entrada na lista)
+const hidratar = (d, L) => ({ ...L, itens: L.itens.map((m) => { const s = d.salvos[kR(m.repo)] || {}; return { ...s, ...m }; }) });
+const listasVivas = (d) => vivas(d.listas).map((L) => hidratar(d, L));
+// repo que não está em nenhuma lista (nem na lixeira) sai de salvos
+const recolher = (d) => { const tem = new Set(); for (const L of d.listas) for (const m of L.itens) tem.add(kR(m.repo)); for (const k of Object.keys(d.salvos)) if (!tem.has(k)) delete d.salvos[k]; };
+const limparTags = (t) => { const out = []; for (const x of Array.isArray(t) ? t : []) { const v = txt(x, 30).replace(/^#/, ""); if (v && !out.some((o) => normR(o) === normR(v))) out.push(v); } return out.slice(0, 12); };
+// põe o repo numa lista; cria o registro do repo se for novo. por: "voce" | "regra"
+function porNaLista(d, L, repo, foto, o = {}) {
+  const k = kR(repo); if (L.itens.some((m) => kR(m.repo) === k)) return false;
+  const por = o.por === "regra" ? "regra" : "voce"; const em = o.salvo_em || agoraISO();
+  const m = { repo: foto.repo || repo, salvo_em: em, por, ...(por === "regra" ? { regra_id: o.regra_id || null, regra_nome: o.regra_nome || null } : {}) };
+  const pos = Number.isInteger(o.pos) ? Math.max(0, Math.min(L.itens.length, o.pos)) : 0; L.itens.splice(pos, 0, m);
+  let s = d.salvos[k];
+  if (!s) {
+    s = d.salvos[k] = { ...foto, repo: m.repo, salvo_em: em, por, ...(por === "regra" ? { regra_id: m.regra_id, regra_nome: m.regra_nome } : {}),
+      revisado: typeof o.revisado === "boolean" ? o.revisado : por === "voce", status: STATUS.includes(o.status) ? o.status : "quero-testar",
+      tags: limparTags(o.tags), fixado: o.fixado === true, nota: txt(o.nota, 280) };
+  } else if (por === "voce") { s.revisado = true; if (s.por !== "voce") { s.por = "voce"; delete s.regra_id; delete s.regra_nome; } }
+  return true;
+}
+const salvosPlanos = (d) => {
+  const nomes = {}; for (const L of vivas(d.listas)) for (const m of L.itens) (nomes[kR(m.repo)] = nomes[kR(m.repo)] || []).push(L.nome);
+  return Object.entries(d.salvos).filter(([k]) => nomes[k]).map(([k, s]) => ({ repo: s.repo, status: s.status, por: s.por, revisado: !!s.revisado, tags: s.tags || [], fixado: !!s.fixado, nota: s.nota || "",
+    listas: nomes[k], salvo_em: s.salvo_em, nome: s.nome, desc: s.desc, resumo: s.resumo || "", pra_voce: s.pra_voce || "", link: s.link, origem: s.origem, tipo: s.tipo, ...(s.por === "regra" ? { regra_id: s.regra_id, regra_nome: s.regra_nome } : {}) }));
+};
+const respListas = (d, extra = {}) => ({ ok: true, ...extra, listas: listasVivas(d), salvos: d.salvos });
 const lerRegras = () => { const r = ler("regras.json", null); return Array.isArray(r) ? r : REGRAS_INICIAIS.map((x) => ({ ...x, criada_em: agoraISO() })); };
 const vivas = (a) => a.filter((x) => !x.apagada_em);
 const limparApagadas = (a) => a.filter((x) => !x.apagada_em || Date.now() - new Date(x.apagada_em).getTime() < 30 * 864e5);
@@ -95,6 +151,7 @@ const itensHoje = () => juntarR(ler("hoje.json", { periodos: {} }).periodos);
 function retrato(repo, d = {}, b = {}) {
   const app = ehAppR(d.repo ? d : { repo, tipo_item: b.tipo === "app" ? "app" : null });
   return { repo: d.repo || repo, nome: txt(d.nome || b.nome || repo.split("/")[1], 120), desc: txt(d.desc || b.desc, 400),
+    resumo: txt(d.resumo || b.resumo, 200), pra_voce: txt(d.pra_voce || b.pra_voce, 140),
     link: urlOk(d.link) || urlOk(b.link) || (app ? urlOk(d.github) : "https://github.com/" + repo),
     origem: txt((d.repo ? fontesDe(d).filter((f) => f !== "GitHub")[0] || fontesDe(d)[0] : b.origem) || "GitHub", 40), tipo: app ? "app" : "repo" };
 }
@@ -121,7 +178,7 @@ function aplicarRegras(hoje, so) {
   const regras = vivas(lerRegras()).filter((r) => (so ? r.id === so : r.ligada));
   if (!regras.length || !hoje || !hoje.periodos) return [];
   const itens = juntarR(hoje.periodos);
-  const listas = lerListas(); const fila = ler("fila.json", []); const tri = ler("triagem.json", []);
+  const dados = lerDados(); const listas = dados.listas; const fila = ler("fila.json", []); const tri = ler("triagem.json", []);
   const log = ler("regras_log.json", { execucoes: [], feitos: {} }); log.feitos = log.feitos || {};
   const agora = agoraISO(); const pegos = []; const mud = {};
   for (const rg of regras) for (const r of itens) {
@@ -131,8 +188,8 @@ function aplicarRegras(hoje, so) {
     if (rg.entao.acao === "salvar") {
       const L = listas.find((l) => l.id === rg.entao.lista && !l.apagada_em);
       if (!L) { ent.ok = false; ent.nota = "a lista não existe mais"; }
-      else if (L.itens.some((i) => i.repo.toLowerCase() === r.k)) { ent.ok = false; ent.nota = "já estava na lista"; }
-      else { L.itens.unshift({ ...retrato(r.repo, r), salvo_em: agora, nota: "", por: "regra:" + rg.id }); mud.listas = 1; }
+      else if (!porNaLista(dados, L, r.repo, retrato(r.repo, r), { por: "regra", regra_id: rg.id, regra_nome: rg.nome, salvo_em: agora })) { ent.ok = false; ent.nota = "já estava na lista"; }
+      else mud.listas = 1;
     } else if (rg.entao.acao === "instalar") {
       if (!podeInstalar(r)) { ent.ok = false; ent.nota = "não é útil o bastante, não pedi"; }
       else if (fila.some((x) => x.repo.toLowerCase() === r.k && ["pendente", "em_andamento", "feito"].includes(x.status))) { ent.ok = false; ent.nota = "já estava na fila"; }
@@ -143,7 +200,7 @@ function aplicarRegras(hoje, so) {
     }
     log.feitos[chave] = agora; pegos.push(ent);
   }
-  if (mud.listas) gravar("listas.json", listas);
+  if (mud.listas) gravar("listas.json", dados);
   if (mud.fila) gravar("fila.json", fila.slice(-300));
   if (mud.tri) gravar("triagem.json", tri.slice(-2000));
   const ks = Object.keys(log.feitos); if (ks.length > 6000) for (const k of ks.slice(0, ks.length - 6000)) delete log.feitos[k];
@@ -158,6 +215,8 @@ const pegosHoje = () => {
 };
 const respRegras = () => ({ ok: true, regras: vivas(lerRegras()), pegos: pegosHoje(), execucoes: (ler("regras_log.json", { execucoes: [] }).execucoes || []).slice(0, 10) });
 
+// migração das listas v1 (array com itens completos) pra v2, guardando uma cópia
+{ const raw = ler("listas.json", null); if (Array.isArray(raw)) { try { fs.copyFileSync(F("listas.json"), F("listas.v1.json")); } catch {} gravar("listas.json", migrarListas(raw, lerRegras())); console.log("listas migradas pra v2"); } }
 let ultimoPedido = {};
 http.createServer(async (req, res) => {
   REQ = req;
@@ -204,43 +263,78 @@ http.createServer(async (req, res) => {
       if (voto !== "limpar") lista.push({ repo: item.repo || repo, voto, veredito_radar: item.veredito || null, nota_radar: item.nota ?? null, onde: item.onde || null, desc: String(item.desc || "").slice(0, 300), lang: item.lang || null, em: new Date().toISOString() });
       gravar("avaliacoes.json", lista.slice(-1000)); return enviar(res, 200, { ok: true });
     }
-    if (req.method === "GET" && p === "/api/listas") return enviar(res, 200, { listas: vivas(lerListas()) });
+    if (req.method === "GET" && p === "/api/listas") return enviar(res, 200, respListas(lerDados()));
+    if (req.method === "GET" && p === "/api/salvos") return enviar(res, 200, { atualizado: agoraISO(), status: STATUS, salvos: salvosPlanos(lerDados()) });
     if (req.method === "POST" && p === "/api/listas") {
-      // criar, renomear, apagar (vai pra lixeira 30 dias, dá pra restaurar), salvar, tirar, mover, nota
-      const b = await corpo(req, 6000); const acao = String(b.acao || ""); const ACS = ["criar", "renomear", "apagar", "restaurar", "salvar", "tirar", "mover", "nota"];
+      // listas: criar, renomear, apagar (lixeira 30 dias), restaurar
+      // itens: salvar, tirar, mover, descartar (tira de todas), repor (desfaz o descartar)
+      // do repo: nota, status, tags, fixar, revisar, revisar_todos
+      const b = await corpo(req, 12000); const acao = String(b.acao || "");
+      const ACS = ["criar", "renomear", "apagar", "restaurar", "salvar", "tirar", "mover", "nota", "status", "tags", "fixar", "revisar", "revisar_todos", "descartar", "repor"];
       if (!ACS.includes(acao)) return enviar(res, 400, { erro: "acao" });
-      let listas = limparApagadas(lerListas()); const repo = String(b.repo || "").trim();
-      if (["salvar", "tirar", "mover", "nota"].includes(acao) && !REPO_RE.test(repo)) return enviar(res, 400, { erro: "repo" });
+      const d = lerDados(); d.listas = limparApagadas(d.listas); const listas = d.listas; const repo = String(b.repo || "").trim(); const k = kR(repo);
+      if (["salvar", "tirar", "mover", "nota", "status", "tags", "fixar", "revisar", "descartar", "repor"].includes(acao) && !REPO_RE.test(repo)) return enviar(res, 400, { erro: "repo" });
       const achar = (id, todas) => listas.find((l) => l.id === String(id || "") && (todas || !l.apagada_em));
-      let L = null;
-      if (acao === "criar") {
+      const S = d.salvos[k]; let L = null; let extra = {};
+      const fotoDe = () => retrato(repo, itensHoje().find((r) => r.k === k), b.item || {});
+      if (["nota", "status", "tags", "fixar", "revisar"].includes(acao)) {
+        if (!S) return enviar(res, 400, { erro: "repo não está salvo" });
+        if (acao === "nota") S.nota = txt(b.nota, 280);
+        else if (acao === "status") { if (!STATUS.includes(b.status)) return enviar(res, 400, { erro: "status" }); S.status = b.status; S.revisado = typeof b.revisado === "boolean" ? b.revisado : true; }
+        else if (acao === "tags") S.tags = limparTags(b.tags);
+        else if (acao === "fixar") S.fixado = b.fixado === true;
+        else if (acao === "revisar") S.revisado = b.revisado !== false;
+      } else if (acao === "revisar_todos") {
+        // revisado:false com repos é o Desfazer do "Manter todos"
+        const val = b.revisado !== false; const so = Array.isArray(b.repos) ? new Set(b.repos.map(kR)) : null; const feitos = [];
+        if (!val && !so) return enviar(res, 400, { erro: "repos" });
+        for (const [kk, s] of Object.entries(d.salvos)) if (!!s.revisado !== val && (!so || so.has(kk))) { s.revisado = val; feitos.push(s.repo); }
+        extra.revisados = feitos;
+      } else if (acao === "descartar") {
+        // tira o repo de todas as listas vivas e devolve o retrato pra dar Desfazer
+        if (!S) return enviar(res, 400, { erro: "repo não está salvo" });
+        const membros = [];
+        for (const X of vivas(listas)) { const i = X.itens.findIndex((m) => kR(m.repo) === k); if (i >= 0) { membros.push({ ...X.itens[i], lista: X.id, pos: i }); X.itens.splice(i, 1); } }
+        extra.desfazer = { repo: S.repo, salvo: { ...S }, membros };
+      } else if (acao === "repor") {
+        const sv = b.salvo || {}; const foto = { repo: sv.repo || repo, nome: txt(sv.nome, 120) || repo.split("/")[1], desc: txt(sv.desc, 400), resumo: txt(sv.resumo, 200), pra_voce: txt(sv.pra_voce, 140), link: urlOk(sv.link), origem: txt(sv.origem, 40) || "GitHub", tipo: sv.tipo === "app" ? "app" : "repo" };
+        for (const m of Array.isArray(b.membros) ? b.membros.slice(0, 60) : []) {
+          const X = achar(m.lista); if (!X) continue;
+          porNaLista(d, X, repo, foto, { por: m.por, regra_id: txt(m.regra_id, 60) || null, regra_nome: txt(m.regra_nome, 80) || null, salvo_em: !isNaN(Date.parse(m.salvo_em)) ? m.salvo_em : null, pos: m.pos,
+            revisado: !!sv.revisado, status: sv.status, tags: sv.tags, fixado: sv.fixado, nota: sv.nota });
+        }
+        const s2 = d.salvos[k]; if (s2) Object.assign(s2, { revisado: !!sv.revisado, status: STATUS.includes(sv.status) ? sv.status : s2.status, tags: limparTags(sv.tags), fixado: sv.fixado === true, nota: txt(sv.nota, 280), por: sv.por === "regra" ? "regra" : "voce", salvo_em: !isNaN(Date.parse(sv.salvo_em)) ? sv.salvo_em : s2.salvo_em });
+      } else if (acao === "criar") {
         const nome = txt(b.nome, 60); if (!nome) return enviar(res, 400, { erro: "nome" });
         if (vivas(listas).length >= 60) return enviar(res, 400, { erro: "listas demais" });
         const igual = vivas(listas).find((l) => normR(l.nome) === normR(nome));
         L = igual || { id: novoId(nome, listas.map((l) => l.id)), nome, criada_em: agoraISO(), itens: [] }; if (!igual) listas.push(L);
-        if (REPO_RE.test(repo) && !L.itens.some((i) => i.repo.toLowerCase() === repo.toLowerCase())) L.itens.unshift({ ...retrato(repo, itensHoje().find((r) => r.k === repo.toLowerCase()), b.item || {}), salvo_em: agoraISO(), nota: "", por: "voce" });
+        if (REPO_RE.test(repo)) porNaLista(d, L, repo, fotoDe(), { por: "voce" });
       } else {
         L = achar(b.lista, acao === "restaurar"); if (!L) return enviar(res, 400, { erro: "lista" });
-        const idx = L.itens.findIndex((i) => i.repo.toLowerCase() === repo.toLowerCase());
+        const idx = L.itens.findIndex((m) => kR(m.repo) === k);
         if (acao === "renomear") { const nome = txt(b.nome, 60); if (!nome) return enviar(res, 400, { erro: "nome" }); L.nome = nome; }
         else if (acao === "apagar") L.apagada_em = agoraISO();
         else if (acao === "restaurar") delete L.apagada_em;
         else if (acao === "salvar") {
           if (idx < 0) {
             if (L.itens.length >= 500) return enviar(res, 400, { erro: "lista cheia" });
-            const it = { ...retrato(repo, itensHoje().find((r) => r.k === repo.toLowerCase()), b.item || {}), salvo_em: (!isNaN(Date.parse(b.salvo_em)) && b.salvo_em) || agoraISO(), nota: txt(b.nota, 280), por: /^regra:[\w-]+$/.test(b.por || "") ? b.por : "voce" };
-            const pos = Number.isInteger(b.pos) ? Math.max(0, Math.min(L.itens.length, b.pos)) : 0; L.itens.splice(pos, 0, it);
+            const rg = /^regra:([\w-]+)$/.exec(b.por || ""); const porRegra = b.por === "regra" || !!rg;
+            porNaLista(d, L, repo, fotoDe(), { por: porRegra ? "regra" : "voce", regra_id: rg ? rg[1] : txt(b.regra_id, 60) || null, regra_nome: txt(b.regra_nome, 80) || null,
+              salvo_em: !isNaN(Date.parse(b.salvo_em)) ? b.salvo_em : null, pos: b.pos, revisado: typeof b.revisado === "boolean" ? b.revisado : undefined,
+              status: b.status, tags: b.tags, fixado: b.fixado, nota: b.nota });
           }
         }
         else if (idx < 0) return enviar(res, 400, { erro: "item fora da lista" });
         else if (acao === "tirar") L.itens.splice(idx, 1);
-        else if (acao === "nota") L.itens[idx].nota = txt(b.nota, 280);
         else if (acao === "mover") {
           const P = achar(b.para); if (!P || P === L) return enviar(res, 400, { erro: "para" });
-          const [it] = L.itens.splice(idx, 1); if (!P.itens.some((i) => i.repo.toLowerCase() === repo.toLowerCase())) P.itens.unshift(it);
+          const [m] = L.itens.splice(idx, 1); if (!P.itens.some((x) => kR(x.repo) === k)) P.itens.unshift(m);
+          if (d.salvos[k]) { if (typeof b.revisado === "boolean") d.salvos[k].revisado = b.revisado; else d.salvos[k].revisado = true; }
         }
       }
-      gravar("listas.json", listas); return enviar(res, 200, { ok: true, lista: L && { id: L.id, nome: L.nome }, listas: vivas(listas) });
+      recolher(d); gravar("listas.json", d);
+      return enviar(res, 200, respListas(d, { lista: L && { id: L.id, nome: L.nome }, ...extra }));
     }
     if (req.method === "GET" && p === "/api/regras") return enviar(res, 200, respRegras());
     if (req.method === "POST" && p === "/api/regras") {
@@ -305,6 +399,8 @@ http.createServer(async (req, res) => {
     if (req.method !== "GET") return enviar(res, 405, { erro: "método" });
     let f = path.normalize(path.join(WEB, p === "/" ? "index.html" : p)); if (!f.startsWith(WEB)) return enviar(res, 403, "");
     if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(WEB, "index.html");
-    return enviar(res, 200, fs.readFileSync(f), MIME[path.extname(f)] || "application/octet-stream", !f.endsWith("index.html"));
+    // index.html nunca fica em cache e aponta pros assets com ?v=<hash do conteúdo>: publicou, o navegador pega a versão nova na hora
+    if (f.endsWith("index.html")) return enviar(res, 200, indexVersionado(f), "text/html; charset=utf-8");
+    return enviar(res, 200, fs.readFileSync(f), MIME[path.extname(f)] || "application/octet-stream", true);
   } catch (e) { return enviar(res, 500, { erro: String(e.message || e) }); }
 }).listen(PORT, "0.0.0.0", () => console.log("radar na porta", PORT));
