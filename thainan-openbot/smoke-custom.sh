@@ -84,6 +84,7 @@ check "openui-hark montar.py" test -s /data/.agents/skills/openui-hark/montar.py
 check "bloco Jeito Hark no AGENTS.md do agente" grep -q 'jeito-hark:inicio' /data/OpenBot/Agents/smoke-agente/AGENTS.md
 check "/data/AGENTS.md" test -s /data/AGENTS.md
 check "/data/bin/sm executável" test -x /data/bin/sm
+check "/data/bin/conselho executável" test -x /data/bin/conselho
 check "CLI sm --help" sm_ok
 check "chave copiada com modo 600" chave_ok
 

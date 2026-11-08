@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""
+Conselho (conselho) de 3 modelos para decisoes dificeis do OpenBot.
+Etapa 1: os modelos respondem a mesma pergunta em paralelo (9Router).
+Etapa 2: um presidente recebe as respostas anonimas (A, B, C) e escreve a sintese.
+Uma rodada so. Somente stdlib.
+"""
+
+import argparse
+import concurrent.futures
+import datetime
+import json
+import os
+import socket
+import sys
+import urllib.error
+import urllib.request
+
+VERSAO = "0.64.0-r2"
+NINEROUTER_URL_PADRAO = "http://192.168.18.171:20128/v1/chat/completions"
+MODELOS_PADRAO = "ag/gemini-4-argon-high,cl/deepseek/deepseek-v4.1-flash-1017,cc/claude-sonnet-5-5"
+TIMEOUT_PADRAO = 90.0
+MIN_RESPONDENTES = 2
+KEY_FILE_PADRAO = "/data/9router_key"
+LOG_PADRAO = "/data/conselho.log"
+MAX_PERGUNTA_LOG = 200
+
+SYSTEM_RESPOSTA = (
+    "Voce e um dos membros de um conselho de especialistas. Responda em portugues do Brasil, "
+    "de forma direta: recomendacao primeiro, depois os motivos principais e os riscos. "
+    "Diga com clareza o que nao sabe. Nao invente fatos."
+)
+
+SYSTEM_PRESIDENTE = (
+    "Voce preside um conselho de 3 modelos. Recebera a pergunta e as respostas anonimas (A, B, C). "
+    "Aponte onde concordam, onde divergem e escreva a resposta final com recomendacao. "
+    "Nao favoreca uma resposta pela posicao. "
+    "Confianca: 'alta' se concordam e os argumentos se sustentam; 'media' se ha divergencia pequena "
+    "ou falta dado; 'baixa' se divergem em ponto essencial ou nao ha base. "
+    "Responda SOMENTE um objeto JSON com as chaves: recomendacao (texto), confianca ('alta', 'media' "
+    "ou 'baixa'), concordam (texto), divergem (texto)."
+)
+
+
+class FalhaModelo(Exception):
+    def __init__(self, motivo):
+        super().__init__(motivo)
+        self.motivo = motivo
+
+
+class SemRespostas(Exception):
+    def __init__(self, falhas):
+        super().__init__("nenhum modelo respondeu")
+        self.falhas = falhas
+
+
+class SinteseFalhou(Exception):
+    def __init__(self, respostas, falhas):
+        super().__init__("nenhum presidente conseguiu sintetizar")
+        self.respostas = respostas
+        self.falhas = falhas
+
+
+def url_9router():
+    return os.environ.get("CONSELHO_URL", NINEROUTER_URL_PADRAO)
+
+
+def obter_chave():
+    """Chave do 9Router: env OPENBOT_9ROUTER_KEY ou arquivo. Nunca imprime a chave."""
+    chave = os.environ.get("OPENBOT_9ROUTER_KEY", "").strip()
+    if chave:
+        return chave
+    caminho = os.environ.get("CONSELHO_KEY_FILE", KEY_FILE_PADRAO)
+    try:
+        with open(caminho, "r", encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def chamar_modelo(modelo, mensagens, chave, timeout):
+    corpo = json.dumps(
+        {"model": modelo, "messages": mensagens, "stream": False, "temperature": 0.2},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url_9router(),
+        data=corpo,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {chave}",
+            "Content-Type": "application/json",
+            "User-Agent": f"thainan-openbot-conselho/{VERSAO}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            dados = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            raise FalhaModelo("429 limite de uso")
+        raise FalhaModelo(f"HTTP {exc.code}")
+    except (socket.timeout, TimeoutError):
+        raise FalhaModelo("timeout")
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
+            raise FalhaModelo("timeout")
+        raise FalhaModelo("falha de conexao")
+    except OSError:
+        raise FalhaModelo("falha de conexao")
+    except ValueError:
+        raise FalhaModelo("resposta invalida")
+
+    try:
+        texto = dados["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise FalhaModelo("resposta sem texto")
+    if not isinstance(texto, str) or not texto.strip():
+        raise FalhaModelo("resposta vazia")
+    return texto.strip()
+
+
+def montar_pergunta(pergunta, contexto):
+    partes = [f"Pergunta:\n{pergunta}"]
+    if contexto:
+        partes.append(f"Contexto:\n{contexto}")
+    return "\n\n".join(partes)
+
+
+def perguntar_modelos(modelos, pergunta, contexto, chave, timeout):
+    """Etapa 1: paralelo. Devolve (respostas, falhas), ambos na ordem de `modelos`."""
+    mensagens = [
+        {"role": "system", "content": SYSTEM_RESPOSTA},
+        {"role": "user", "content": montar_pergunta(pergunta, contexto)},
+    ]
+    resultados = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(modelos)) as pool:
+        futuros = {pool.submit(chamar_modelo, m, mensagens, chave, timeout): m for m in modelos}
+        for futuro in concurrent.futures.as_completed(futuros):
+            modelo = futuros[futuro]
+            try:
+                resultados[modelo] = ("ok", futuro.result())
+            except FalhaModelo as exc:
+                resultados[modelo] = ("falha", exc.motivo)
+            except Exception:
+                resultados[modelo] = ("falha", "erro inesperado")
+    respostas = {m: resultados[m][1] for m in modelos if resultados[m][0] == "ok"}
+    falhas = {m: resultados[m][1] for m in modelos if resultados[m][0] == "falha"}
+    return respostas, falhas
+
+
+def normalizar_confianca(valor):
+    v = str(valor or "").strip().lower()
+    return {"alta": "alta", "média": "média", "media": "média", "baixa": "baixa"}.get(v, "baixa")
+
+
+def interpretar_sintese(bruto):
+    inicio, fim = bruto.find("{"), bruto.rfind("}")
+    if inicio != -1 and fim > inicio:
+        try:
+            dados = json.loads(bruto[inicio:fim + 1])
+        except ValueError:
+            dados = None
+        if isinstance(dados, dict) and dados.get("recomendacao"):
+            return {
+                "recomendacao": str(dados["recomendacao"]).strip(),
+                "confianca": normalizar_confianca(dados.get("confianca")),
+                "concordam": str(dados.get("concordam") or "").strip(),
+                "divergem": str(dados.get("divergem") or "").strip(),
+                "aviso": None,
+            }
+    return {
+        "recomendacao": bruto.strip(),
+        "confianca": "baixa",
+        "concordam": "",
+        "divergem": "",
+        "aviso": "presidente respondeu fora do formato JSON; mostrado o texto bruto",
+    }
+
+
+def sintetizar(pergunta, contexto, respostas, candidatos, chave, timeout):
+    """Etapa 2: presidente com respostas anonimas. Tenta os candidatos em ordem."""
+    blocos = [
+        f"--- Resposta {chr(ord('A') + i)} ---\n{texto}"
+        for i, texto in enumerate(respostas.values())
+    ]
+    mensagens = [
+        {"role": "system", "content": SYSTEM_PRESIDENTE},
+        {"role": "user", "content": montar_pergunta(pergunta, contexto) + "\n\n" + "\n\n".join(blocos)},
+    ]
+    falhas = {}
+    for candidato in candidatos:
+        try:
+            bruto = chamar_modelo(candidato, mensagens, chave, timeout)
+        except FalhaModelo as exc:
+            falhas[candidato] = exc.motivo
+            continue
+        return candidato, interpretar_sintese(bruto), falhas
+    raise SinteseFalhou(respostas, falhas)
+
+
+def executar(pergunta, contexto, modelos, presidente, chave, timeout):
+    respostas, falhas = perguntar_modelos(modelos, pergunta, contexto, chave, timeout)
+    if not respostas:
+        raise SemRespostas(falhas)
+
+    if len(respostas) < MIN_RESPONDENTES:
+        unica = next(iter(respostas.values()))
+        return {
+            "recomendacao": unica,
+            "confianca": "baixa",
+            "concordam": "",
+            "divergem": "",
+            "aviso": "so 1 modelo respondeu; sem comparacao entre modelos",
+            "presidente": None,
+            "respostas": respostas,
+            "falhas": falhas,
+        }
+
+    candidatos = [presidente] + [m for m in respostas if m != presidente]
+    presidente_usado, sintese, falhas_presidente = sintetizar(
+        pergunta, contexto, respostas, candidatos, chave, timeout
+    )
+    falhas_todas = dict(falhas)
+    for m, motivo in falhas_presidente.items():
+        falhas_todas[f"{m} (presidente)"] = motivo
+    return {
+        **sintese,
+        "presidente": presidente_usado,
+        "respostas": respostas,
+        "falhas": falhas_todas,
+    }
+
+
+def registrar(entrada):
+    caminho = os.environ.get("CONSELHO_LOG", LOG_PADRAO)
+    try:
+        with open(caminho, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entrada, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        sys.stderr.write(f"aviso: nao consegui gravar o registro em {caminho}: {exc}\n")
+
+
+def resumo_pergunta(pergunta):
+    return " ".join(pergunta.split())[:MAX_PERGUNTA_LOG]
+
+
+def lista_modelos(texto):
+    itens = [m.strip() for m in texto.split(",") if m.strip()]
+    return list(dict.fromkeys(itens))
+
+
+def imprimir_texto(resultado):
+    falhas = resultado["falhas"]
+    usados = list(resultado["respostas"])
+    linhas = [
+        f"Recomendação: {resultado['recomendacao']}",
+        f"Confiança: {resultado['confianca']}",
+        f"Concordam: {resultado['concordam'] or '-'}",
+        f"Divergem: {resultado['divergem'] or '-'}",
+        f"Modelos usados: {', '.join(usados)}",
+        "Falhas: " + ("; ".join(f"{m} ({motivo})" for m, motivo in falhas.items()) if falhas else "nenhuma"),
+    ]
+    if resultado.get("aviso"):
+        linhas.append(f"Aviso: {resultado['aviso']}")
+    print("\n".join(linhas))
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="conselho",
+        description="Conselho de 3 modelos (9Router) para decisoes dificeis: respostas em paralelo e sintese de um presidente.",
+    )
+    parser.add_argument("pergunta", help="Pergunta ou decisao a submeter ao conselho")
+    parser.add_argument("--contexto", default=None, help="Arquivo com contexto extra, ou '-' para ler da entrada padrao")
+    parser.add_argument("--modelos", default=None, help="Lista separada por virgula (padrao: env CONSELHO_MODELOS ou os 3 modelos padrao)")
+    parser.add_argument("--json", action="store_true", help="Saida estruturada em JSON")
+    args = parser.parse_args(argv)
+
+    modelos = lista_modelos(
+        args.modelos or os.environ.get("CONSELHO_MODELOS", "") or MODELOS_PADRAO
+    )
+    if not modelos:
+        sys.stderr.write("erro: nenhum modelo informado\n")
+        return 1
+    presidente = os.environ.get("CONSELHO_PRESIDENTE", "").strip() or modelos[0]
+
+    try:
+        timeout = float(os.environ.get("CONSELHO_TIMEOUT", TIMEOUT_PADRAO))
+    except ValueError:
+        sys.stderr.write("erro: CONSELHO_TIMEOUT invalido\n")
+        return 1
+
+    contexto = None
+    if args.contexto == "-":
+        contexto = sys.stdin.read().strip()
+    elif args.contexto:
+        try:
+            with open(args.contexto, "r", encoding="utf-8") as f:
+                contexto = f.read().strip()
+        except OSError as exc:
+            sys.stderr.write(f"erro ao ler contexto: {exc}\n")
+            return 1
+
+    chave = obter_chave()
+    if not chave:
+        sys.stderr.write("erro: chave 9Router ausente (OPENBOT_9ROUTER_KEY ou /data/9router_key)\n")
+        return 1
+
+    data = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        resultado = executar(args.pergunta, contexto, modelos, presidente, chave, timeout)
+    except SemRespostas as exc:
+        registrar({
+            "data": data,
+            "pergunta": resumo_pergunta(args.pergunta),
+            "modelos": [],
+            "falhas": list(exc.falhas),
+            "confianca": None,
+        })
+        sys.stderr.write("erro: nenhum modelo respondeu: " + "; ".join(f"{m} ({r})" for m, r in exc.falhas.items()) + "\n")
+        return 1
+    except SinteseFalhou as exc:
+        registrar({
+            "data": data,
+            "pergunta": resumo_pergunta(args.pergunta),
+            "modelos": list(exc.respostas),
+            "falhas": list(exc.falhas),
+            "confianca": None,
+        })
+        sys.stderr.write("erro: nenhum presidente conseguiu sintetizar; respostas brutas abaixo\n")
+        for m, texto in exc.respostas.items():
+            print(f"--- {m} ---\n{texto}")
+        return 2
+
+    registrar({
+        "data": data,
+        "pergunta": resumo_pergunta(args.pergunta),
+        "modelos": list(resultado["respostas"]),
+        "falhas": list(resultado["falhas"]),
+        "presidente": resultado["presidente"],
+        "confianca": resultado["confianca"],
+    })
+
+    if args.json:
+        saida = {
+            "recomendacao": resultado["recomendacao"],
+            "confianca": resultado["confianca"],
+            "concordam": resultado["concordam"],
+            "divergem": resultado["divergem"],
+            "modelos_usados": list(resultado["respostas"]),
+            "presidente": resultado["presidente"],
+            "falhas": [{"modelo": m, "motivo": r} for m, r in resultado["falhas"].items()],
+            "aviso": resultado.get("aviso"),
+            "respostas": resultado["respostas"],
+        }
+        print(json.dumps(saida, ensure_ascii=False, indent=2))
+    else:
+        imprimir_texto(resultado)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
