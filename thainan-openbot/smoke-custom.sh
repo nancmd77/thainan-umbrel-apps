@@ -5,7 +5,8 @@
 #
 # 1. Imagem: o que ela de fato contém (uid 1000, md, decide, tini, openbox/xdotool/scrot, sudo, AT-SPI).
 # 2. Customizações: roda o próprio serviço `init` do docker-compose.yml com APP_DATA_DIR num diretório
-#    temporário e valida /data/.agents, o bloco Jeito Hark no AGENTS.md de um agente, /data/bin/sm e a chave.
+#    temporário e valida /data/.agents (inclusive conselho, decide e moondream = front matter + skills/*.md),
+#    o bloco Jeito Hark no AGENTS.md de agente novo e de agente com bloco antigo, /data/bin/sm e a chave.
 set -euo pipefail
 
 IMAGE=${1:-ghcr.io/nancmd77/thainan-openbot:0.63.0-r1}
@@ -32,9 +33,12 @@ cleanup() {
 trap cleanup EXIT
 
 # Estrutura que o compose espera ao redor de APP_DATA_DIR ($WORK/app).
-mkdir -p "$WORK/app/data/OpenBot/Agents/smoke-agente" "$WORK/app/run" "$WORK/app/config" \
-  "$WORK/thainan-video-kb/data" "$WORK/thainan-supermemory/data"
+mkdir -p "$WORK/app/data/OpenBot/Agents/smoke-agente" "$WORK/app/data/OpenBot/Agents/smoke-antigo" \
+  "$WORK/app/run" "$WORK/app/config" "$WORK/thainan-video-kb/data" "$WORK/thainan-supermemory/data"
 printf '# Agente de smoke\n' > "$WORK/app/data/OpenBot/Agents/smoke-agente/AGENTS.md"
+# Agente que já tem o bloco gerenciado de uma versão antiga: o init troca o bloco e não mexe no texto do dono.
+printf '# Agente antigo\nnota do dono\n<!-- jeito-hark:inicio (bloco antigo) -->\n- regra-antiga-do-bloco\n<!-- jeito-hark:fim -->\n' \
+  > "$WORK/app/data/OpenBot/Agents/smoke-antigo/AGENTS.md"
 # Chave falsa só para testar o caminho de cópia; nunca é impressa.
 printf 'chave-falsa-de-smoke\n' > "$WORK/thainan-supermemory/data/local_key"
 printf 'APP_DATA_DIR=%s\n' "$WORK/app" > "$WORK/compose.env"
@@ -59,12 +63,16 @@ fi
 echo "== checagens dentro da imagem (uid do usuário da imagem)"
 set +e
 "${DOCKER[@]}" run --rm -i \
-  -v "$WORK/app/data:/data:ro" -v "$WORK/app/config:/config:ro" \
+  -v "$WORK/app/data:/data:ro" -v "$WORK/app/config:/config:ro" -v "$HERE/skills:/skills:ro" \
   --entrypoint /bin/bash "$IMAGE" -s <<'CHECKS'
 fails=0
 check() { local nome=$1; shift; if "$@" >/dev/null 2>&1; then echo "OK    $nome"; else echo "FALHA $nome"; fails=$((fails+1)); fi; }
 bins() { for b in "$@"; do command -v "$b" >/dev/null || return 1; done; }
 skill() { test -s "/data/.agents/skills/$1/SKILL.md" && grep -qx "name: $1" "/data/.agents/skills/$1/SKILL.md"; }
+fonte() { tail -n +6 "/data/.agents/skills/$1/SKILL.md" | cmp -s - "/skills/$1.md"; }  # 5 linhas de front matter + o texto de skills/<nome>.md
+dono() { test "$(stat -c %u:%g "$1")" = 1000:1000; }
+bloco_novo() { local f=/data/OpenBot/Agents/smoke-agente/AGENTS.md; test "$(grep -c 'jeito-hark:inicio' "$f")" = 1 && grep -qF 'dois nichados discordam, ou plano e revisão discordam' "$f"; }
+bloco_trocado() { local f=/data/OpenBot/Agents/smoke-antigo/AGENTS.md; test "$(grep -c 'jeito-hark:inicio' "$f")" = 1 && ! grep -q 'regra-antiga-do-bloco' "$f" && grep -q 'nota do dono' "$f" && grep -qF 'dois nichados discordam, ou plano e revisão discordam' "$f"; }
 sm_ok() { python3 /data/bin/sm --help | grep -q 'sm buscar'; }
 conselho_ok() { python3 /data/bin/conselho --help | grep -q 'conselho'; }
 chave_ok() { test -s /config/supermemory.key && test "$(stat -c %a /config/supermemory.key)" = 600; }
@@ -82,10 +90,15 @@ check "at-spi-bus-launcher instalado" test -x /usr/libexec/at-spi-bus-launcher -
 check "NO_AT_BRIDGE não definido no shell" no_at
 
 # customizações geradas pelo init
-for s in jeito-hark cursor-hark openui-hark supermemory; do check "skill $s" skill "$s"; done
+for s in jeito-hark cursor-hark openui-hark supermemory conselho decide moondream; do check "skill $s" skill "$s"; done
+for s in conselho decide moondream; do
+  check "skill $s = front matter + skills/$s.md" fonte "$s"
+  check "skill $s com dono 1000:1000" dono "/data/.agents/skills/$s/SKILL.md"
+done
 check "cursor-hark cursor.js" test -s /data/.agents/skills/cursor-hark/cursor.js
 check "openui-hark montar.py" test -s /data/.agents/skills/openui-hark/montar.py
-check "bloco Jeito Hark no AGENTS.md do agente" grep -q 'jeito-hark:inicio' /data/OpenBot/Agents/smoke-agente/AGENTS.md
+check "AGENTS.md do agente novo: um só bloco, com os 4 casos do conselho" bloco_novo
+check "AGENTS.md do agente antigo: bloco trocado, texto do dono preservado" bloco_trocado
 check "/data/AGENTS.md" test -s /data/AGENTS.md
 check "/data/bin/sm executável" test -x /data/bin/sm
 check "/data/bin/conselho executável" test -x /data/bin/conselho

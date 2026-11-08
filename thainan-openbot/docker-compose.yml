@@ -198,10 +198,12 @@ services:
         EOF
         fi
         cp -f /data/skills/decide.md /data/.config/opencode/skills/decide.md 2>/dev/null || true
-        # r3: só a cópia de fábrica da r2 (mesmo sha256) é trocada; arquivo editado é preservado
-        troca_fabrica() { [ -s "$$1" ] && [ "$$(sha256sum "$$1" | cut -d' ' -f1)" = "$$2" ] && rm -f "$$1" && echo "init: $$1 de fábrica (r2) será trocado pela r3"; }
-        troca_fabrica /data/skills/conselho.md fdfe44e874af234faa16f9c7125e1592097a5bc7c6d560f7a20a869111f0d910
-        troca_fabrica /data/bin/conselho 6f954318be364fd5c3098e0e39208fb906919577f6690f5ba8c1e99d09abbe9a
+        # r3/r4: só a cópia de fábrica de uma versão anterior (mesmo sha256) é trocada; arquivo editado é preservado
+        # Release que mudar skills/conselho.md ou bin/conselho: some aqui o sha256 da cópia de fábrica anterior (e o da SKILL.md em ~/.agents/skills, se mudar)
+        troca_fabrica() { [ -s "$$1" ] && [ "$$(sha256sum "$$1" | cut -d' ' -f1)" = "$$2" ] && rm -f "$$1" && echo "init: $$1 de fábrica (versão anterior) será trocado pela desta versão"; }
+        troca_fabrica /data/skills/conselho.md fdfe44e874af234faa16f9c7125e1592097a5bc7c6d560f7a20a869111f0d910 # fábrica da r2
+        troca_fabrica /data/skills/conselho.md 78cacfe4b2a38edae2edb6826415039f83f3f26118ed12f86c1c684e53a13a85 # fábrica da r3
+        troca_fabrica /data/bin/conselho 6f954318be364fd5c3098e0e39208fb906919577f6690f5ba8c1e99d09abbe9a # fábrica da r2
         if [ ! -s /data/skills/conselho.md ]; then
         cat <<'EOF' > /data/skills/conselho.md
         # Skill: conselho
@@ -209,8 +211,8 @@ services:
         Ferramenta CLI `conselho`: consulta 3 modelos (via 9Router) em paralelo sobre a mesma pergunta e pede a um presidente a síntese com recomendação, grau de confiança, pontos de concordância e divergência.
 
         ## Quando usar (só nestes 4 casos)
-        1. Decisão difícil de desfazer (apagar dados, mudar produção, contrato, dinheiro).
-        2. Agentes nichados ou plano/revisão discordam entre si.
+        1. Decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados).
+        2. Dois agentes nichados discordam, ou plano e revisão discordam.
         3. Confiança do `decide` abaixo de 0,35 (ele imprimiu `ESCALAR`).
         4. O Nan pediu explicitamente "pergunta ao conselho".
 
@@ -250,6 +252,17 @@ services:
         EOF
         fi
         cp -f /data/skills/conselho.md /data/.config/opencode/skills/conselho.md 2>/dev/null || true
+        # r4: os agentes leem ~/.agents/skills/<nome>/SKILL.md; conselho, decide e moondream ficam lá também
+        # (front matter + o mesmo texto de /data/skills/<nome>.md). Só grava se ausente: edição do Nan é preservada.
+        skill_agentes() {
+          [ -s "/data/.agents/skills/$$1/SKILL.md" ] && return 0
+          [ -s "/data/skills/$$1.md" ] || return 0
+          mkdir -p "/data/.agents/skills/$$1"
+          { printf -- '---\nname: %s\ndescription: %s\n---\n\n' "$$1" "$$2"; cat "/data/skills/$$1.md"; } > "/data/.agents/skills/$$1/SKILL.md"
+        }
+        skill_agentes conselho 'Use só em decisão difícil de desfazer, quando dois nichados ou plano e revisão discordam, quando o decide der ESCALAR (confiança abaixo de 0,35) ou quando o Nan pedir "pergunta ao conselho". Só o Chefe chama, no máximo 1 vez por tarefa.'
+        skill_agentes decide 'Use para escolher entre opções fechadas na tela (qual botão, qual aba, qual resultado) quando a escolha não for óbvia. Rode decide com objetivo, estado e opções; se sair ESCALAR (saída 3), pense com calma ou pergunte ao Nan.'
+        skill_agentes moondream 'Use no computer use da área de trabalho remota quando o alvo não tem rótulo acessível (canvas, jogo, imagem) ou a árvore AT-SPI falha. Rode md point para clicar, md detect para achar objetos e md ask para perguntar sobre a tela.'
         # Jeito Hark (r3): skills globais em ~/.agents/skills e bloco no AGENTS.md de cada agente
         mkdir -p /data/.agents/skills/jeito-hark /data/.agents/skills/cursor-hark
         cat <<'FIM_HARK' > /data/.agents/skills/jeito-hark/SKILL.md
@@ -359,7 +372,7 @@ services:
         ## Jeito Hark (sempre)
         - Antes de qualquer resposta ou tarefa, siga a skill jeito-hark (tom, autonomia, navegador, formulários ask_ui/ask_user).
         - Em toda ação no navegador ou na área remota, siga a skill cursor-hark (bolinha do Hark visível, clique em dois tempos, md e decide).
-        - Decisões difíceis (apagar dados, produção, contrato; decide com confiança abaixo de 0,35; ou pedido do Nan "pergunta ao conselho"): siga a skill conselho. Só o Chefe chama, no máximo 1 vez por tarefa.
+        - Conselho, só nestes 4 casos: decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados); dois nichados discordam, ou plano e revisão discordam; decide com confiança abaixo de 0,35; o Nan pede "pergunta ao conselho". Siga a skill conselho. Nunca no dia a dia. Só o Chefe chama, no máximo 1 vez por tarefa.
         - Memória: siga a skill supermemory (sm buscar antes de responder, sm gravar decisões e resultados no mesmo turno).
         - Cartões no chat (tabela, pergunta com opções, várias escolhas, campos, sim ou não, confirmação de compra, login, chave de API, código): siga a skill openui-hark. Senha, cartão e chave nunca em campo do cartão; use o cofre.
         - Skills em ~/.agents/skills. Se não achar, avise o Nan.

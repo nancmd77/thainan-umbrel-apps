@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.64.0-r3"
+version: "0.64.0-r4"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.64.0-r3: o `conselho` passa a usar por padrão Gemini 3.8 Flash High (presidente), gpt-oss-120b e Qwen 3.8 27B (Cerebras), sem depender da assinatura Claude; a cópia de fábrica da r2 é trocada sozinha. Base OpenBot continua v0.64.0.
+  Versão 0.64.0-r4: o Chefe passa a achar as skills conselho, decide e moondream (agora também em ~/.agents/skills, onde os agentes procuram). O bloco de regras ganha o caso "dois nichados ou plano e revisão discordam" e é atualizado em quem já tinha o antigo; a cópia de fábrica da r3 do conselho é trocada sozinha e edição sua é preservada. Base OpenBot continua v0.64.0.
 dependencies: []
 path: ""
 defaultUsername: ""
