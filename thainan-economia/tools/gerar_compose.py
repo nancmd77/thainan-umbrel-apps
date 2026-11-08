@@ -30,6 +30,8 @@ services:
       RTX: "on"
     volumes:
       - /lib/modules:/lib/modules:ro
+      - /usr/bin:/host/bin:ro
+      - /usr/lib/x86_64-linux-gnu:/host/lib:ro
       - ${APP_DATA_DIR}/data:/data
     entrypoint: ["python", "-u", "-c"]
     command:

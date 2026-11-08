@@ -1,4 +1,4 @@
-# Economia de energia (thainan-economia) 1.1.2
+# Economia de energia (thainan-economia) 1.2.0
 
 Painel de controle de energia para o notebook Acer Nitro (RTX 2050), rodando no Umbrel.
 Porta interna 8536, exposta pelo app proxy do Umbrel, que exige login.
@@ -36,6 +36,16 @@ Cada controle é um formulário com POST próprio: limites de CPU (PL1/PL2), tur
 - Salvo em `/data/estado.json` (volume `${APP_DATA_DIR}/data:/data`), escrita atômica.
 - O estado salvo tem prioridade. As variáveis `CPU_W`, `TURBO` e `RTX` só semeiam o padrão na primeira execução.
 - A cada 300 s e no boot, os valores salvos são reaplicados.
+
+## GPU RTX 2050
+
+- Mostra potência, limite, temperatura, P-state e utilização sem acordar a GPU.
+- Lê sysfs primeiro (`/sys/bus/pci/devices/0000:01:00.0/power/runtime_status`, `power_state`, `power/runtime_suspended_time`, `power/runtime_active_time`). Não abre `/dev/nvidia*`.
+- `nvidia-smi` só roda com `runtime_status == active`. Dormindo (D3cold) ou ausente: não chama o binário e mostra "cerca de 0 W".
+- Medição no máximo a cada 30 s, só ao abrir a página ou o `/status.json`. Não impede o runtime suspend.
+- "Tempo dormindo desde o boot" = `suspended / (suspended + active)`, a partir dos contadores do runtime PM.
+- Compose: monta `/usr/bin` em `/host/bin` e `/usr/lib/x86_64-linux-gnu` em `/host/lib` (somente leitura). O `nvidia-smi` do host roda pelo loader do host (`ld-linux-x86-64.so.2`), porque a imagem é Alpine.
+- Campo `gpu` do JSON é o bloco novo de energia. O diagnóstico antigo (lspci, driver, módulos) foi para `gpu_diagnostico`.
 
 ## Segurança
 
