@@ -38,7 +38,10 @@ trap 'exit 143' TERM
 # Não segue links internos nem altera permissões/dono dos dados de origem.
 tar -czf "$temporary" -C "$data_dir" .
 # Publicação atômica sem sobrescrever, mesmo em execuções simultâneas.
-ln -- "$temporary" "$archive"
+if ! ln -- "$temporary" "$archive"; then
+  printf 'Backup deste minuto já existe; nada sobrescrito: %s\n' "$archive" >&2
+  exit 1
+fi
 
 # O nome ordena cronologicamente; só arquivos deste app entram na retenção.
 shopt -s nullglob
@@ -49,6 +52,6 @@ for file in "$backup_dir/$app_id"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9]
   fi
 done
 for ((i = 0; i < ${#backups[@]} - 5; i++)); do
-  rm -- "${backups[i]}"
+  rm -f -- "${backups[i]}"
 done
 printf '%s\n' "$archive"
