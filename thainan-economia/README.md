@@ -1,4 +1,4 @@
-# Economia de energia (thainan-economia) 1.1.2
+# Economia de energia (thainan-economia) 1.2.1
 
 Painel de controle de energia para o notebook Acer Nitro (RTX 2050), rodando no Umbrel.
 Porta interna 8536, exposta pelo app proxy do Umbrel, que exige login.
@@ -41,7 +41,10 @@ Cada controle é um formulário com POST próprio: limites de CPU (PL1/PL2), tur
 
 - Controles só por POST. Body até 4096 bytes. Só `application/x-www-form-urlencoded`.
 - Validação de todos os campos no servidor. Entrada do usuário nunca vai para shell.
-- Proteção contra CSRF por origem (sem token): se `Sec-Fetch-Site` existir, exige `same-origin` ou `none`; senão, se `Origin` existir, precisa bater com `Host`. Requisição de outra origem recebe 403.
+- Proteção contra CSRF em duas camadas, ambas obrigatórias em todo POST:
+  - Origem: se `Sec-Fetch-Site` existir, exige `same-origin` ou `none`; senão, se `Origin` existir, precisa bater com `Host`.
+  - Token: todo formulário POST leva o campo oculto `csrf`, um HMAC-SHA256 de um segredo aleatório. O segredo é gerado na primeira execução e fica em `/data/csrf.key`, com permissão 600. A comparação é em tempo constante (`hmac.compare_digest`). Não precisa de variável de ambiente. Apagar o arquivo gera um segredo novo no próximo start.
+  - Se qualquer uma das duas falhar, a resposta é 403 com uma página curta em português.
 - Cabeçalhos: `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, CSP restritiva com `form-action 'self'`.
 
 ## Atualização da página
@@ -64,7 +67,7 @@ ECONOMIA_SIMULADO=1 BIND=127.0.0.1 ECONOMIA_PORTA=18536 python3 thainan-economia
 python3 -m unittest discover -s thainan-economia/tests
 ```
 
-Cobrem validadores, resolução de fans, combinação de perfis, origem de POST, estado em disco, painel simulado, renderização das páginas e sincronia do compose.
+Cobrem validadores, resolução de fans, combinação de perfis, origem de POST, token CSRF (POST real sem token, com token errado, com token certo e de origem errada), estado em disco, painel simulado, renderização das páginas e sincronia do compose.
 
 ## Compose gerado
 
