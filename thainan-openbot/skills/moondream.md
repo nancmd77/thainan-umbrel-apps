@@ -1,9 +1,9 @@
 # Skill: moondream
 
-Ferramenta CLI `md`: mira e clique com Moondream Cloud (`point`, `detect`, `click`) e descrição/perguntas sobre a tela com Gemini via 9Router (`ask`).
+Ferramenta CLI `md`: mira e clique com Moondream Cloud (`point`, `detect`, `click`) e descrição/perguntas sobre a tela com Qwen via Cerebras e reserva Gemini via 9Router (`ask`).
 
 - `md point`, `md detect` e cliques: use para mirar e clicar quando o alvo não tem rótulo acessível (canvas, jogo, imagem) ou a árvore AT-SPI falha.
-- `md ask`: use para descrever a tela ou fazer perguntas visuais (usa Gemini via 9Router; fallback Moondream query com aviso se o 9Router falhar).
+- `md ask`: use para descrever a tela ou fazer perguntas visuais (usa Qwen via Cerebras `cerebras/qwen-3.8-27b` rápido, com reserva Gemini `ag/gemini-3.8-flash-high`; coordenadas do ask são aproximadas e não servem pra clicar; fallback Moondream query com aviso se ambos falharem).
 - Código 4 = tela vazia: se a captura tiver 2 cores ou menos (display sem janela visível mapeada), o CLI não chama nenhuma API e sai com código 4. Não insista: avise que não há janela visível.
 
 ## Fluxo de Precedencia CUA
@@ -30,9 +30,9 @@ md point "Submit" --click --sem-cursor
 # Detectar todos os objetos da classe
 md detect "button"
 
-# Descrever ou perguntar o estado da tela (Gemini via 9Router)
+# Descrever ou perguntar o estado da tela (Qwen via Cerebras / 9Router)
 md ask "Descreva a tela e liste os elementos visiveis"
 md ask "Qual mensagem de erro esta em destaque?"
-# Trocar modelo do ask
+# Trocar modelo do ask (força modelo único sem cadeia)
 md ask "O que ha na tela?" --modelo ag/gemini-3.8-flash-high
 ```

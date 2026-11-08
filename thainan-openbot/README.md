@@ -205,7 +205,7 @@ A partir da versão `0.61.0-r8`, o OpenBot integra a Moondream Cloud API como fe
 2. **Moondream Cloud (`md point`) como fallback**: Utilize quando o aplicativo não tiver suporte a acessibilidade (canvas WebGL, interfaces sem bridge a11y, menus renderizados em bitmap, jogos) ou quando a busca semântica não localizar o elemento.
 
 ### 6.2 Comandos da CLI `md`
-- **Regra de ouro**: `md point`, `md detect` e cliques continuam no Moondream Cloud para mirar e clicar. Para **descrever a tela**, use `md ask` (agora Gemini via 9Router).
+- **Regra de ouro**: `md point`, `md detect` e cliques continuam no Moondream Cloud para mirar e clicar. Para **descrever a tela**, use `md ask` (Qwen via Cerebras rápido, com reserva Gemini via 9Router). As coordenadas do ask são aproximadas e não servem para clicar (para clicar usa-se `md point`).
 - **Código 4 = tela vazia**: checagem obrigatória em todos os subcomandos (`point`, `detect`, `ask`). Se a miniatura 64x64 da captura tiver 2 cores ou menos (Xvfb sem janela mapeada), o `md` não chama nenhuma API, imprime `tela vazia: display <X> sem janela visivel` e sai com **código 4**. Os agentes são instruídos a não insistir e avisar que não há janela visível.
 
 ```bash
@@ -222,18 +222,18 @@ md point "Confirm" --click --sem-cursor
 # Detecção de caixas delimitadoras de múltiplos objetos (Moondream)
 md detect "text input"
 
-# Descrever a tela ou perguntas visuais (Gemini via 9Router)
+# Descrever a tela ou perguntas visuais (Qwen via Cerebras / 9Router, rápido)
 md ask "Descreva a tela e liste as janelas e botões visíveis"
 md ask "Qual formulário está aberto na tela?"
 
-# Troca de modelo via flag
+# Troca de modelo via flag (força modelo único sem cadeia)
 md ask "O que há na tela?" --modelo ag/gemini-3.8-flash-high
 ```
 
 ### 6.3 Configuração da Chave
 - **Moondream Cloud**: lida de `MOONDREAM_API_KEY` ou de `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`).
-- **9Router (para `md ask`)**: reutiliza o mesmo endpoint e chave do CLI `conselho` (`OPENBOT_9ROUTER_KEY` ou `/data/9router_key`, com endpoint em `CONSELHO_URL` ou padrão `http://192.168.18.171:20128/v1/chat/completions`). Nunca imprime a chave.
-- Se o 9Router falhar, o `md ask` faz fallback para o Moondream query com o aviso explícito `(resposta do Moondream, menos confiável)`.
+- **9Router (para `md ask`)**: reutiliza o mesmo endpoint e chave do CLI `conselho` (`OPENBOT_9ROUTER_KEY` ou `/data/9router_key`, com endpoint em `CONSELHO_URL` ou padrão `http://192.168.18.171:20128/v1/chat/completions`). Nunca imprime a chave. Modelo padrão: `cerebras/qwen-3.8-27b` (timeout ~20 s), com reserva `ag/gemini-3.8-flash-high`.
+- Se o 9Router falhar em ambos os modelos, o `md ask` faz fallback para o Moondream query com o aviso explícito `(resposta do Moondream, menos confiável)`. O JSON inclui o campo `"tentativas"` com as falhas e motivos curtos.
 - **Códigos de Saída do `md`**: `0` sucesso; `1` erro geral / chave ausente; `2` nenhum alvo encontrado (`point`); `4` tela vazia (<= 2 cores, sem janela visível).
 ---
 
@@ -313,3 +313,11 @@ conselho "Escolher a rota de deploy?" --modelos ag/gemini-3.8-flash-high,cerebra
 - **Tela vazia (código 4)**: contagem de cores em miniatura 64x64 em todos os subcomandos; se `<= 2` cores (Xvfb sem janela mapeada), sai imediatamente com código 4 sem chamada de rede.
 - **Fallback resiliente**: se o 9Router falhar no `md ask`, cai no Moondream query com aviso explícito `(resposta do Moondream, menos confiável)`.
 - **Preservação de edições**: `troca_fabrica` atualizado com o sha256 das versões r5 dos arquivos alterados (`/data/AGENTS.md`, `skills/moondream.md`, `cursor-hark/SKILL.md`, `moondream/SKILL.md` e `bin/md`). Edições manuais do Nan continuam preservadas.
+
+### 7.8 md ask mais rápido com Qwen e reserva Gemini (0.64.0-r7)
+- **Qwen ultra-rápido**: `md ask` adota por padrão `cerebras/qwen-3.8-27b` via 9Router, respondendo em ~0,8–1,1 s (contra 8–12 s do Gemini).
+- **Cadeia resiliente**: se o Qwen falhar (HTTP erro, timeout ~20 s, resposta vazia), aciona automaticamente `ag/gemini-3.8-flash-high`; se ambos falharem, recorre ao Moondream query com aviso explícito no stderr.
+- **Controle por flag**: `--modelo` força modelo único no 9Router sem cadeia.
+- **Auditoria de tentativas**: saída JSON inclui `"modelo"` (o que respondeu) e `"tentativas"` (lista com modelos que falharam e motivo curto).
+- **Prompt seguro**: prompt do ask adverte que posições são aproximadas e que cliques devem usar `md point`.
+- **Preservação de edições**: `troca_fabrica` atualizado com o sha256 das versões r6 dos arquivos alterados (`/data/AGENTS.md`, `skills/moondream.md`, `cursor-hark/SKILL.md`, `moondream/SKILL.md` e `bin/md`). Edições manuais do Nan continuam preservadas.

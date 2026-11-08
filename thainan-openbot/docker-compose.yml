@@ -63,6 +63,7 @@ services:
         troca_fabrica /data/AGENTS.md b0c0bd370b8dff692d5d66f5c92090ebf4d0a9dd46268a11ff563638d5b7db4b # fábrica da 0.61.0-r9
         troca_fabrica /data/AGENTS.md 2b42c64ea704214abf7cfbd6ad1ce2295084ef7db42d1dc8ac4f44aa81ac420f # fábrica da 0.61.0-r10 até a 0.64.0-r4
         troca_fabrica /data/AGENTS.md bbb5043aa0833833a8d6d5766f50abcc73608876ffed15adba23b004c3e53b07 # fábrica da 0.64.0-r5
+        troca_fabrica /data/AGENTS.md 17c82a1a9b9aa8b3e869840f8561014964352efec92f4c485b44c1b8dd05affb # fábrica da 0.64.0-r6
         if [ ! -e /data/AGENTS.md ]; then
         cat <<'EOF' > /data/AGENTS.md
         # Diretrizes para Agentes OpenBot (Computer Use)
@@ -100,9 +101,15 @@ services:
           - TypeSafe (Jev reserva): `TYPESAFE_API_KEY` ou `/config/typesafe.key` (perm 600).
           - Configuraveis no painel web na porta `8592` (rotas `/config` e `/moondream`).
 
+        ## Ferramenta CLI `conselho`
+
+        - **Consulta a 3 modelos com síntese**: `conselho "<pergunta>" [--contexto arquivo|-] [--modelos a,b,c] [--json]`
+        - Só para decisões difíceis (ver skill `conselho`). Máximo 1 por tarefa; só o Chefe chama.
+        - Chave: `OPENBOT_9ROUTER_KEY` ou `/data/9router_key`. Nunca imprimir a chave.
+
         ## Ferramenta CLI `md`
 
-        - **Regra de ouro**: `md point`, `md detect` e cliques são para **mirar e clicar** (Moondream). Para **descrever a tela**, use `md ask` (Gemini via 9Router).
+        - **Regra de ouro**: `md point`, `md detect` e cliques são para **mirar e clicar** (Moondream). Para **descrever a tela**, use `md ask` (Qwen via Cerebras rápido, com reserva Gemini via 9Router). As coordenadas do ask não servem pra clicar (use `md point`).
         - **Código 4 = tela vazia**: se a miniatura tiver 2 cores ou menos (display sem janela visível mapeada), o `md` não chama nenhuma API, imprime "tela vazia: display <X> sem janela visivel" e sai com **código 4**. **Não insista**: avise que não há janela visível.
         - **Mira e Clique (Moondream)**:
           `md point '<descricao do alvo>' --click`
@@ -115,9 +122,9 @@ services:
           `md point '<alvo>' --click --sem-cursor`
         - **Deteccao de Caixas Delimitadoras (Moondream)**:
           `md detect '<alvo>'`
-        - **Descricao e Perguntas Visuais (Gemini via 9Router)**:
+        - **Descricao e Perguntas Visuais (Qwen via Cerebras com reserva Gemini via 9Router)**:
           `md ask '<pergunta>' [--modelo <modelo>]`
-          Modelo padrão: `ag/gemini-3.8-flash-high`. Se o 9Router falhar, faz fallback para o Moondream query com aviso explicito no stderr.
+          Modelo padrão: rápido `cerebras/qwen-3.8-27b`, com reserva `ag/gemini-3.8-flash-high` e fallback Moondream query com aviso explícito no stderr. Coordenadas do ask são aproximadas e não servem pra clicar.
 
         Display padrao: `:1` (pode ser sobrescrito com `--display :0` ou variavel `DISPLAY`).
         Chaves: 9Router em `OPENBOT_9ROUTER_KEY` ou `/data/9router_key`; Moondream em `MOONDREAM_API_KEY` ou `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`). Nunca imprima chaves.
@@ -126,14 +133,15 @@ services:
         troca_fabrica /data/skills/moondream.md 2d6765094bc970e5c5131c9c74f3caf63e0f2168a459301eed80146a83a10946 # fábrica da 0.61.0-r8
         troca_fabrica /data/skills/moondream.md 96fd6c60516dc5f7666a449295639073f94f78423cdae34fc94bc92bd4cf8761 # fábrica da 0.61.0-r9 até a 0.64.0-r4
         troca_fabrica /data/skills/moondream.md b0bb39f1b16bf7f987b4dddee314f274894351121446d4b4113b587e236f75e6 # fábrica da 0.64.0-r5
+        troca_fabrica /data/skills/moondream.md 59204f0b954ec3f2e806eff3c8e85579e6f253b985b930bd481b60a3b0f28b72 # fábrica da 0.64.0-r6
         if [ ! -s /data/skills/moondream.md ]; then
         cat <<'EOF' > /data/skills/moondream.md
         # Skill: moondream
 
-        Ferramenta CLI `md`: mira e clique com Moondream Cloud (`point`, `detect`, `click`) e descrição/perguntas sobre a tela com Gemini via 9Router (`ask`).
+        Ferramenta CLI `md`: mira e clique com Moondream Cloud (`point`, `detect`, `click`) e descrição/perguntas sobre a tela com Qwen via Cerebras e reserva Gemini via 9Router (`ask`).
 
         - `md point`, `md detect` e cliques: use para mirar e clicar quando o alvo não tem rótulo acessível (canvas, jogo, imagem) ou a árvore AT-SPI falha.
-        - `md ask`: use para descrever a tela ou fazer perguntas visuais (usa Gemini via 9Router; fallback Moondream query com aviso se o 9Router falhar).
+        - `md ask`: use para descrever a tela ou fazer perguntas visuais (usa Qwen via Cerebras `cerebras/qwen-3.8-27b` rápido, com reserva Gemini `ag/gemini-3.8-flash-high`; coordenadas do ask são aproximadas e não servem pra clicar; fallback Moondream query com aviso se ambos falharem).
         - Código 4 = tela vazia: se a captura tiver 2 cores ou menos (display sem janela visível mapeada), o CLI não chama nenhuma API e sai com código 4. Não insista: avise que não há janela visível.
 
         ## Fluxo de Precedencia CUA
@@ -160,10 +168,10 @@ services:
         # Detectar todos os objetos da classe
         md detect "button"
 
-        # Descrever ou perguntar o estado da tela (Gemini via 9Router)
+        # Descrever ou perguntar o estado da tela (Qwen via Cerebras / 9Router)
         md ask "Descreva a tela e liste os elementos visiveis"
         md ask "Qual mensagem de erro esta em destaque?"
-        # Trocar modelo do ask
+        # Trocar modelo do ask (força modelo único sem cadeia)
         md ask "O que ha na tela?" --modelo ag/gemini-3.8-flash-high
         ```
         EOF
@@ -226,6 +234,7 @@ services:
         troca_fabrica /data/skills/conselho.md 1c0244675e2fbf0c4f549561c51f0980d64d4a31fca24a6c13dcbef103d85fea # fábrica da r4
         troca_fabrica /data/bin/conselho 6f954318be364fd5c3098e0e39208fb906919577f6690f5ba8c1e99d09abbe9a # fábrica da r2
         troca_fabrica /data/bin/md 992d5f3f48c1f89f0e1f6e1f1079cef77dff4cd138afe5cfb064599a4a6a48d8 # fábrica da 0.61.0-r8 até a 0.64.0-r5
+        troca_fabrica /data/bin/md 2702607c62362a418d17686f1931ef8cedff48a43d244853ac0a250c212f7a0f # fábrica da 0.64.0-r6
         if [ ! -s /data/skills/conselho.md ]; then
         cat <<'EOF' > /data/skills/conselho.md
         # Skill: conselho
@@ -287,9 +296,10 @@ services:
         troca_fabrica /data/.agents/skills/decide/SKILL.md 25228a2b01a2de7bce71f7af7618ddbf948a875df54cbe0c643fe384d3efa3b6 # fábrica da r4
         troca_fabrica /data/.agents/skills/moondream/SKILL.md a347b6c74b889c2ce39691361e486f0faf02a3ff9a73594f2e59c985e10cf314 # fábrica da r4
         troca_fabrica /data/.agents/skills/moondream/SKILL.md 9c0a8c14eabf195cbfd4c1203bb23c1be27cd13bc9edb4bd683ec8d5bfb5477a # fábrica da r5
+        troca_fabrica /data/.agents/skills/moondream/SKILL.md cc29bc36128caab13c14b8c3eabf40380ef33412f4a4a7bb0c34db796cae1367 # fábrica da r6
         skill_agentes conselho 'Use só em decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados; inclui o decide com confiança abaixo de 0,35 nesse tipo de decisão), quando dois nichados ou plano e revisão discordam ou quando o Nan pedir "pergunta ao conselho". Nunca no dia a dia. Só o Chefe chama, no máximo 1 vez por tarefa; subagente devolve a decisão ao Chefe.'
         skill_agentes decide 'Use para escolher entre opções fechadas na tela (qual botão, qual aba, qual resultado) quando a escolha não for óbvia. Rode decide com objetivo, estado e opções. Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).'
-        skill_agentes moondream 'Use md point/detect para mirar e clicar quando o alvo não tem rótulo acessível (canvas, jogo, imagem) ou AT-SPI falha. Para descrever a tela use md ask (Gemini). Código 4 = tela vazia (display sem janela visível), não insista.'
+        skill_agentes moondream 'Use md point/detect para mirar e clicar quando o alvo não tem rótulo acessível (canvas, jogo, imagem) ou AT-SPI falha. Para descrever a tela use md ask (Qwen Cerebras rápido, reserva Gemini); coordenadas do ask não servem pra clicar. Código 4 = tela vazia (display sem janela visível), não insista.'
         # Jeito Hark (r3): skills globais em ~/.agents/skills e bloco no AGENTS.md de cada agente
         mkdir -p /data/.agents/skills/jeito-hark /data/.agents/skills/cursor-hark
         cat <<'FIM_HARK' > /data/.agents/skills/jeito-hark/SKILL.md
@@ -345,6 +355,7 @@ services:
         FIM_HARK
         troca_fabrica /data/.agents/skills/cursor-hark/SKILL.md bd80446de19dc87b38c7668f436c3932721a1f40c8b0c9182890d9bab397f69d # fábrica da 0.62.0-r3 até a 0.64.0-r4
         troca_fabrica /data/.agents/skills/cursor-hark/SKILL.md 8aa259de400ce79004fd31d10e44150e6b3de57618725b0bb108bd89f8e1fa3c # fábrica da 0.64.0-r5
+        troca_fabrica /data/.agents/skills/cursor-hark/SKILL.md 551813c88449a261b5e0b4ca836c20d0015b7fdd8024b562c3555b47c2a6a4f7 # fábrica da 0.64.0-r6
         if [ ! -s /data/.agents/skills/cursor-hark/SKILL.md ]; then
         cat <<'FIM_HARK' > /data/.agents/skills/cursor-hark/SKILL.md
         ---
@@ -374,8 +385,8 @@ services:
         - Texto longo: hover + click no campo e um `type` só.
         - Campo de senha, cartão ou código: nunca digite você; use o cofre (fill_card, submit_secret) ou request_takeover.
 
-        ## 4. Quando usar md (mira Moondream / descrição Gemini)
-        `md point` e cliques são para mirar e clicar; para descrever a tela use `md ask` (Gemini via 9Router). Código 4 = tela vazia (display sem janela visível): não insista, avise o Nan.
+        ## 4. Quando usar md (mira Moondream / descrição Qwen e Gemini)
+        `md point` e cliques são para mirar e clicar; para descrever a tela use `md ask` (Qwen via Cerebras rápido, com reserva Gemini via 9Router). As coordenadas do ask são aproximadas e não servem pra clicar (use `md point`). Código 4 = tela vazia (display sem janela visível): não insista, avise o Nan.
         No navegador o conteúdo é lido por snapshot, então md é exceção:
         - Alvo que não aparece no snapshot (canvas, imagem, mapa, gráfico, botão desenhado): tire screenshot da aba, salve em arquivo e rode `md point "<alvo em inglês curto>" --image <arquivo>` pra pegar a coordenada; clique por coordenada no navegador (hover + espera + click).
         - Descrever ou perguntar sobre a página: `md ask "<pergunta>" --image <arquivo>`.
@@ -404,7 +415,7 @@ services:
         <!-- jeito-hark:inicio (bloco gerenciado pelo app thainan-openbot; recriado a cada início) -->
         ## Jeito Hark (sempre)
         - Antes de qualquer resposta ou tarefa, siga a skill jeito-hark (tom, autonomia, navegador, formulários ask_ui/ask_user).
-        - Em toda ação no navegador ou na área remota, siga a skill cursor-hark (bolinha do Hark visível, clique em dois tempos, md para mirar/clicar com Moondream e md ask para descrever com Gemini, código 4 = tela vazia, e decide).
+        - Em toda ação no navegador ou na área remota, siga a skill cursor-hark (bolinha do Hark visível, clique em dois tempos, md para mirar/clicar com Moondream e md ask para descrever com Qwen/Gemini, coordenadas do ask não servem pra clicar, código 4 = tela vazia, e decide).
         - Conselho, só nestes 4 casos: decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados); dois nichados discordam, ou plano e revisão discordam; decide com confiança abaixo de 0,35 numa decisão difícil de desfazer; o Nan pede "pergunta ao conselho". Siga a skill conselho. Nunca no dia a dia. Só o Chefe chama, no máximo 1 vez por tarefa; subagente devolve a decisão ao Chefe.
         - Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).
         - Memória: siga a skill supermemory (sm buscar antes de responder, sm gravar decisões e resultados no mesmo turno).
@@ -1451,7 +1462,7 @@ services:
         CLI Moondream Cloud (md) para mira e auxilio visual a agentes de Computer Use.
         Suporta subcomandos: point, detect e ask.
         - point/detect/click: Moondream Cloud (mira fina e bounding boxes).
-        - ask: Gemini via 9Router (padrao ag/gemini-3.8-flash-high), fallback Moondream query.
+        - ask: Qwen via Cerebras 9Router (padrao cerebras/qwen-3.8-27b, reserva ag/gemini-3.8-flash-high), fallback Moondream query.
         - checagem de tela vazia: se miniatura 64x64 tiver <= 2 cores, sai com codigo 4 sem chamar API.
         """
 
@@ -1471,13 +1482,15 @@ services:
 
         MOONDREAM_API_BASE = "https://api.moondream.ai/v1"
         NINEROUTER_URL_PADRAO = "http://192.168.18.171:20128/v1/chat/completions"
-        MODELO_ASK_PADRAO = "ag/gemini-3.8-flash-high"
-        TIMEOUT_9ROUTER_PADRAO = 60.0
+        MODELO_ASK_PADRAO = "cerebras/qwen-3.8-27b"
+        MODELO_ASK_RESERVA = "ag/gemini-3.8-flash-high"
+        TIMEOUT_9ROUTER_PADRAO = 20.0
         TIMEOUT_MOONDREAM_PADRAO = 30.0
         KEY_FILE_9ROUTER_PADRAO = "/data/9router_key"
         PROMPT_ASK_PADRAO = (
             "Descreva de forma objetiva apenas o que esta visivel na imagem, sem inventar nada. "
-            "Liste as janelas e botoes identificaveis com sua posicao aproximada na tela."
+            "Liste as janelas e botoes identificaveis com sua posicao aproximada na tela. "
+            "Lembre-se de que as posicoes sao aproximadas e nao servem para clicar; para clicar ou mirar com precisao, usa-se md point."
         )
 
 
@@ -1724,7 +1737,7 @@ services:
                 headers={
                     "X-Moondream-Auth": api_key,
                     "Content-Type": "application/json",
-                    "User-Agent": "thainan-openbot-md/0.64.0-r6",
+                    "User-Agent": "thainan-openbot-md/0.64.0-r7",
                 },
                 method="POST",
             )
@@ -1770,7 +1783,7 @@ services:
                 headers={
                     "Authorization": f"Bearer {chave_9router}",
                     "Content-Type": "application/json",
-                    "User-Agent": "thainan-openbot-md/0.64.0-r6",
+                    "User-Agent": "thainan-openbot-md/0.64.0-r7",
                 },
                 method="POST",
             )
@@ -1996,36 +2009,53 @@ services:
 
         def cmd_ask(args):
             """
-            Subcomando ask: usa Gemini via 9Router (padrao ag/gemini-3.8-flash-high).
-            Se falhar, faz fallback para o Moondream query com aviso explicito.
+            Subcomando ask: usa Qwen (Cerebras) via 9Router (padrao cerebras/qwen-3.8-27b)
+            com reserva Gemini (ag/gemini-3.8-flash-high). Se ambos falharem (HTTP erro,
+            timeout ~20 s, resposta vazia), faz fallback para o Moondream query com aviso.
+            --modelo forca um unico modelo sem cadeia.
             """
             display = args.display or os.environ.get("DISPLAY") or ":1"
             data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
 
-            modelo = args.modelo or os.environ.get("MD_ASK_MODELO", "").strip() or MODELO_ASK_PADRAO
+            modelo_custom = args.modelo or os.environ.get("MD_ASK_MODELO", "").strip() or None
+            if modelo_custom:
+                cadeia_modelos = [modelo_custom]
+            else:
+                cadeia_modelos = [MODELO_ASK_PADRAO, MODELO_ASK_RESERVA]
+
             chave_9r = obter_chave_9router()
 
             resposta = None
-            provedor = "9router"
+            provedor = None
+            modelo_respondente = None
+            tentativas = []
             aviso_fallback = None
 
             if chave_9r:
-                try:
-                    resposta = post_9router_vision(data_uri, args.question, modelo, chave_9r)
-                except Exception as exc:
-                    aviso_fallback = f"(resposta do Moondream, menos confiável) [motivo fallback 9Router: {exc}]"
-                    resposta = None
+                for mod in cadeia_modelos:
+                    try:
+                        resposta = post_9router_vision(data_uri, args.question, mod, chave_9r, timeout=TIMEOUT_9ROUTER_PADRAO)
+                        provedor = "9router"
+                        modelo_respondente = mod
+                        break
+                    except Exception as exc:
+                        motivo = str(exc).strip()
+                        if len(motivo) > 80:
+                            motivo = motivo[:77] + "..."
+                        tentativas.append({"modelo": mod, "motivo": motivo})
             else:
-                aviso_fallback = "(resposta do Moondream, menos confiável) [chave 9Router ausente]"
+                tentativas.append({"modelo": "9router", "motivo": "chave 9Router ausente"})
 
             if resposta is None:
                 moondream_key = get_api_key()
                 if not moondream_key:
-                    if aviso_fallback:
-                        sys.stderr.write(f"erro: 9Router falhou ({aviso_fallback}) e chave Moondream tambem esta ausente\n")
-                    else:
-                        sys.stderr.write("erro: chave Moondream ausente\n")
+                    motivos_str = "; ".join(f"{t['modelo']}: {t['motivo']}" for t in tentativas)
+                    sys.stderr.write(f"erro: 9Router falhou ({motivos_str}) e chave Moondream tambem esta ausente\n")
                     sys.exit(1)
+
+                motivos_detalhe = "; ".join(f"{t['modelo']}: {t['motivo']}" for t in tentativas)
+                aviso_fallback = f"(resposta do Moondream, menos confiável) [motivos: {motivos_detalhe}]"
+                sys.stderr.write(f"{aviso_fallback}\n")
 
                 payload_md = {
                     "image_url": data_uri,
@@ -2034,10 +2064,9 @@ services:
                 try:
                     resp_md = post_moondream("query", payload_md, moondream_key)
                     resposta_bruta = resp_md.get("answer") or resp_md.get("caption") or ""
-                    if aviso_fallback:
-                        sys.stderr.write(f"{aviso_fallback}\n")
                     resposta = resposta_bruta
                     provedor = "moondream"
+                    modelo_respondente = "moondream"
                 except Exception as exc_md:
                     sys.stderr.write(f"erro: falha no fallback Moondream: {exc_md}\n")
                     sys.exit(1)
@@ -2046,7 +2075,8 @@ services:
                 "question": args.question,
                 "answer": resposta,
                 "provedor": provedor,
-                "modelo": modelo if provedor == "9router" else "moondream",
+                "modelo": modelo_respondente,
+                "tentativas": tentativas,
                 "screen_size": {"width": orig_w, "height": orig_h},
             }
             if aviso_fallback and provedor == "moondream":
@@ -2058,7 +2088,7 @@ services:
         def main():
             parser = argparse.ArgumentParser(
                 prog="md",
-                description="Ferramenta CLI para mira visual (Moondream) e descricao de tela (Gemini via 9Router) no OpenBot",
+                description="Ferramenta CLI para mira visual (Moondream) e descricao de tela (Qwen/Gemini via 9Router) no OpenBot",
             )
             subparsers = parser.add_subparsers(dest="subcommand", help="Subcomandos disponiveis")
 
@@ -2082,11 +2112,11 @@ services:
             p_detect.set_defaults(func=cmd_detect)
 
             # Subcomando ask
-            p_ask = subparsers.add_parser("ask", help="Descreve ou responde perguntas sobre a tela via Gemini (9Router) com fallback Moondream")
+            p_ask = subparsers.add_parser("ask", help="Descreve ou responde perguntas sobre a tela via Qwen/Gemini (9Router) com fallback Moondream")
             p_ask.add_argument("question", help="Pergunta sobre a tela (ex: 'Descreva a tela' ou 'Qual botao esta selecionado?')")
             p_ask.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
             p_ask.add_argument("--image", default=None, help="Arquivo de imagem opcional")
-            p_ask.add_argument("--modelo", default=None, help=f"Modelo de visao via 9Router (padrao: {MODELO_ASK_PADRAO})")
+            p_ask.add_argument("--modelo", default=None, help=f"Modelo de visao via 9Router (padrao: {MODELO_ASK_PADRAO}; forca modelo unico sem cadeia)")
             p_ask.set_defaults(func=cmd_ask)
 
             args = parser.parse_args()

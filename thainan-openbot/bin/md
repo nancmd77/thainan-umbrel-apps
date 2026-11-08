@@ -3,7 +3,7 @@
 CLI Moondream Cloud (md) para mira e auxilio visual a agentes de Computer Use.
 Suporta subcomandos: point, detect e ask.
 - point/detect/click: Moondream Cloud (mira fina e bounding boxes).
-- ask: Gemini via 9Router (padrao ag/gemini-3.8-flash-high), fallback Moondream query.
+- ask: Qwen via Cerebras 9Router (padrao cerebras/qwen-3.8-27b, reserva ag/gemini-3.8-flash-high), fallback Moondream query.
 - checagem de tela vazia: se miniatura 64x64 tiver <= 2 cores, sai com codigo 4 sem chamar API.
 """
 
@@ -23,13 +23,15 @@ import urllib.request
 
 MOONDREAM_API_BASE = "https://api.moondream.ai/v1"
 NINEROUTER_URL_PADRAO = "http://192.168.18.171:20128/v1/chat/completions"
-MODELO_ASK_PADRAO = "ag/gemini-3.8-flash-high"
-TIMEOUT_9ROUTER_PADRAO = 60.0
+MODELO_ASK_PADRAO = "cerebras/qwen-3.8-27b"
+MODELO_ASK_RESERVA = "ag/gemini-3.8-flash-high"
+TIMEOUT_9ROUTER_PADRAO = 20.0
 TIMEOUT_MOONDREAM_PADRAO = 30.0
 KEY_FILE_9ROUTER_PADRAO = "/data/9router_key"
 PROMPT_ASK_PADRAO = (
     "Descreva de forma objetiva apenas o que esta visivel na imagem, sem inventar nada. "
-    "Liste as janelas e botoes identificaveis com sua posicao aproximada na tela."
+    "Liste as janelas e botoes identificaveis com sua posicao aproximada na tela. "
+    "Lembre-se de que as posicoes sao aproximadas e nao servem para clicar; para clicar ou mirar com precisao, usa-se md point."
 )
 
 
@@ -276,7 +278,7 @@ def post_moondream(endpoint, payload, api_key, timeout=TIMEOUT_MOONDREAM_PADRAO)
         headers={
             "X-Moondream-Auth": api_key,
             "Content-Type": "application/json",
-            "User-Agent": "thainan-openbot-md/0.64.0-r6",
+            "User-Agent": "thainan-openbot-md/0.64.0-r7",
         },
         method="POST",
     )
@@ -322,7 +324,7 @@ def post_9router_vision(data_uri, question, model, chave_9router, timeout=TIMEOU
         headers={
             "Authorization": f"Bearer {chave_9router}",
             "Content-Type": "application/json",
-            "User-Agent": "thainan-openbot-md/0.64.0-r6",
+            "User-Agent": "thainan-openbot-md/0.64.0-r7",
         },
         method="POST",
     )
@@ -548,36 +550,53 @@ def cmd_detect(args):
 
 def cmd_ask(args):
     """
-    Subcomando ask: usa Gemini via 9Router (padrao ag/gemini-3.8-flash-high).
-    Se falhar, faz fallback para o Moondream query com aviso explicito.
+    Subcomando ask: usa Qwen (Cerebras) via 9Router (padrao cerebras/qwen-3.8-27b)
+    com reserva Gemini (ag/gemini-3.8-flash-high). Se ambos falharem (HTTP erro,
+    timeout ~20 s, resposta vazia), faz fallback para o Moondream query com aviso.
+    --modelo forca um unico modelo sem cadeia.
     """
     display = args.display or os.environ.get("DISPLAY") or ":1"
     data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
 
-    modelo = args.modelo or os.environ.get("MD_ASK_MODELO", "").strip() or MODELO_ASK_PADRAO
+    modelo_custom = args.modelo or os.environ.get("MD_ASK_MODELO", "").strip() or None
+    if modelo_custom:
+        cadeia_modelos = [modelo_custom]
+    else:
+        cadeia_modelos = [MODELO_ASK_PADRAO, MODELO_ASK_RESERVA]
+
     chave_9r = obter_chave_9router()
 
     resposta = None
-    provedor = "9router"
+    provedor = None
+    modelo_respondente = None
+    tentativas = []
     aviso_fallback = None
 
     if chave_9r:
-        try:
-            resposta = post_9router_vision(data_uri, args.question, modelo, chave_9r)
-        except Exception as exc:
-            aviso_fallback = f"(resposta do Moondream, menos confiável) [motivo fallback 9Router: {exc}]"
-            resposta = None
+        for mod in cadeia_modelos:
+            try:
+                resposta = post_9router_vision(data_uri, args.question, mod, chave_9r, timeout=TIMEOUT_9ROUTER_PADRAO)
+                provedor = "9router"
+                modelo_respondente = mod
+                break
+            except Exception as exc:
+                motivo = str(exc).strip()
+                if len(motivo) > 80:
+                    motivo = motivo[:77] + "..."
+                tentativas.append({"modelo": mod, "motivo": motivo})
     else:
-        aviso_fallback = "(resposta do Moondream, menos confiável) [chave 9Router ausente]"
+        tentativas.append({"modelo": "9router", "motivo": "chave 9Router ausente"})
 
     if resposta is None:
         moondream_key = get_api_key()
         if not moondream_key:
-            if aviso_fallback:
-                sys.stderr.write(f"erro: 9Router falhou ({aviso_fallback}) e chave Moondream tambem esta ausente\n")
-            else:
-                sys.stderr.write("erro: chave Moondream ausente\n")
+            motivos_str = "; ".join(f"{t['modelo']}: {t['motivo']}" for t in tentativas)
+            sys.stderr.write(f"erro: 9Router falhou ({motivos_str}) e chave Moondream tambem esta ausente\n")
             sys.exit(1)
+
+        motivos_detalhe = "; ".join(f"{t['modelo']}: {t['motivo']}" for t in tentativas)
+        aviso_fallback = f"(resposta do Moondream, menos confiável) [motivos: {motivos_detalhe}]"
+        sys.stderr.write(f"{aviso_fallback}\n")
 
         payload_md = {
             "image_url": data_uri,
@@ -586,10 +605,9 @@ def cmd_ask(args):
         try:
             resp_md = post_moondream("query", payload_md, moondream_key)
             resposta_bruta = resp_md.get("answer") or resp_md.get("caption") or ""
-            if aviso_fallback:
-                sys.stderr.write(f"{aviso_fallback}\n")
             resposta = resposta_bruta
             provedor = "moondream"
+            modelo_respondente = "moondream"
         except Exception as exc_md:
             sys.stderr.write(f"erro: falha no fallback Moondream: {exc_md}\n")
             sys.exit(1)
@@ -598,7 +616,8 @@ def cmd_ask(args):
         "question": args.question,
         "answer": resposta,
         "provedor": provedor,
-        "modelo": modelo if provedor == "9router" else "moondream",
+        "modelo": modelo_respondente,
+        "tentativas": tentativas,
         "screen_size": {"width": orig_w, "height": orig_h},
     }
     if aviso_fallback and provedor == "moondream":
@@ -610,7 +629,7 @@ def cmd_ask(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="md",
-        description="Ferramenta CLI para mira visual (Moondream) e descricao de tela (Gemini via 9Router) no OpenBot",
+        description="Ferramenta CLI para mira visual (Moondream) e descricao de tela (Qwen/Gemini via 9Router) no OpenBot",
     )
     subparsers = parser.add_subparsers(dest="subcommand", help="Subcomandos disponiveis")
 
@@ -634,11 +653,11 @@ def main():
     p_detect.set_defaults(func=cmd_detect)
 
     # Subcomando ask
-    p_ask = subparsers.add_parser("ask", help="Descreve ou responde perguntas sobre a tela via Gemini (9Router) com fallback Moondream")
+    p_ask = subparsers.add_parser("ask", help="Descreve ou responde perguntas sobre a tela via Qwen/Gemini (9Router) com fallback Moondream")
     p_ask.add_argument("question", help="Pergunta sobre a tela (ex: 'Descreva a tela' ou 'Qual botao esta selecionado?')")
     p_ask.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
     p_ask.add_argument("--image", default=None, help="Arquivo de imagem opcional")
-    p_ask.add_argument("--modelo", default=None, help=f"Modelo de visao via 9Router (padrao: {MODELO_ASK_PADRAO})")
+    p_ask.add_argument("--modelo", default=None, help=f"Modelo de visao via 9Router (padrao: {MODELO_ASK_PADRAO}; forca modelo unico sem cadeia)")
     p_ask.set_defaults(func=cmd_ask)
 
     args = parser.parse_args()
