@@ -41,7 +41,7 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
 
 ## Ferramenta CLI `md`
 
-- **Regra de ouro**: `md point`, `md detect` e cliques são para **mirar e clicar** (Moondream). Para **descrever a tela**, use `md ask` (Gemini via 9Router).
+- **Regra de ouro**: `md point`, `md detect` e cliques são para **mirar e clicar** (Moondream). Para **descrever a tela**, use `md ask` (Qwen via Cerebras rápido, com reserva Gemini via 9Router). As coordenadas do ask não servem pra clicar (use `md point`).
 - **Código 4 = tela vazia**: se a miniatura tiver 2 cores ou menos (display sem janela visível mapeada), o `md` não chama nenhuma API, imprime "tela vazia: display <X> sem janela visivel" e sai com **código 4**. **Não insista**: avise que não há janela visível.
 - **Mira e Clique (Moondream)**:
   `md point '<descricao do alvo>' --click`
@@ -54,9 +54,9 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
   `md point '<alvo>' --click --sem-cursor`
 - **Deteccao de Caixas Delimitadoras (Moondream)**:
   `md detect '<alvo>'`
-- **Descricao e Perguntas Visuais (Gemini via 9Router)**:
+- **Descricao e Perguntas Visuais (Qwen via Cerebras com reserva Gemini via 9Router)**:
   `md ask '<pergunta>' [--modelo <modelo>]`
-  Modelo padrão: `ag/gemini-3.8-flash-high`. Se o 9Router falhar, faz fallback para o Moondream query com aviso explicito no stderr.
+  Modelo padrão: rápido `cerebras/qwen-3.8-27b`, com reserva `ag/gemini-3.8-flash-high` e fallback Moondream query com aviso explícito no stderr. Coordenadas do ask são aproximadas e não servem pra clicar.
 
 Display padrao: `:1` (pode ser sobrescrito com `--display :0` ou variavel `DISPLAY`).
 Chaves: 9Router em `OPENBOT_9ROUTER_KEY` ou `/data/9router_key`; Moondream em `MOONDREAM_API_KEY` ou `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`). Nunca imprima chaves.

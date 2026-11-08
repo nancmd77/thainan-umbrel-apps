@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Testes unitários para o CLI md (thainan-openbot 0.64.0-r6):
+Testes unitários para o CLI md (thainan-openbot 0.64.0-r7):
 1. Contagem de cores e tela vazia (imagem 1 cor e 2 cores -> saída 4 sem chamada de rede).
 2. Imagem com conteúdo (> 2 cores) -> segue normalmente.
-3. md ask com 9Router mockado -> resposta OK com modelo padrão e customizado (--modelo).
-4. md ask com falha no 9Router -> fallback para o Moondream mockado com aviso explícito.
-5. Garantia de não vazamento de segredos em stdout/stderr.
+3. md ask qwen ok -> padrão cerebras/qwen-3.8-27b, tentativas vazio, prompt com aviso de coordenadas.
+4. md ask qwen falha -> tenta ag/gemini-3.8-flash-high com registro de tentativa no JSON.
+5. md ask ambos falham -> fallback Moondream com aviso e tentativas dos dois no JSON.
+6. md ask flag --modelo -> força modelo único sem cadeia (se falhar, vai direto pro Moondream).
+7. Garantia de não vazamento de segredos em stdout/stderr.
 """
 
 import http.server
@@ -46,11 +48,13 @@ class MockNineRouterHandler(http.server.BaseHTTPRequestHandler):
             "headers": dict(self.headers),
             "body": dados,
         })
-        if getattr(self.server, "deve_falhar", False):
+        modelo_req = dados.get("model", "")
+        modelos_falha = getattr(self.server, "modelos_que_falham", set())
+        if getattr(self.server, "deve_falhar", False) or modelo_req in modelos_falha:
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(b'{"error": "falha simulada no 9Router"}')
+            self.wfile.write(json.dumps({"error": f"falha simulada no modelo {modelo_req}"}).encode("utf-8"))
             return
 
         self.send_response(200)
@@ -61,13 +65,12 @@ class MockNineRouterHandler(http.server.BaseHTTPRequestHandler):
                 {
                     "message": {
                         "role": "assistant",
-                        "content": "Descricao: Janela principal aberta no centro com dois botoes.",
+                        "content": f"Descricao via {modelo_req}: Janela principal aberta no centro com dois botoes.",
                     }
                 }
             ]
         }
         self.wfile.write(json.dumps(resp).encode("utf-8"))
-
 
 class MockMoondreamHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -95,6 +98,7 @@ class TestMdCLI(unittest.TestCase):
         cls.server_9r = http.server.ThreadingHTTPServer(("127.0.0.1", 0), MockNineRouterHandler)
         cls.server_9r.requisicoes = []
         cls.server_9r.deve_falhar = False
+        cls.server_9r.modelos_que_falham = set()
         cls.port_9r = cls.server_9r.server_port
         cls.th_9r = threading.Thread(target=cls.server_9r.serve_forever, daemon=True)
         cls.th_9r.start()
@@ -138,6 +142,7 @@ im_ok.save('{cls.tmpdir}/conteudo.png')
     def setUp(self):
         self.server_9r.requisicoes.clear()
         self.server_9r.deve_falhar = False
+        self.server_9r.modelos_que_falham = set()
         self.server_md.requisicoes.clear()
 
     def rodar(self, args, env_extra=None):
@@ -174,7 +179,7 @@ im_ok.save('{cls.tmpdir}/conteudo.png')
         self.assertIn("tela vazia: display", r.stderr)
         self.assertEqual(len(self.server_9r.requisicoes), 0)
 
-    def test_ask_chama_9router_com_conteudo_e_retorna_json(self):
+    def test_ask_qwen_ok_chama_9router_com_padrao_e_retorna_json(self):
         p = f"{self.tmpdir}/conteudo.png"
         r = self.rodar(["ask", "Descreva a tela", "--image", p])
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -182,28 +187,43 @@ im_ok.save('{cls.tmpdir}/conteudo.png')
         self.assertEqual(dados["question"], "Descreva a tela")
         self.assertIn("Janela principal", dados["answer"])
         self.assertEqual(dados["provedor"], "9router")
-        self.assertEqual(dados["modelo"], "ag/gemini-3.8-flash-high")
+        self.assertEqual(dados["modelo"], "cerebras/qwen-3.8-27b")
+        self.assertEqual(dados["tentativas"], [])
 
         # Verifica chamada de rede
         self.assertEqual(len(self.server_9r.requisicoes), 1)
         req = self.server_9r.requisicoes[0]
         self.assertEqual(req["headers"].get("Authorization"), "Bearer segredo-mock-9router")
-        self.assertEqual(req["body"]["model"], "ag/gemini-3.8-flash-high")
+        self.assertEqual(req["body"]["model"], "cerebras/qwen-3.8-27b")
         conteudo_user = req["body"]["messages"][0]["content"]
         self.assertEqual(conteudo_user[0]["type"], "text")
         self.assertIn("Descreva de forma objetiva", conteudo_user[0]["text"])
+        self.assertIn("posicoes sao aproximadas e nao servem para clicar", conteudo_user[0]["text"])
+        self.assertIn("md point", conteudo_user[0]["text"])
         self.assertEqual(conteudo_user[1]["type"], "image_url")
         self.assertTrue(conteudo_user[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
 
-    def test_ask_flag_modelo_customizado(self):
+    def test_ask_qwen_falha_tenta_gemini_com_sucesso(self):
         p = f"{self.tmpdir}/conteudo.png"
-        r = self.rodar(["ask", "Pergunta", "--image", p, "--modelo", "custom/modelo-v1"])
+        # Simula falha apenas no Qwen (Cerebras)
+        self.server_9r.modelos_que_falham = {"cerebras/qwen-3.8-27b"}
+        r = self.rodar(["ask", "Descreva a tela", "--image", p])
         self.assertEqual(r.returncode, 0, r.stderr)
         dados = json.loads(r.stdout)
-        self.assertEqual(dados["modelo"], "custom/modelo-v1")
-        self.assertEqual(self.server_9r.requisicoes[0]["body"]["model"], "custom/modelo-v1")
+        self.assertEqual(dados["provedor"], "9router")
+        self.assertEqual(dados["modelo"], "ag/gemini-3.8-flash-high")
+        self.assertEqual(len(dados["tentativas"]), 1)
+        self.assertEqual(dados["tentativas"][0]["modelo"], "cerebras/qwen-3.8-27b")
+        self.assertIn("500", dados["tentativas"][0]["motivo"])
 
-    def test_ask_fallback_moondream_quando_9router_falha(self):
+        # Verificamos que foram feitas 2 requisições no 9Router
+        self.assertEqual(len(self.server_9r.requisicoes), 2)
+        self.assertEqual(self.server_9r.requisicoes[0]["body"]["model"], "cerebras/qwen-3.8-27b")
+        self.assertEqual(self.server_9r.requisicoes[1]["body"]["model"], "ag/gemini-3.8-flash-high")
+        # Nenhuma chamada ao Moondream
+        self.assertEqual(len(self.server_md.requisicoes), 0)
+
+    def test_ask_ambos_falham_vai_moondream_com_aviso(self):
         p = f"{self.tmpdir}/conteudo.png"
         self.server_9r.deve_falhar = True
 
@@ -224,8 +244,49 @@ im_ok.save('{cls.tmpdir}/conteudo.png')
         self.assertIn("(resposta do Moondream, menos confiável)", r.stderr)
         dados = json.loads(r.stdout)
         self.assertEqual(dados["provedor"], "moondream")
+        self.assertEqual(dados["modelo"], "moondream")
+        self.assertEqual(len(dados["tentativas"]), 2)
+        self.assertEqual(dados["tentativas"][0]["modelo"], "cerebras/qwen-3.8-27b")
+        self.assertEqual(dados["tentativas"][1]["modelo"], "ag/gemini-3.8-flash-high")
         self.assertIn("Moondream: tela com relogio", dados["answer"])
 
+    def test_ask_flag_modelo_sem_cadeia(self):
+        p = f"{self.tmpdir}/conteudo.png"
+        # 1. Com sucesso: testa que apenas o modelo customizado é chamado
+        r = self.rodar(["ask", "Pergunta", "--image", p, "--modelo", "custom/modelo-v1"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        dados = json.loads(r.stdout)
+        self.assertEqual(dados["modelo"], "custom/modelo-v1")
+        self.assertEqual(dados["tentativas"], [])
+        self.assertEqual(len(self.server_9r.requisicoes), 1)
+        self.assertEqual(self.server_9r.requisicoes[0]["body"]["model"], "custom/modelo-v1")
+
+        # 2. Com falha: testa que NÃO tenta ag/gemini-3.8-flash-high e vai direto pro Moondream
+        self.server_9r.requisicoes.clear()
+        self.server_9r.modelos_que_falham = {"custom/falha-v1"}
+
+        with open(MD_SCRIPT, "r") as f:
+            cod = f.read().replace('MOONDREAM_API_BASE = "https://api.moondream.ai/v1"', f'MOONDREAM_API_BASE = "http://127.0.0.1:{self.port_md}"')
+        mock_script = f"{self.tmpdir}/md_mock_md_sem_cadeia.py"
+        with open(mock_script, "w") as f:
+            f.write(cod)
+
+        env = dict(os.environ)
+        env["CONSELHO_URL"] = f"http://127.0.0.1:{self.port_9r}/v1/chat/completions"
+        env["OPENBOT_9ROUTER_KEY"] = "segredo-mock-9router"
+        env["MOONDREAM_API_KEY"] = "segredo-mock-moondream"
+        r2 = subprocess.run([PYTHON_BIN, mock_script, "ask", "Pergunta", "--image", p, "--modelo", "custom/falha-v1"], capture_output=True, text=True, env=env)
+
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("(resposta do Moondream, menos confiável)", r2.stderr)
+        dados2 = json.loads(r2.stdout)
+        self.assertEqual(dados2["provedor"], "moondream")
+        self.assertEqual(dados2["modelo"], "moondream")
+        self.assertEqual(len(dados2["tentativas"]), 1)
+        self.assertEqual(dados2["tentativas"][0]["modelo"], "custom/falha-v1")
+        # 9Router só foi chamado 1 vez com custom/falha-v1 (sem cadeia para Gemini)
+        self.assertEqual(len(self.server_9r.requisicoes), 1)
+        self.assertEqual(self.server_9r.requisicoes[0]["body"]["model"], "custom/falha-v1")
     def test_segredos_nunca_vazam(self):
         p = f"{self.tmpdir}/conteudo.png"
         r = self.rodar(["ask", "Pergunta", "--image", p])
