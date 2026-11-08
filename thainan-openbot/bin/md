@@ -2,6 +2,9 @@
 """
 CLI Moondream Cloud (md) para mira e auxilio visual a agentes de Computer Use.
 Suporta subcomandos: point, detect e ask.
+- point/detect/click: Moondream Cloud (mira fina e bounding boxes).
+- ask: Gemini via 9Router (padrao ag/gemini-3.8-flash-high), fallback Moondream query.
+- checagem de tela vazia: se miniatura 64x64 tiver <= 2 cores, sai com codigo 4 sem chamar API.
 """
 
 import argparse
@@ -10,6 +13,7 @@ import io
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -18,6 +22,15 @@ import urllib.parse
 import urllib.request
 
 MOONDREAM_API_BASE = "https://api.moondream.ai/v1"
+NINEROUTER_URL_PADRAO = "http://192.168.18.171:20128/v1/chat/completions"
+MODELO_ASK_PADRAO = "ag/gemini-3.8-flash-high"
+TIMEOUT_9ROUTER_PADRAO = 60.0
+TIMEOUT_MOONDREAM_PADRAO = 30.0
+KEY_FILE_9ROUTER_PADRAO = "/data/9router_key"
+PROMPT_ASK_PADRAO = (
+    "Descreva de forma objetiva apenas o que esta visivel na imagem, sem inventar nada. "
+    "Liste as janelas e botoes identificaveis com sua posicao aproximada na tela."
+)
 
 
 def get_api_key():
@@ -48,6 +61,77 @@ def get_api_key():
                 continue
 
     return None
+
+
+def url_9router():
+    """URL base do 9Router (OpenAI-compativel). Reutiliza CONSELHO_URL se definida."""
+    url = os.environ.get("CONSELHO_URL", "").strip() or NINEROUTER_URL_PADRAO
+    if not url.endswith("/chat/completions"):
+        if url.endswith("/v1"):
+            url = f"{url}/chat/completions"
+        elif url.endswith("/v1/"):
+            url = f"{url}chat/completions"
+    return url
+
+
+def obter_chave_9router():
+    """
+    Busca a chave 9Router: OPENBOT_9ROUTER_KEY, NINER_KEY (llm.env) ou arquivos.
+    Nunca imprime a chave.
+    """
+    chave = os.environ.get("OPENBOT_9ROUTER_KEY", "").strip()
+    if chave:
+        return chave
+    chave = os.environ.get("NINER_KEY", "").strip()
+    if chave:
+        return chave
+
+    candidatos = [
+        os.environ.get("CONSELHO_KEY_FILE", "").strip(),
+        KEY_FILE_9ROUTER_PADRAO,
+        "/data/config/9router.key",
+        os.path.expanduser("~/.sollum/llm.env"),
+    ]
+    for caminho in candidatos:
+        if not caminho or not os.path.isfile(caminho):
+            continue
+        try:
+            with open(caminho, "r", encoding="utf-8") as f:
+                conteudo = f.read()
+                if "NINER_KEY=" in conteudo:
+                    for line in conteudo.splitlines():
+                        if line.startswith("NINER_KEY="):
+                            val = line.split("=", 1)[1].strip().strip('"\'')
+                            if val:
+                                return val
+                else:
+                    val = conteudo.strip()
+                    if val:
+                        return val
+        except OSError:
+            continue
+    return None
+
+
+def contar_cores_miniatura(img, tamanho=(64, 64)):
+    """Reduz para miniatura e conta cores distintas (formato RGB)."""
+    rgb = img.convert("RGB")
+    thumb = rgb.resize(tamanho)
+    cores = thumb.getcolors(maxcolors=tamanho[0] * tamanho[1] + 1)
+    if cores is None:
+        return tamanho[0] * tamanho[1] + 1
+    return len(cores)
+
+
+def checar_tela_vazia(img, display_nome):
+    """
+    Se a miniatura 64x64 tiver <= 2 cores, a tela/captura esta vazia
+    (ex: Xvfb sem janela mapeada). Sai com codigo 4 sem chamar APIs.
+    """
+    qtd = contar_cores_miniatura(img, (64, 64))
+    if qtd <= 2:
+        sys.stderr.write(f"tela vazia: display {display_nome} sem janela visivel\n")
+        sys.exit(4)
 
 
 def capture_display(display=None):
@@ -146,19 +230,27 @@ def capture_display(display=None):
 
 
 def prepare_image_payload(image_obj_or_path, display=None):
-    """Carrega ou captura imagem, reduz para <=1280px de largura e gera data URI JPEG q85."""
+    """
+    Carrega ou captura imagem, checa tela vazia (<= 2 cores -> exit 4),
+    reduz para <=1280px de largura e gera data URI JPEG q85.
+    """
     from PIL import Image
+
+    origem_display = display or os.environ.get("DISPLAY") or ":1"
+    display_ident = origem_display
 
     if isinstance(image_obj_or_path, str):
         img = Image.open(image_obj_or_path)
+        display_ident = image_obj_or_path
     elif image_obj_or_path is not None:
         img = image_obj_or_path
     else:
-        img = capture_display(display)
+        img = capture_display(origem_display)
+
+    checar_tela_vazia(img, display_ident)
 
     orig_w, orig_h = img.size
 
-    # Reducao proporcional para <= 1280px de largura
     if orig_w > 1280:
         target_w = 1280
         target_h = max(1, int(round(orig_h * (1280.0 / orig_w))))
@@ -174,7 +266,7 @@ def prepare_image_payload(image_obj_or_path, display=None):
     return data_uri, orig_w, orig_h
 
 
-def post_moondream(endpoint, payload, api_key):
+def post_moondream(endpoint, payload, api_key, timeout=TIMEOUT_MOONDREAM_PADRAO):
     """Envia POST com autenticacao Moondream e retorna o dicionario de resposta."""
     url = f"{MOONDREAM_API_BASE}/{endpoint}"
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -184,19 +276,77 @@ def post_moondream(endpoint, payload, api_key):
         headers={
             "X-Moondream-Auth": api_key,
             "Content-Type": "application/json",
-            "User-Agent": "thainan-openbot-md/0.61.0-r8",
+            "User-Agent": "thainan-openbot-md/0.64.0-r6",
         },
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8", errors="replace")
             return json.loads(body)
     except urllib.error.HTTPError as exc:
         err_msg = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Moondream API retornou HTTP {exc.code}: {err_msg}")
+    except (socket.timeout, TimeoutError):
+        raise RuntimeError("timeout na conexao com Moondream")
     except Exception as exc:
         raise RuntimeError(f"Falha na conexao com Moondream: {exc}")
+
+
+def post_9router_vision(data_uri, question, model, chave_9router, timeout=TIMEOUT_9ROUTER_PADRAO):
+    """
+    Chama modelo de visao via 9Router (OpenAI-compativel).
+    Prompt em portugues pedindo descricao objetiva so do visivel + janelas/botoes.
+    Nunca imprime chave de API.
+    """
+    endpoint = url_9router()
+    prompt_completo = f"{PROMPT_ASK_PADRAO}\n\nPergunta do usuario: {question}"
+    payload = {
+        "model": model,
+        "stream": False,
+        "temperature": 0.2,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt_completo},
+                    {"type": "image_url", "image_url": {"url": data_uri}},
+                ],
+            }
+        ],
+    }
+    data_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=data_bytes,
+        headers={
+            "Authorization": f"Bearer {chave_9router}",
+            "Content-Type": "application/json",
+            "User-Agent": "thainan-openbot-md/0.64.0-r6",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            dados = json.loads(body)
+    except urllib.error.HTTPError as exc:
+        err_msg = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"9Router retornou HTTP {exc.code}: {err_msg[:200]}")
+    except (socket.timeout, TimeoutError):
+        raise RuntimeError("timeout na conexao com 9Router")
+    except Exception as exc:
+        raise RuntimeError(f"falha de conexao com 9Router: {exc}")
+
+    try:
+        texto = dados["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError("resposta do 9Router fora do formato esperado")
+
+    if not isinstance(texto, str) or not texto.strip():
+        raise RuntimeError("resposta do 9Router vazia")
+
+    return texto.strip()
 
 
 def get_current_mouse(display):
@@ -228,7 +378,6 @@ def glide_mouse(target_x, target_y, display, steps=12, total_ms=180):
 
     for i in range(1, steps + 1):
         u = float(i) / float(steps)
-        # Smoothstep easing: 3*u^2 - 2*u^3
         ease = 3.0 * (u ** 2) - 2.0 * (u ** 3)
         cur_x = int(round(start_x + (target_x - start_x) * ease))
         cur_y = int(round(start_y + (target_y - start_y) * ease))
@@ -240,7 +389,6 @@ def glide_mouse(target_x, target_y, display, steps=12, total_ms=180):
 
 def show_hark_pulse_tk(x, y, display, duration_ms=400):
     """Exibe anel de pulso estilo Hark por 400 ms em janela X sem borda, sem roubar foco."""
-    # Executa de forma assincrona via subprocesso leve
     code = f"""
 import tkinter as tk
 try:
@@ -297,13 +445,13 @@ def execute_click(x, y, display, click_type, sem_cursor=False):
 
 
 def cmd_point(args):
-    api_key = get_api_key()
-    if not api_key:
-        sys.stderr.write("erro: chave ausente\n")
-        sys.exit(1)
-
     display = args.display or os.environ.get("DISPLAY") or ":1"
     data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
+
+    api_key = get_api_key()
+    if not api_key:
+        sys.stderr.write("erro: chave Moondream ausente\n")
+        sys.exit(1)
 
     payload = {
         "image_url": data_uri,
@@ -351,13 +499,13 @@ def cmd_point(args):
 
 
 def cmd_detect(args):
-    api_key = get_api_key()
-    if not api_key:
-        sys.stderr.write("erro: chave ausente\n")
-        sys.exit(1)
-
     display = args.display or os.environ.get("DISPLAY") or ":1"
     data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
+
+    api_key = get_api_key()
+    if not api_key:
+        sys.stderr.write("erro: chave Moondream ausente\n")
+        sys.exit(1)
 
     payload = {
         "image_url": data_uri,
@@ -399,27 +547,62 @@ def cmd_detect(args):
 
 
 def cmd_ask(args):
-    api_key = get_api_key()
-    if not api_key:
-        sys.stderr.write("erro: chave ausente\n")
-        sys.exit(1)
-
+    """
+    Subcomando ask: usa Gemini via 9Router (padrao ag/gemini-3.8-flash-high).
+    Se falhar, faz fallback para o Moondream query com aviso explicito.
+    """
     display = args.display or os.environ.get("DISPLAY") or ":1"
     data_uri, orig_w, orig_h = prepare_image_payload(args.image, display=display)
 
-    payload = {
-        "image_url": data_uri,
-        "question": args.question,
-    }
+    modelo = args.modelo or os.environ.get("MD_ASK_MODELO", "").strip() or MODELO_ASK_PADRAO
+    chave_9r = obter_chave_9router()
 
-    resp = post_moondream("query", payload, api_key)
-    answer = resp.get("answer") or resp.get("caption") or ""
+    resposta = None
+    provedor = "9router"
+    aviso_fallback = None
+
+    if chave_9r:
+        try:
+            resposta = post_9router_vision(data_uri, args.question, modelo, chave_9r)
+        except Exception as exc:
+            aviso_fallback = f"(resposta do Moondream, menos confiável) [motivo fallback 9Router: {exc}]"
+            resposta = None
+    else:
+        aviso_fallback = "(resposta do Moondream, menos confiável) [chave 9Router ausente]"
+
+    if resposta is None:
+        moondream_key = get_api_key()
+        if not moondream_key:
+            if aviso_fallback:
+                sys.stderr.write(f"erro: 9Router falhou ({aviso_fallback}) e chave Moondream tambem esta ausente\n")
+            else:
+                sys.stderr.write("erro: chave Moondream ausente\n")
+            sys.exit(1)
+
+        payload_md = {
+            "image_url": data_uri,
+            "question": args.question,
+        }
+        try:
+            resp_md = post_moondream("query", payload_md, moondream_key)
+            resposta_bruta = resp_md.get("answer") or resp_md.get("caption") or ""
+            if aviso_fallback:
+                sys.stderr.write(f"{aviso_fallback}\n")
+            resposta = resposta_bruta
+            provedor = "moondream"
+        except Exception as exc_md:
+            sys.stderr.write(f"erro: falha no fallback Moondream: {exc_md}\n")
+            sys.exit(1)
 
     result = {
         "question": args.question,
-        "answer": answer,
+        "answer": resposta,
+        "provedor": provedor,
+        "modelo": modelo if provedor == "9router" else "moondream",
         "screen_size": {"width": orig_w, "height": orig_h},
     }
+    if aviso_fallback and provedor == "moondream":
+        result["aviso"] = aviso_fallback
 
     print(json.dumps(result, ensure_ascii=False))
 
@@ -427,12 +610,12 @@ def cmd_ask(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="md",
-        description="Ferramenta CLI do Moondream Cloud para mira visual e computer use no OpenBot",
+        description="Ferramenta CLI para mira visual (Moondream) e descricao de tela (Gemini via 9Router) no OpenBot",
     )
     subparsers = parser.add_subparsers(dest="subcommand", help="Subcomandos disponiveis")
 
     # Subcomando point
-    p_point = subparsers.add_parser("point", help="Localiza as coordenadas centrais de um alvo visual no display")
+    p_point = subparsers.add_parser("point", help="Localiza as coordenadas centrais de um alvo visual no display (Moondream)")
     p_point.add_argument("target", help="Descricao textual do elemento visual alvo (ex: 'Send button')")
     p_point.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
     p_point.add_argument("--image", default=None, help="Arquivo de imagem opcional (para testes sem captura de display)")
@@ -444,17 +627,18 @@ def main():
     p_point.set_defaults(func=cmd_point)
 
     # Subcomando detect
-    p_detect = subparsers.add_parser("detect", help="Detecta caixas delimitadoras (bounding boxes) do elemento alvo")
+    p_detect = subparsers.add_parser("detect", help="Detecta caixas delimitadoras (bounding boxes) do elemento alvo (Moondream)")
     p_detect.add_argument("target", help="Descricao textual do objeto alvo")
     p_detect.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
     p_detect.add_argument("--image", default=None, help="Arquivo de imagem opcional")
     p_detect.set_defaults(func=cmd_detect)
 
     # Subcomando ask
-    p_ask = subparsers.add_parser("ask", help="Faz uma pergunta sobre a imagem da tela usando Moondream VQA")
-    p_ask.add_argument("question", help="Pergunta sobre a tela (ex: 'Qual botao esta selecionado?')")
+    p_ask = subparsers.add_parser("ask", help="Descreve ou responde perguntas sobre a tela via Gemini (9Router) com fallback Moondream")
+    p_ask.add_argument("question", help="Pergunta sobre a tela (ex: 'Descreva a tela' ou 'Qual botao esta selecionado?')")
     p_ask.add_argument("--display", default=None, help="Display X11 (padrao: :1 ou variavel DISPLAY)")
     p_ask.add_argument("--image", default=None, help="Arquivo de imagem opcional")
+    p_ask.add_argument("--modelo", default=None, help=f"Modelo de visao via 9Router (padrao: {MODELO_ASK_PADRAO})")
     p_ask.set_defaults(func=cmd_ask)
 
     args = parser.parse_args()

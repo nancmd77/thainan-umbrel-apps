@@ -1,6 +1,10 @@
 # Skill: moondream
 
-Ferramenta CLI de mira visual (`md`) integrada com Moondream Cloud para operacao de computer use no display `:1`.
+Ferramenta CLI `md`: mira e clique com Moondream Cloud (`point`, `detect`, `click`) e descrição/perguntas sobre a tela com Gemini via 9Router (`ask`).
+
+- `md point`, `md detect` e cliques: use para mirar e clicar quando o alvo não tem rótulo acessível (canvas, jogo, imagem) ou a árvore AT-SPI falha.
+- `md ask`: use para descrever a tela ou fazer perguntas visuais (usa Gemini via 9Router; fallback Moondream query com aviso se o 9Router falhar).
+- Código 4 = tela vazia: se a captura tiver 2 cores ou menos (display sem janela visível mapeada), o CLI não chama nenhuma API e sai com código 4. Não insista: avise que não há janela visível.
 
 ## Fluxo de Precedencia CUA
 1. **AT-SPI primeiro**: Inspecione a arvore de acessibilidade da janela.
@@ -8,9 +12,10 @@ Ferramenta CLI de mira visual (`md`) integrada com Moondream Cloud para operacao
 3. **Clique pela arvore**: Interaja diretamente com os nos acessiveis identificados na arvore.
 4. **md point como mira visual**: Quando o elemento nao tiver rotulo acessivel, estiver em canvas/jogos/bitmaps ou a localizacao semantica falhar, acione `md point`.
 5. **Escalonamento (exit 3)**: Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).
+
 ## Comandos Principais
 ```bash
-# Localizar e clicar no botao
+# Localizar e clicar no botao (Moondream)
 md point "Send button" --click
 
 # Duplo clique
@@ -25,6 +30,9 @@ md point "Submit" --click --sem-cursor
 # Detectar todos os objetos da classe
 md detect "button"
 
-# Perguntar o estado visual da tela
+# Descrever ou perguntar o estado da tela (Gemini via 9Router)
+md ask "Descreva a tela e liste os elementos visiveis"
 md ask "Qual mensagem de erro esta em destaque?"
+# Trocar modelo do ask
+md ask "O que ha na tela?" --modelo ag/gemini-3.8-flash-high
 ```
