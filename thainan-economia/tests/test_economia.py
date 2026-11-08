@@ -536,14 +536,17 @@ class GovernorEPP(unittest.TestCase):
             E.wr(c + '/scaling_governor', valor)
 
     def test_epp_travado_em_performance_e_liberado_trocando_governor(self):
-        self.governor_hw('performance')
+        # Começa com governor performance salvo e aplicado: sem a troca de governor, apply() regrava performance e o EPP não muda.
+        E.mudar({'governor': 'performance'}, True, 'x', 'Governor', lambda est: est['governor'])
+        self.assertEqual(E.ESTADO['governor'], 'performance')
+        self.assertEqual({v for _, v in E.lidos_cpufreq('scaling_governor')}, {'performance'})
         epp0 = self.cpus()[0] + '/energy_performance_preference'
         self.assertFalse(E.wr(epp0, 'power'))  # simulação do EBUSY: EPP não muda com governor performance
         self.assertEqual(E.rd(epp0), 'balance_performance')
         E.mudar({'epp': 'power'}, True, 'x', 'EPP', lambda est: est['epp'])
-        self.assertEqual(E.ESTADO['governor'], 'powersave')
         self.assertEqual({v for _, v in E.lidos_cpufreq('energy_performance_preference')}, {'power'})
         self.assertEqual({v for _, v in E.lidos_cpufreq('scaling_governor')}, {'powersave'})
+        self.assertEqual(E.ESTADO['governor'], 'powersave')
         self.assertEqual([e for e in E.conferir_tudo() if e['status'] != 'ok'], [])
         self.assertEqual(E.FLASH['v']['notas'], [E.MSG_GOV_TROCADO])
 
