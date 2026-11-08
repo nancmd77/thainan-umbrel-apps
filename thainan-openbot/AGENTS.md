@@ -17,8 +17,8 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
 4. **md point se nao houver rotulo (Mira Visual)**:
    - Se o elemento nao possuir rotulo acessivel, estiver em canvas WebGL, bitmaps, jogos ou a arvore falhar, utilize `md point '<alvo>' --click` para mira visual com glide e pulso Hark.
 
-5. **Modelo grande se exit 3 (Escalonamento)**:
-   - Se o `decide` retornar código de saída `3` e imprimir `ESCALAR` (confianca inferior ao `--limiar`, padrao 0.35), o agente escala o passo para o modelo grande de raciocinio com contexto completo.
+5. **Escalonamento (exit 3)**:
+   - Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).
 
 ## Ferramenta CLI `decide`
 

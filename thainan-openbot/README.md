@@ -239,7 +239,7 @@ A partir da versão `0.61.0-r9`, o OpenBot integra a CLI `decide` para que agent
 2. **decide escolhe**: Seleção da melhor opção com a CLI `decide`, calibrada com probabilidades reais.
 3. **Clique pela árvore**: Disparo da ação diretamente no nó acessível escolhido.
 4. **md point**: Mira visual quando o alvo não possuir rótulo acessível ou estiver em canvas/bitmaps.
-5. **Modelo grande se exit 3**: Se a confiança do `decide` for inferior ao limiar (`--limiar`, padrão 0.35), a ferramenta imprime `ESCALAR` e sai com código 3, delegando o passo ao modelo grande de raciocínio.
+5. **Escalonamento (exit 3)**: Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).
 
 ### 7.2 Comandos da CLI `decide`
 ```bash
@@ -281,7 +281,7 @@ decide --objetivo "Clicar no ícone de salvar" \
    - As chaves podem ser configuradas no painel web unificado na porta `8592` (rotas `/config` e `/moondream`), gravando com permissão `600` e nunca criando portas adicionais.
 
 ### 7.4 Conselho de Modelos (`conselho`)
-- Só em 4 casos: decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados); dois nichados discordam, ou plano e revisão discordam; `decide` com confiança abaixo de 0,35; o Nan pede "pergunta ao conselho". Nunca no dia a dia; no máximo 1 vez por tarefa; só o Chefe chama.
+- Só em 4 casos: decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados); dois nichados discordam, ou plano e revisão discordam; `decide` com confiança abaixo de 0,35 numa decisão difícil de desfazer (passo 5 de 7.1); o Nan pede "pergunta ao conselho". Nunca no dia a dia; no máximo 1 vez por tarefa; só o Chefe chama e o subagente devolve a decisão ao Chefe.
 - Três modelos respondem em paralelo; um presidente recebe as respostas anônimas (A, B, C) e devolve recomendação, confiança, pontos de concordância e divergência.
 - Padrão: `ag/gemini-3.8-flash-high` (presidente, primeiro da lista), `cerebras/gpt-oss-120b` e `cerebras/qwen-3.8-27b`; nenhum depende de assinatura Claude. Troca por `--modelos` ou `CONSELHO_MODELOS`; presidente por `CONSELHO_PRESIDENTE`; timeout por chamada por `CONSELHO_TIMEOUT` (padrão 90 s).
 - Mínimo 2 respostas para haver síntese. Se o presidente falhar, o próximo candidato assume na mesma rodada.
@@ -294,5 +294,10 @@ conselho "Escolher a rota de deploy?" --modelos ag/gemini-3.8-flash-high,cerebra
 
 ### 7.5 Onde os agentes leem as skills (0.64.0-r4)
 - Os agentes leem `~/.agents/skills/<nome>/SKILL.md` (`/data/.agents/skills/`). O init instala lá `conselho`, `decide` e `moondream`: front matter (`name`, `description`) mais o mesmo texto de `/data/skills/<nome>.md`. A cópia antiga em `/data/.config/opencode/skills/` continua.
-- O init só grava `SKILL.md` se o arquivo não existir (edição do Nan é preservada). A cópia de fábrica anterior de `/data/skills/conselho.md` e de `/data/bin/conselho` só é trocada se o sha256 bater (`troca_fabrica`); release que mudar um deles soma o sha256 anterior ali.
+- O init só grava `SKILL.md` se o arquivo não existir (edição do Nan é preservada). A cópia de fábrica anterior de um texto de fábrica (`AGENTS.md`, `skills/*.md`, `SKILL.md`, `bin/conselho`) só é trocada se o sha256 bater (`troca_fabrica`); release que mudar um deles soma o sha256 da versão anterior ali.
 - O bloco `jeito-hark` do `AGENTS.md` de cada agente é recriado a cada início (o init remove o bloco antigo e injeta o novo), então quem já tinha a versão anterior recebe a linha nova do conselho.
+
+### 7.6 Regra única do ESCALAR (0.64.0-r5)
+- Antes, `AGENTS.md` e a skill `moondream` mandavam o exit 3 ao modelo grande, e a skill `decide` e o `jeito-hark` mandavam perguntar ao Nan. Agora a regra é uma só, com a mesma frase em todos os textos (passo 5 de 7.1): decisão difícil de desfazer vai ao conselho, decisão do dia a dia vai ao modelo grande de raciocínio com contexto completo, e o Nan só é perguntado se o conselho também ficar com confiança baixa ou se a ação for destrutiva.
+- Textos com a regra: `/data/AGENTS.md`, `/data/skills/{conselho,decide,moondream}.md` (e a cópia em `/data/.config/opencode/skills/`), as `SKILL.md` de `conselho`, `decide`, `moondream`, `jeito-hark` e `cursor-hark` em `/data/.agents/skills/` e o bloco `jeito-hark` do `AGENTS.md` de cada agente.
+- Quem já tem a r4: o bloco dos agentes e a `jeito-hark` são recriados a cada início; `/data/AGENTS.md`, `skills/*.md` e as `SKILL.md` de `conselho`, `decide`, `moondream` e `cursor-hark` só são trocados se forem a cópia de fábrica de uma versão anterior (sha256 igual). Arquivo editado pelo Nan fica como está.

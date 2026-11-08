@@ -6,7 +6,8 @@
 # 1. Imagem: o que ela de fato contém (uid 1000, md, decide, tini, openbox/xdotool/scrot, sudo, AT-SPI).
 # 2. Customizações: roda o próprio serviço `init` do docker-compose.yml com APP_DATA_DIR num diretório
 #    temporário e valida /data/.agents (inclusive conselho, decide e moondream = front matter + skills/*.md),
-#    o bloco Jeito Hark no AGENTS.md de agente novo e de agente com bloco antigo, /data/bin/sm e a chave.
+#    o bloco Jeito Hark no AGENTS.md de agente novo e de agente com bloco antigo, a regra única do ESCALAR
+#    em todos os textos dos agentes, /data/bin/sm e a chave.
 set -euo pipefail
 
 IMAGE=${1:-ghcr.io/nancmd77/thainan-openbot:0.63.0-r1}
@@ -77,6 +78,13 @@ sm_ok() { python3 /data/bin/sm --help | grep -q 'sm buscar'; }
 conselho_ok() { python3 /data/bin/conselho --help | grep -q 'conselho'; }
 chave_ok() { test -s /config/supermemory.key && test "$(stat -c %a /config/supermemory.key)" = 600; }
 no_at() { test -z "${NO_AT_BRIDGE+x}"; }
+# regra do ESCALAR: todo texto dos agentes cita ESCALAR e a frase que começa em "Se o `decide` deu ESCALAR" é a mesma em todos
+TEXTOS_ESCALAR=(/data/AGENTS.md /data/skills/{conselho,decide,moondream}.md /data/.agents/skills/{conselho,decide,moondream,jeito-hark,cursor-hark}/SKILL.md /data/OpenBot/Agents/smoke-{agente,antigo}/AGENTS.md)
+escalar_igual() {
+  local f
+  for f in "${TEXTOS_ESCALAR[@]}"; do grep -q ESCALAR "$f" || return 1; done
+  test "$(grep -h ESCALAR "${TEXTOS_ESCALAR[@]}" | sed 's/^.*\(Se o `decide` deu ESCALAR\)/\1/' | sort -u | wc -l)" = 1
+}
 
 # imagem
 check "uid 1000" test "$(id -u)" = 1000
@@ -99,6 +107,7 @@ check "cursor-hark cursor.js" test -s /data/.agents/skills/cursor-hark/cursor.js
 check "openui-hark montar.py" test -s /data/.agents/skills/openui-hark/montar.py
 check "AGENTS.md do agente novo: um só bloco, com os 4 casos do conselho" bloco_novo
 check "AGENTS.md do agente antigo: bloco trocado, texto do dono preservado" bloco_trocado
+check "ESCALAR: mesma regra no AGENTS.md, nas skills, nas SKILL.md e no bloco dos agentes" escalar_igual
 check "/data/AGENTS.md" test -s /data/AGENTS.md
 check "/data/bin/sm executável" test -x /data/bin/sm
 check "/data/bin/conselho executável" test -x /data/bin/conselho

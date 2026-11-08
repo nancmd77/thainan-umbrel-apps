@@ -7,7 +7,7 @@ Ferramenta CLI de modelo de decisão por passo (`decide`) integrada com Liquid A
 2. **decide escolhe**: passe o objetivo, o texto do estado atual (árvore AT-SPI) e as opções com `--opcao id='descricao'`.
 3. **Clique pela árvore**: execute a ação selecionada referenciando o identificador do elemento acessível na árvore.
 4. **md point**: se a interface não expuser rótulo acessível ou for renderizada em canvas/bitmap, utilize mira visual (`md point`).
-5. **Modelo grande**: se a confiança for inferior ao limiar (`--limiar`, padrão 0.35), o `decide` imprime `ESCALAR` e sai com código 3. O agente deve escalar para o modelo grande de raciocínio.
+5. **Escalonamento (exit 3)**: Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).
 
 ## Comandos Principais
 ```bash
@@ -42,4 +42,4 @@ decide --objetivo "Acao critica" \
 ## Codigos de Saida
 - `0`: Sucesso. A melhor opção foi selecionada com confiança `>= limiar`.
 - `1`: Erro geral, chave ausente ou parâmetros inválidos.
-- `3`: Confiança `< limiar`. Saída: `ESCALAR`. O agente deve recorrer ao modelo grande de raciocínio.
+- `3`: Confiança `< limiar`. Aplique o passo 5 do fluxo.
