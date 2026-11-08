@@ -5,10 +5,10 @@ Ferramenta CLI `conselho`: consulta 3 modelos (via 9Router) em paralelo sobre a 
 ## Quando usar (só nestes 4 casos)
 1. Decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados).
 2. Dois agentes nichados discordam, ou plano e revisão discordam.
-3. Confiança do `decide` abaixo de 0,35 (ele imprimiu `ESCALAR`).
+3. Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).
 4. O Nan pediu explicitamente "pergunta ao conselho".
 
-Fora desses casos, não use. Nunca no dia a dia. Máximo 1 vez por tarefa. Só o Chefe chama o conselho; os subagentes não chamam.
+Fora desses casos, não use. Nunca no dia a dia. Máximo 1 vez por tarefa. Só o Chefe chama o conselho; os subagentes não chamam e devolvem a decisão ao Chefe.
 
 ## Comandos
 ```bash

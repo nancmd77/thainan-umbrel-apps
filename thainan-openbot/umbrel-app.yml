@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.64.0-r4"
+version: "0.64.0-r5"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.64.0-r4: o Chefe passa a achar as skills conselho, decide e moondream (agora também em ~/.agents/skills, onde os agentes procuram). O bloco de regras ganha o caso "dois nichados ou plano e revisão discordam" e é atualizado em quem já tinha o antigo; a cópia de fábrica da r3 do conselho é trocada sozinha e edição sua é preservada. Base OpenBot continua v0.64.0.
+  Versão 0.64.0-r5: uma regra só para quando o decide dá ESCALAR (confiança abaixo de 0,35), igual em todos os textos dos agentes. Decisão difícil de desfazer vai ao conselho; decisão do dia a dia vai ao modelo grande de raciocínio; o Nan só é perguntado se o conselho também ficar em dúvida ou se a ação for destrutiva. Quem já tem a r4 recebe o texto novo: cópia de fábrica antiga é trocada sozinha e edição sua é preservada. Base OpenBot continua v0.64.0.
 dependencies: []
 path: ""
 defaultUsername: ""
