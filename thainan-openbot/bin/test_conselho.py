@@ -12,6 +12,7 @@ Valida:
 - Presidente fora do JSON: devolve texto bruto com confianca baixa
 - Contexto por stdin e por arquivo
 - --modelos sobrescreve CONSELHO_MODELOS
+- Sem --modelos nem CONSELHO_MODELOS: consulta os 3 modelos padrao e o primeiro preside
 - JSON estruturado (--json)
 - Registro em CONSELHO_LOG sem segredos e com pergunta de no maximo 200 caracteres
 - Chave ausente (exit 1) e chave nunca impressa
@@ -268,6 +269,19 @@ class TestConselhoCLI(unittest.TestCase):
         r = self.rodar(["Pergunta X?"], env_extra={"CONSELHO_MODELOS": "fake/ok-b,fake/ok-c"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Modelos usados: fake/ok-b, fake/ok-c", r.stdout)
+
+    def test_sem_flag_nem_env_usa_trio_padrao_e_o_primeiro_preside(self):
+        padrao = carregar_conselho_como_modulo().MODELOS_PADRAO.split(",")
+        env = dict(self.env)
+        env.pop("CONSELHO_PRESIDENTE")
+        r = subprocess.run(
+            [sys.executable, CONSELHO_SCRIPT, "Pergunta X?"],
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(padrao), 3)
+        self.assertCountEqual([q["modelo"] for q in self.servidor.da_fase("respondente")], padrao)
+        self.assertEqual([q["modelo"] for q in self.servidor.da_fase("presidente")], padrao[:1])
 
     def test_saida_json_estruturada(self):
         r = self.rodar(

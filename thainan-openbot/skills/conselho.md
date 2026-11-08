@@ -22,7 +22,7 @@ conselho "Aprovar esta mudança de schema?" --contexto /tmp/plano.md
 cat /tmp/plano.md | conselho "Aprovar esta mudança de schema?" --contexto -
 
 # Escolher modelos (separados por vírgula)
-conselho "Escolher a rota de deploy?" --modelos ag/gemini-4-argon-high,cl/deepseek/deepseek-v4.1-flash-1017,cc/claude-sonnet-5-5
+conselho "Escolher a rota de deploy?" --modelos ag/gemini-3.8-flash-high,cerebras/gpt-oss-120b,cerebras/qwen-3.8-27b
 
 # Saída estruturada
 conselho "Apagar a tabela antiga?" --json
