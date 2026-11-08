@@ -1,5 +1,15 @@
 name: Build and Publish thainan-openbot Image
 
+# Build da imagem thainan-openbot (push em image/** ou disparo manual), na mesma ordem do robô diário
+# (openbot-upstream.yml): nenhuma tag final do GHCR muda antes das travas.
+#   1. build só com a tag candidate-<run>;
+#   2. trava: a candidata passa em thainan-openbot/smoke-custom.sh;
+#   3. trava: o thainan-openbot/docker-compose.yml deste commit valida (openbot-robo.sh compose-check);
+#   4. só então as tags finais (<VERSION> e latest) recebem o mesmo digest (openbot-robo.sh promote, sem rebuild).
+# Sempre: tags candidate-* saem do GHCR, com sucesso ou falha (openbot-robo.sh clean-candidates). Falha abre
+# issue (label openbot-manual) ou comenta na aberta de mesmo título; um run que passa fecha as abertas.
+# Este workflow não faz push git: fixar o digest no docker-compose.yml continua sendo o passo manual final.
+
 on:
   workflow_dispatch:
   push:
@@ -12,10 +22,22 @@ on:
 permissions:
   contents: read
   packages: write
+  issues: write
+
+# Mesmo grupo do robô diário (openbot-upstream.yml): clean-candidates apaga todas as candidate-* do pacote,
+# então os dois workflows não podem buildar candidatas ao mesmo tempo.
+concurrency:
+  group: openbot-upstream
+  cancel-in-progress: false
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # label próprio: o issue-ok deste workflow não fecha as issues do robô diário (openbot-robo), nem o contrário
+      ROBO_LABEL: openbot-manual
+      ROBO_LABEL_DESC: Falha do build manual do thainan-openbot
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,34 +56,72 @@ jobs:
         id: revision
         run: echo "tag=$(tr -d '[:space:]' < thainan-openbot/image/VERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push OpenBot image
+      - name: Build da imagem candidata (sem tag final)
         id: docker_build
         uses: docker/build-push-action@v5
         with:
           context: thainan-openbot/image
           file: thainan-openbot/image/Dockerfile
           push: true
-          tags: |
-            ghcr.io/nancmd77/thainan-openbot:${{ steps.revision.outputs.tag }}
-            ghcr.io/nancmd77/thainan-openbot:latest
+          tags: ghcr.io/nancmd77/thainan-openbot:candidate-${{ github.run_id }}
 
-      - name: Smoke test da imagem publicada
-        run: |
-          IMAGE="ghcr.io/nancmd77/thainan-openbot@${{ steps.docker_build.outputs.digest }}"
-          docker run --rm --entrypoint /bin/bash "$IMAGE" -c '
-            set -e
-            test "$(id -u)" = 1000
-            test -x /opt/OpenBot/app/resources/hosting/openbot-container
-            test -x /usr/bin/tini
-            test -x /usr/local/bin/md
-            test -x /usr/local/bin/decide
-            command -v openbox xdotool scrot >/dev/null
-            sudo -n true
-            test -z "${NO_AT_BRIDGE+x}"
-          '
+      - name: Trava 1 - smoke das customizações na imagem candidata
+        env:
+          DIGEST: ${{ steps.docker_build.outputs.digest }}
+        run: bash thainan-openbot/smoke-custom.sh "ghcr.io/nancmd77/thainan-openbot@$DIGEST"
+
+      - name: Trava 2 - docker-compose.yml válido
+        run: bash .github/scripts/openbot-robo.sh compose-check thainan-openbot/docker-compose.yml
+
+      - name: Promover tags finais com o mesmo digest (sem rebuild)
+        id: publish
+        env:
+          DIGEST: ${{ steps.docker_build.outputs.digest }}
+          REV: ${{ steps.revision.outputs.tag }}
+        run: bash .github/scripts/openbot-robo.sh promote ghcr.io/nancmd77/thainan-openbot "$DIGEST" "$REV" latest
 
       - name: Output image digest
+        env:
+          DIGEST: ${{ steps.docker_build.outputs.digest }}
+          REV: ${{ steps.revision.outputs.tag }}
         run: |
           echo "Imagem publicada com sucesso."
-          echo "Digest: ${{ steps.docker_build.outputs.digest }}"
-          echo "Atualize thainan-openbot/docker-compose.yml com: ghcr.io/nancmd77/thainan-openbot:${{ steps.revision.outputs.tag }}@${{ steps.docker_build.outputs.digest }}"
+          echo "Digest: $DIGEST"
+          echo "Atualize thainan-openbot/docker-compose.yml com: ghcr.io/nancmd77/thainan-openbot:$REV@$DIGEST"
+
+      - name: Limpar tags candidate-* do GHCR
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/openbot-robo.sh clean-candidates "${{ github.repository_owner }}" thainan-openbot
+
+      - name: Issue de falha (comenta na aberta de mesmo título, senão abre)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REV: ${{ steps.revision.outputs.tag }}
+          PUBLISH: ${{ steps.publish.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          BODY="$RUNNER_TEMP/issue-body.md"
+          {
+            echo "O build da imagem thainan-openbot ${REV:-sem revisão} falhou."
+            if [ "$PUBLISH" = failure ]; then
+              echo "A promoção das tags finais falhou no meio: confira ${REV:-a revisão} e latest no GHCR."
+            else
+              echo "Nenhuma tag final do GHCR foi promovida; a tag candidate-${GITHUB_RUN_ID} é removida pelo próprio run."
+            fi
+            echo
+            echo "Log: $RUN_URL"
+          } > "$BODY"
+          bash .github/scripts/openbot-robo.sh issue-fail "thainan-openbot ${REV:-sem revisão}: build da imagem falhou" "$BODY"
+
+      - name: Fechar issues de falha (run passou)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/openbot-robo.sh issue-ok "$RUN_URL"
