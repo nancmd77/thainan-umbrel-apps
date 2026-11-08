@@ -6,7 +6,7 @@ name: OpenBot upstream (robô diário)
 #   2. build só com a tag candidate-<run>;
 #   3. trava: a candidata passa em thainan-openbot/smoke-custom.sh;
 #   4. digest fixado, compose validado, commit + rebase + gitleaks + tag git, tudo local (sem push);
-#   5. tags finais recebem o mesmo digest (imagetools create, sem rebuild);
+#   5. tags finais recebem o mesmo digest (openbot-robo.sh promote: imagetools create, sem rebuild);
 #   6. só então push atômico de main + tag git.
 # Sempre: tags candidate-* saem do GHCR; issue de falha é deduplicada (label openbot-robo) e fechada
 # quando um run passa. O commit usa GITHUB_TOKEN, e o GitHub não dispara workflows com esse token, então
@@ -22,6 +22,8 @@ permissions:
   packages: write
   issues: write
 
+# Mesmo grupo de thainan-openbot.yml: clean-candidates apaga todas as candidate-* do pacote, então os dois
+# workflows não podem buildar candidatas ao mesmo tempo.
 concurrency:
   group: openbot-upstream
   cancel-in-progress: false
@@ -132,11 +134,7 @@ jobs:
         env:
           DIGEST: ${{ steps.docker_build.outputs.digest }}
           REV: ${{ steps.revision.outputs.tag }}
-        run: |
-          IMG=ghcr.io/nancmd77/thainan-openbot
-          docker buildx imagetools create -t "$IMG:$REV" -t "$IMG:latest" "$IMG@$DIGEST"
-          FINAL=$(docker buildx imagetools inspect "$IMG:$REV" --format '{{.Manifest.Digest}}')
-          test "$FINAL" = "$DIGEST" || { echo "digest final $FINAL difere do candidato $DIGEST"; exit 1; }
+        run: bash .github/scripts/openbot-robo.sh promote ghcr.io/nancmd77/thainan-openbot "$DIGEST" "$REV" latest
 
       - name: Publicar em main (push atômico de main + tag git)
         if: steps.detect.outputs.changed == 'true'

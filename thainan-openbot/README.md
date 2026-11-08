@@ -135,7 +135,7 @@ A imagem personalizada com `sudo`, `at-spi2-core`, `openbox` e neutralização d
 O repositório possui o workflow `.github/workflows/thainan-openbot.yml` que compila e publica automaticamente a imagem no GitHub Container Registry (GHCR):
 1. Acesse a aba **Actions** no repositório GitHub e selecione o workflow **Build and Publish thainan-openbot Image**.
 2. Clique em **Run workflow** (ou faça merge na branch `main` com alterações em `thainan-openbot/image/**`).
-3. A action publicará a tag `ghcr.io/nancmd77/thainan-openbot:0.62.0-r2`.
+3. A action compila a imagem só com a tag `candidate-<run>`, roda o smoke (`thainan-openbot/smoke-custom.sh`) e valida o `docker-compose.yml` (`.github/scripts/openbot-robo.sh compose-check`). Só se tudo passar ela dá ao mesmo digest as tags finais `ghcr.io/nancmd77/thainan-openbot:<VERSION>` (por exemplo `0.62.0-r2`, lido de `thainan-openbot/image/VERSION`) e `latest`. Se algo falhar, nenhuma tag final muda e o run abre uma issue com o label `openbot-manual` (ou comenta na aberta de mesmo título). A tag `candidate-*` sai do GHCR no fim de qualquer run.
 4. Ao concluir, pegue o digest gerado na saída da action (ou via `docker pull ghcr.io/nancmd77/thainan-openbot:0.62.0-r2 && docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/nancmd77/thainan-openbot:0.62.0-r2`).
 5. Atualize o campo `image` em `thainan-openbot/docker-compose.yml` para fixar pelo digest:
    ```yaml
