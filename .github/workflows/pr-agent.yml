@@ -1,0 +1,68 @@
+name: Revisão de PR com Mercury
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  verificar-chave:
+    # Forks não recebem segredo nem token de escrita. Comentários só de colaboradores.
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+        contains(fromJSON('["/review", "/improve", "/describe"]'), github.event.comment.body)))
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      disponivel: ${{ steps.chave.outputs.disponivel }}
+    steps:
+      - name: Verificar presença da chave sem exibi-la
+        id: chave
+        env:
+          INCEPTION_API_KEY: ${{ secrets.INCEPTION_API_KEY }}
+        run: |
+          if [ -n "$INCEPTION_API_KEY" ]; then
+            echo 'disponivel=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'disponivel=false' >> "$GITHUB_OUTPUT"
+            echo 'PR-Agent ignorado: secret INCEPTION_API_KEY ausente.'
+          fi
+
+  pr-agent:
+    needs: verificar-chave
+    if: needs.verificar-chave.outputs.disponivel == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Sem checkout: o agente lê o diff via API, sem executar código do PR.
+      # Imagem oficial 0.50.0-github_action; o wrapper da action usa uma tag móvel.
+      # https://github.com/The-PR-Agent/pr-agent/releases/tag/v0.50.0
+      - name: Revisar, sugerir melhorias e descrever em português
+        uses: docker://pragent/pr-agent@sha256:548e894a88071180832b2f4233f734d0acd0db1a879e2fcbaa70bac8b8372ebe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INCEPTION_API_KEY: ${{ secrets.INCEPTION_API_KEY }}
+          config.model: inception/mercury-3
+          config.fallback_models: '[]'
+          config.custom_model_max_tokens: '128000'
+          config.response_language: pt-BR
+          github_action_config.auto_review: 'true'
+          github_action_config.auto_improve: 'true'
+          github_action_config.auto_describe: 'true'
+          github_action_config.handle_push_trigger: 'true'
+          github_action_config.push_commands: '["/describe", "/review", "/improve"]'
+          pr_reviewer.extra_instructions: Responda sempre em português do Brasil (pt-BR).
+          pr_code_suggestions.extra_instructions: Responda sempre em português do Brasil (pt-BR).
+          pr_description.extra_instructions: Responda sempre em português do Brasil (pt-BR).
