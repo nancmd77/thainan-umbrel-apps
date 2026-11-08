@@ -3,8 +3,8 @@
 Ferramenta CLI `conselho`: consulta 3 modelos (via 9Router) em paralelo sobre a mesma pergunta e pede a um presidente a síntese com recomendação, grau de confiança, pontos de concordância e divergência.
 
 ## Quando usar (só nestes 4 casos)
-1. Decisão difícil de desfazer (apagar dados, mudar produção, contrato, dinheiro).
-2. Agentes nichados ou plano/revisão discordam entre si.
+1. Decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados).
+2. Dois agentes nichados discordam, ou plano e revisão discordam.
 3. Confiança do `decide` abaixo de 0,35 (ele imprimiu `ESCALAR`).
 4. O Nan pediu explicitamente "pergunta ao conselho".
 

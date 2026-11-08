@@ -281,7 +281,7 @@ decide --objetivo "Clicar no ícone de salvar" \
    - As chaves podem ser configuradas no painel web unificado na porta `8592` (rotas `/config` e `/moondream`), gravando com permissão `600` e nunca criando portas adicionais.
 
 ### 7.4 Conselho de Modelos (`conselho`)
-- Para decisões difíceis de desfazer, quando agentes discordam, quando o `decide` escala (confiança abaixo de 0,35) ou quando o Nan pede "pergunta ao conselho". Não usar no dia a dia; no máximo 1 vez por tarefa; só o Chefe chama.
+- Só em 4 casos: decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados); dois nichados discordam, ou plano e revisão discordam; `decide` com confiança abaixo de 0,35; o Nan pede "pergunta ao conselho". Nunca no dia a dia; no máximo 1 vez por tarefa; só o Chefe chama.
 - Três modelos respondem em paralelo; um presidente recebe as respostas anônimas (A, B, C) e devolve recomendação, confiança, pontos de concordância e divergência.
 - Padrão: `ag/gemini-3.8-flash-high` (presidente, primeiro da lista), `cerebras/gpt-oss-120b` e `cerebras/qwen-3.8-27b`; nenhum depende de assinatura Claude. Troca por `--modelos` ou `CONSELHO_MODELOS`; presidente por `CONSELHO_PRESIDENTE`; timeout por chamada por `CONSELHO_TIMEOUT` (padrão 90 s).
 - Mínimo 2 respostas para haver síntese. Se o presidente falhar, o próximo candidato assume na mesma rodada.
@@ -291,3 +291,8 @@ conselho "Apagar a tabela antiga?" --contexto /tmp/plano.md
 conselho "Escolher a rota de deploy?" --modelos ag/gemini-3.8-flash-high,cerebras/gpt-oss-120b --json
 ```
 - Códigos de saída: `0` ok; `1` erro de uso, chave ausente ou nenhum modelo respondeu; `2` nenhum presidente conseguiu sintetizar (respostas brutas na saída).
+
+### 7.5 Onde os agentes leem as skills (0.64.0-r4)
+- Os agentes leem `~/.agents/skills/<nome>/SKILL.md` (`/data/.agents/skills/`). O init instala lá `conselho`, `decide` e `moondream`: front matter (`name`, `description`) mais o mesmo texto de `/data/skills/<nome>.md`. A cópia antiga em `/data/.config/opencode/skills/` continua.
+- O init só grava `SKILL.md` se o arquivo não existir (edição do Nan é preservada). A cópia de fábrica anterior de `/data/skills/conselho.md` e de `/data/bin/conselho` só é trocada se o sha256 bater (`troca_fabrica`); release que mudar um deles soma o sha256 anterior ali.
+- O bloco `jeito-hark` do `AGENTS.md` de cada agente é recriado a cada início (o init remove o bloco antigo e injeta o novo), então quem já tinha a versão anterior recebe a linha nova do conselho.
