@@ -2,7 +2,7 @@
 model = "inception/mercury-3"
 fallback_models = []
 # Limite conservador para um modelo ainda ausente do catálogo de tokens do agente.
-custom_model_max_tokens = 32000
+custom_model_max_tokens = 128000
 response_language = "pt-BR"
 
 [github_action_config]
