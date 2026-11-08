@@ -16,9 +16,9 @@ import sys
 import urllib.error
 import urllib.request
 
-VERSAO = "0.64.0-r2"
+VERSAO = "0.64.0-r3"
 NINEROUTER_URL_PADRAO = "http://192.168.18.171:20128/v1/chat/completions"
-MODELOS_PADRAO = "ag/gemini-4-argon-high,cl/deepseek/deepseek-v4.1-flash-1017,cc/claude-sonnet-5-5"
+MODELOS_PADRAO = "ag/gemini-3.8-flash-high,cerebras/gpt-oss-120b,cerebras/qwen-3.8-27b"
 TIMEOUT_PADRAO = 90.0
 MIN_RESPONDENTES = 2
 KEY_FILE_PADRAO = "/data/9router_key"
