@@ -38,10 +38,13 @@ printf '# Agente de smoke\n' > "$WORK/app/data/OpenBot/Agents/smoke-agente/AGENT
 # Chave falsa só para testar o caminho de cópia; nunca é impressa.
 printf 'chave-falsa-de-smoke\n' > "$WORK/thainan-supermemory/data/local_key"
 printf 'APP_DATA_DIR=%s\n' "$WORK/app" > "$WORK/compose.env"
-# O app_proxy do compose commitado não tem image nem build, e o compose recusa o projeto inteiro.
-# O override só dá uma imagem a ele, para validar; o serviço init segue o arquivo real.
+# O app_proxy do compose commitado não tem image nem build (o Umbrel injeta o serviço), e o compose
+# recusa o projeto inteiro. O override, só do teste, dá uma imagem a ele; o arquivo real não muda.
 printf 'services:\n  app_proxy:\n    image: alpine:3.21\n' > "$WORK/override.yml"
 COMPOSE=("${DOCKER[@]}" compose --env-file "$WORK/compose.env" -p "$PROJ" -f "$COMPOSE_FILE" -f "$WORK/override.yml")
+
+echo "== docker compose config (com override do app_proxy)"
+"${COMPOSE[@]}" config -q
 
 echo "== pull $IMAGE"
 "${DOCKER[@]}" pull "$IMAGE" >/dev/null
