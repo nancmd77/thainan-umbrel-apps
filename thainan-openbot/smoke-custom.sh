@@ -63,6 +63,7 @@ check() { local nome=$1; shift; if "$@" >/dev/null 2>&1; then echo "OK    $nome"
 bins() { for b in "$@"; do command -v "$b" >/dev/null || return 1; done; }
 skill() { test -s "/data/.agents/skills/$1/SKILL.md" && grep -qx "name: $1" "/data/.agents/skills/$1/SKILL.md"; }
 sm_ok() { python3 /data/bin/sm --help | grep -q 'sm buscar'; }
+conselho_ok() { python3 /data/bin/conselho --help | grep -q 'conselho'; }
 chave_ok() { test -s /config/supermemory.key && test "$(stat -c %a /config/supermemory.key)" = 600; }
 no_at() { test -z "${NO_AT_BRIDGE+x}"; }
 
@@ -84,7 +85,9 @@ check "openui-hark montar.py" test -s /data/.agents/skills/openui-hark/montar.py
 check "bloco Jeito Hark no AGENTS.md do agente" grep -q 'jeito-hark:inicio' /data/OpenBot/Agents/smoke-agente/AGENTS.md
 check "/data/AGENTS.md" test -s /data/AGENTS.md
 check "/data/bin/sm executável" test -x /data/bin/sm
+check "/data/bin/conselho executável" test -x /data/bin/conselho
 check "CLI sm --help" sm_ok
+check "CLI conselho --help" conselho_ok
 check "chave copiada com modo 600" chave_ok
 
 echo "falhas: $fails"

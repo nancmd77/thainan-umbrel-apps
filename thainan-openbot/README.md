@@ -279,3 +279,15 @@ decide --objetivo "Clicar no ícone de salvar" \
    - Acionado automaticamente quando o Liquid AI falhar (erro HTTP ou timeout de 5 segundos).
 3. **Gestão de Chaves na Web**:
    - As chaves podem ser configuradas no painel web unificado na porta `8592` (rotas `/config` e `/moondream`), gravando com permissão `600` e nunca criando portas adicionais.
+
+### 7.4 Conselho de Modelos (`conselho`)
+- Para decisões difíceis de desfazer, quando agentes discordam, quando o `decide` escala (confiança abaixo de 0,35) ou quando o Nan pede "pergunta ao conselho". Não usar no dia a dia; no máximo 1 vez por tarefa; só o Chefe chama.
+- Três modelos respondem em paralelo; um presidente recebe as respostas anônimas (A, B, C) e devolve recomendação, confiança, pontos de concordância e divergência.
+- Padrão: `ag/gemini-4-argon-high` (presidente), `cl/deepseek/deepseek-v4.1-flash-1017`, `cc/claude-sonnet-5-5`. Troca por `--modelos` ou `CONSELHO_MODELOS`; presidente por `CONSELHO_PRESIDENTE`; timeout por chamada por `CONSELHO_TIMEOUT` (padrão 90 s).
+- Mínimo 2 respostas para haver síntese. Se o presidente falhar, o próximo candidato assume na mesma rodada.
+- Registro em `/data/conselho.log`, sem chave e com pergunta resumida (até 200 caracteres).
+```bash
+conselho "Apagar a tabela antiga?" --contexto /tmp/plano.md
+conselho "Escolher a rota de deploy?" --modelos ag/gemini-4-argon-high,cc/claude-sonnet-5-5 --json
+```
+- Códigos de saída: `0` ok; `1` erro de uso, chave ausente ou nenhum modelo respondeu; `2` nenhum presidente conseguiu sintetizar (respostas brutas na saída).

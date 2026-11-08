@@ -18,6 +18,8 @@ services:
       RTX: "on"
     volumes:
       - /lib/modules:/lib/modules:ro
+      - /usr/bin:/host/bin:ro
+      - /usr/lib/x86_64-linux-gnu:/host/lib:ro
       - ${APP_DATA_DIR}/data:/data
     entrypoint: ["python", "-u", "-c"]
     command:
@@ -85,6 +87,16 @@ services:
         MSG_GOV_TROCADO = 'O governor foi trocado para powersave porque, em performance, o processador ignora o EPP. Ele ainda acelera sob carga.'
         MSG_EPP_PRESO = 'Atenção: o EPP fica preso em performance enquanto o governor estiver em performance. Para o EPP valer, use powersave.'
         PASSO_COMPARACAO = 1 if SIM else 30
+        # GPU: leitura sem acordar a GPU. sysfs primeiro; nvidia-smi só com runtime_status == active.
+        GPU_PCI = '/sys/bus/pci/devices/0000:01:00.0'
+        GPU_CONSULTA = 'power.draw,power.limit,temperature.gpu,pstate,utilization.gpu'
+        GPU_CACHE_S = 30
+        # nvidia-smi do host (ro no compose). glibc roda pelo loader do próprio host, sem mistura com musl.
+        GPU_HOST_LIB = '/host/lib'
+        GPU_HOST_LOADER = GPU_HOST_LIB + '/ld-linux-x86-64.so.2'
+        GPU_HOST_SMI = '/host/bin/nvidia-smi'
+        GPU_CACHE = {'t': None, 'v': None}
+        GPU_LOCK = threading.Lock()
 
         LOG = []
         LOCK = threading.RLock()
@@ -209,6 +221,19 @@ services:
             subprocess.run(['sh', '-c', 'echo 1 > "$1"', 'sh', d + '/remove'], timeout=90)
 
 
+        def simular_gpu_energia(estado):
+            """Estado sysfs do runtime PM da GPU: 'active' (D0) ou 'suspended' (D3cold, contadores da medição real)."""
+            if estado == 'suspended':
+                valores = ('suspended', 'D3cold', 162306929, 288931)
+            else:
+                valores = ('active', 'D0', 162306929, 288931)
+            status, power, susp, ativo = valores
+            escrever(GPU_PCI + '/power/runtime_status', status)
+            escrever(GPU_PCI + '/power_state', power)
+            escrever(GPU_PCI + '/power/runtime_suspended_time', susp)
+            escrever(GPU_PCI + '/power/runtime_active_time', ativo)
+
+
         def simular_gpu(presente):
             for d, device in (('/sys/bus/pci/devices/0000:01:00.0', '0x25a2'), ('/sys/bus/pci/devices/0000:01:00.1', '0x2291')):
                 if presente:
@@ -217,6 +242,8 @@ services:
                     escrever(d + '/power/control', 'on')
                 else:
                     shutil.rmtree(P(d), ignore_errors=True)
+            if presente:
+                simular_gpu_energia(os.environ.get('ECONOMIA_SIM_GPU_ESTADO', 'active'))
 
 
         def sim_gpu_presente():
@@ -955,6 +982,103 @@ services:
                     'docker_daemon_json': daemon, 'docker_tem_runtime_nvidia': tem_runtime}
 
 
+        def gpu_contador(sufixo):
+            v = rd_int(GPU_PCI + sufixo, -1)
+            return v if v >= 0 else None
+
+
+        def gpu_sysfs():
+            """Só sysfs: não acorda a GPU e não abre /dev/nvidia*."""
+            if not ex(GPU_PCI):
+                return {'presente': False}
+            return {'presente': True,
+                    'runtime': rd(GPU_PCI + '/power/runtime_status', 'desconhecido'),
+                    'power_state': rd(GPU_PCI + '/power_state', 'desconhecido'),
+                    'susp_ms': gpu_contador('/power/runtime_suspended_time'),
+                    'ativo_ms': gpu_contador('/power/runtime_active_time')}
+
+
+        def gpu_dormindo_pct(susp, ativo):
+            if susp is None or ativo is None or susp + ativo == 0:
+                return None
+            return round(100.0 * susp / (susp + ativo), 1)
+
+
+        def gpu_numero(txt):
+            try:
+                return float(txt)
+            except ValueError:
+                return None
+
+
+        def gpu_comando_smi():
+            """Binário glibc do host, via loader do host (ro no compose). Em teste, nvidia-smi do PATH."""
+            if not SIM and os.path.isfile(GPU_HOST_SMI) and os.path.isfile(GPU_HOST_LOADER):
+                return [GPU_HOST_LOADER, '--library-path', GPU_HOST_LIB, GPU_HOST_SMI]
+            p = shutil.which('nvidia-smi')
+            return [p] if p else None
+
+
+        def gpu_nvidia_smi():
+            """Só chamar com runtime_status == active."""
+            cmd = gpu_comando_smi()
+            if cmd is None:
+                return {'erro': 'nvidia-smi indisponível (/usr/bin/nvidia-smi do host não montado)'}
+            try:
+                r = subprocess.run(cmd + ['--query-gpu=' + GPU_CONSULTA, '--format=csv,noheader,nounits'],
+                                   capture_output=True, text=True, timeout=10)
+            except (OSError, subprocess.SubprocessError) as x:
+                return {'erro': 'nvidia-smi: %s' % x}
+            if r.returncode != 0 or not r.stdout.strip():
+                return {'erro': 'nvidia-smi falhou (código %s): %s' % (r.returncode, (r.stderr or r.stdout).strip()[-200:])}
+            campos = [c.strip() for c in r.stdout.strip().splitlines()[0].split(',')]
+            if len(campos) != 5:
+                return {'erro': 'saída inesperada do nvidia-smi: %s' % r.stdout.strip()[:200]}
+            pot, lim, temp, pst, uso = campos
+            return {'erro': None, 'potencia_w': gpu_numero(pot), 'limite_w': gpu_numero(lim),
+                    'temperatura_c': gpu_numero(temp), 'pstate': None if pst.startswith('[') else pst,
+                    'utilizacao_pct': gpu_numero(uso)}
+
+
+        def gpu_medir():
+            s = gpu_sysfs()
+            g = {'situacao': 'desligada', 'texto': 'Desligada (fora do barramento)', 'runtime': None, 'power_state': None,
+                 'tempo_dormindo_ms': None, 'tempo_ativa_ms': None, 'dormindo_pct': None,
+                 'potencia_w': None, 'limite_w': None, 'temperatura_c': None, 'pstate': None, 'utilizacao_pct': None,
+                 'aviso': None, 'lido_em': hora_sp('%H:%M:%S'), 'cache_s': GPU_CACHE_S}
+            if not s['presente']:
+                return g
+            g.update(runtime=s['runtime'], power_state=s['power_state'], tempo_dormindo_ms=s['susp_ms'],
+                     tempo_ativa_ms=s['ativo_ms'], dormindo_pct=gpu_dormindo_pct(s['susp_ms'], s['ativo_ms']))
+            if s['runtime'] == 'suspended' or s['power_state'].startswith('D3'):
+                g['situacao'] = 'dormindo'
+                onde = s['power_state'] if s['power_state'].startswith('D3') else 'runtime suspenso'
+                g['texto'] = 'Dormindo (%s), cerca de 0 W' % onde
+            elif s['runtime'] == 'active':
+                m = gpu_nvidia_smi()
+                g['situacao'] = 'ativa'
+                g['texto'] = 'Ativa'
+                if m['erro']:
+                    g['aviso'] = m['erro']
+                else:
+                    g.update({k: m[k] for k in ('potencia_w', 'limite_w', 'temperatura_c', 'pstate', 'utilizacao_pct')})
+            else:
+                g['situacao'] = 'sem_medicao'
+                g['texto'] = 'Runtime PM em %s (sem medição)' % s['runtime']
+            return g
+
+
+        def gpu_estado():
+            """Bloco 'gpu' do status: uma medição por janela de GPU_CACHE_S segundos."""
+            with GPU_LOCK:
+                agora = time.monotonic()
+                if GPU_CACHE['t'] is None or agora - GPU_CACHE['t'] >= GPU_CACHE_S:
+                    GPU_CACHE['v'] = gpu_medir()
+                    GPU_CACHE['t'] = agora
+                return dict(GPU_CACHE['v'])
+
+
+
         def probe():
             sb = gl('/sys/firmware/efi/efivars/SecureBoot-*')
             try:
@@ -1052,7 +1176,8 @@ services:
                 'acer_wmi': FAN['estado'] + ' | predator_v4=' + rd('/sys/module/acer_wmi/parameters/predator_v4', '?'),
                 'temperaturas': ', '.join(temps()) or 'nenhuma',
                 'atualizado': hora_sp('%d/%m %H:%M:%S'),
-                'gpu': probe_gpu(),
+                'gpu': gpu_estado(),
+                'gpu_diagnostico': probe_gpu(),
                 'gpu_em_uso_por': usos,
                 'controles': dict(ESTADO),
                 'ultima_acao': ULTIMA_ACAO['v'],
@@ -1278,7 +1403,7 @@ services:
 
 
         def secao_estado(d):
-            g = d['gpu']
+            g = d['gpu_diagnostico']
             usos = ', '.join('%s (%s, PID %s)' % (u['processo'], u['container'], u['pid']) for u in d['gpu_em_uso_por']) or 'nenhum'
             cpu_w = '%.2f W' % d['cpu_potencia_w'] if d['cpu_potencia_w'] is not None else 'medindo...'
             rows = [
@@ -1311,6 +1436,39 @@ services:
             ]
             return ('<section aria-labelledby="h-estado"><h2 id="h-estado">Estado atual</h2>'
                     '<table><tbody>%s</tbody></table></section>' % ''.join(rows))
+
+
+        def gpu_duracao(ms):
+            s = ms // 1000
+            return '%dh %02dmin' % (s // 3600, (s % 3600) // 60) if s >= 3600 else '%dmin %02ds' % (s // 60, s % 60)
+
+
+        def secao_gpu(g):
+            ativa = g['situacao'] == 'ativa'
+
+            def med(valor, fmt, vazio):
+                if not ativa:
+                    return 'não medido'
+                return fmt % valor if valor is not None else vazio
+
+            rows = [
+                linha('Estado', g['texto']),
+                linha('Potência', med(g['potencia_w'], '%.2f W', 'potência não informada pelo driver')),
+                linha('Limite de potência', med(g['limite_w'], '%.0f W', 'não informado pelo driver')),
+                linha('Temperatura', med(g['temperatura_c'], '%.0f °C', 'não informada')),
+                linha('P-state', med(g['pstate'], '%s', 'não informado')),
+                linha('Utilização', med(g['utilizacao_pct'], '%.0f %%', 'não informada')),
+            ]
+            if g['dormindo_pct'] is not None:
+                rows.append(linha('Tempo dormindo desde o boot', '%.1f %% (%s dormindo, %s ativa)' % (
+                    g['dormindo_pct'], gpu_duracao(g['tempo_dormindo_ms']), gpu_duracao(g['tempo_ativa_ms']))))
+            if g['aviso']:
+                rows.append(linha('Aviso', g['aviso']))
+            rows.append(linha('Lido em', g['lido_em']))
+            return ('<section aria-labelledby="h-gpu"><h2 id="h-gpu">GPU RTX 2050</h2>'
+                    '<p class="ajuda">Leitura sem acordar a GPU: nvidia-smi só roda com a GPU ativa, no máximo a cada %d s.</p>'
+                    '<table><tbody>%s</tbody></table></section>') % (g['cache_s'], ''.join(rows))
+
 
 
         def faixa_cpu(nome, rotulo, v, maximo, fabrica):
@@ -1438,6 +1596,7 @@ services:
                 corpo.append(aviso_html(aviso))
             corpo.append(secao_perfis(d, perfil_ativo(ESTADO)))
             corpo.append(secao_estado(d))
+            corpo.append(secao_gpu(d['gpu']))
             corpo.append(secao_controles(d))
             corpo.append(secao_registro())
             return frame('Economia', ''.join(corpo))

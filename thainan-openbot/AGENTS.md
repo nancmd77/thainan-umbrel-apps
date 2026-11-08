@@ -33,6 +33,12 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
   - TypeSafe (Jev reserva): `TYPESAFE_API_KEY` ou `/config/typesafe.key` (perm 600).
   - Configuraveis no painel web na porta `8592` (rotas `/config` e `/moondream`).
 
+## Ferramenta CLI `conselho`
+
+- **Consulta a 3 modelos com síntese**: `conselho "<pergunta>" [--contexto arquivo|-] [--modelos a,b,c] [--json]`
+- Só para decisões difíceis (ver skill `conselho`). Máximo 1 por tarefa; só o Chefe chama.
+- Chave: `OPENBOT_9ROUTER_KEY` ou `/data/9router_key`. Nunca imprimir a chave.
+
 ## Ferramenta CLI `md`
 
 - **Mira e Clique**:

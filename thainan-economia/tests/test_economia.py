@@ -510,6 +510,113 @@ class Tema(unittest.TestCase):
 
 
 
+def fake_nvidia_smi(linha, saida_codigo=0):
+    """nvidia-smi falso no PATH; grava uma linha em marcador a cada chamada, para contar invocações."""
+    d = tempfile.mkdtemp(dir=TMP)
+    p = os.path.join(d, 'nvidia-smi')
+    with open(p, 'w') as f:
+        f.write('#!/bin/sh\necho chamada >> "$MARCADOR"\necho "%s"\nexit %d\n' % (linha, saida_codigo))
+    os.chmod(p, 0o755)
+    return d
+
+
+class GpuPotencia(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        E.criar_simulacao()
+
+    def setUp(self):
+        E.GPU_CACHE.update(t=None, v=None)
+        self.marcador = os.path.join(TMP, 'chamadas-%s' % self.id().rsplit('.', 1)[1])
+        if os.path.exists(self.marcador):
+            os.remove(self.marcador)
+        E.simular_gpu(True)
+
+    def tearDown(self):
+        E.GPU_CACHE.update(t=None, v=None)
+        E.simular_gpu(True)
+
+    def chamadas(self):
+        if not os.path.exists(self.marcador):
+            return 0
+        with open(self.marcador) as f:
+            return len(f.read().splitlines())
+
+    def ambiente(self, linha, codigo=0):
+        d = fake_nvidia_smi(linha, codigo)
+        return mock.patch.dict(os.environ, {'PATH': d + os.pathsep + os.environ['PATH'], 'MARCADOR': self.marcador})
+
+    def medir_com(self, linha, estado='active', codigo=0):
+        E.simular_gpu_energia(estado)
+        with self.ambiente(linha, codigo):
+            return E.gpu_estado()
+
+    def test_suspensa_nao_chama_nvidia_smi(self):
+        g = self.medir_com('1.0, 35.00, 40, P8, 0', estado='suspended')
+        self.assertEqual(self.chamadas(), 0)
+        self.assertEqual(g['situacao'], 'dormindo')
+        self.assertEqual(g['texto'], 'Dormindo (D3cold), cerca de 0 W')
+        self.assertIsNone(g['potencia_w'])
+
+    def test_ativa_chama_nvidia_smi_e_le_campos(self):
+        g = self.medir_com('12.34, 35.00, 48, P8, 3')
+        self.assertEqual(self.chamadas(), 1)
+        self.assertEqual(g['situacao'], 'ativa')
+        self.assertEqual((g['potencia_w'], g['limite_w'], g['temperatura_c'], g['pstate'], g['utilizacao_pct']),
+                         (12.34, 35.0, 48.0, 'P8', 3.0))
+
+    def test_potencia_na_nao_zera_o_resto_e_pagina_avisa(self):
+        g = self.medir_com('[N/A], [N/A], 52, P5, 0')
+        self.assertIsNone(g['potencia_w'])
+        self.assertEqual(g['temperatura_c'], 52.0)
+        self.assertIn('potência não informada pelo driver', E.secao_gpu(g))
+
+    def test_falha_do_nvidia_smi_vira_aviso(self):
+        g = self.medir_com('', codigo=1)
+        self.assertEqual(g['situacao'], 'ativa')
+        self.assertIn('nvidia-smi falhou', g['aviso'])
+
+    def test_ausente_fica_desligada_sem_chamar_nvidia_smi(self):
+        E.simular_gpu(False)
+        with self.ambiente('1.0, 35.00, 40, P8, 0'):
+            g = E.gpu_estado()
+        self.assertEqual(self.chamadas(), 0)
+        self.assertEqual(g['texto'], 'Desligada (fora do barramento)')
+
+    def test_medicao_fica_em_cache_por_30_segundos(self):
+        with self.ambiente('12.34, 35.00, 48, P8, 3'):
+            E.simular_gpu_energia('active')
+            E.gpu_estado()
+            E.gpu_estado()
+            self.assertEqual(self.chamadas(), 1)
+            E.GPU_CACHE['t'] -= E.GPU_CACHE_S + 1
+            E.gpu_estado()
+        self.assertEqual(self.chamadas(), 2)
+
+    def test_percentual_dormindo_usa_contadores_do_runtime(self):
+        E.simular_gpu_energia('suspended')
+        self.assertEqual(E.gpu_estado()['dormindo_pct'], 99.8)
+
+    def test_leitura_sysfs_nao_abre_dev_nvidia(self):
+        abertos = []
+        real = open
+
+        def registrar(caminho, *a, **k):
+            abertos.append(str(caminho))
+            return real(caminho, *a, **k)
+
+        with mock.patch('builtins.open', side_effect=registrar):
+            E.gpu_sysfs()
+        self.assertFalse([c for c in abertos if '/dev/nvidia' in c])
+
+    def test_bloco_gpu_do_status_e_diagnostico_separado(self):
+        E.simular_gpu_energia('suspended')
+        d = E.status_data()
+        self.assertEqual(d['gpu']['situacao'], 'dormindo')
+        self.assertIn('lspci', d['gpu_diagnostico'])
+        json.dumps(d['gpu'])
+
+
 class Compose(unittest.TestCase):
     def test_compose_embutido_esta_sincronizado_com_o_codigo(self):
         r = subprocess.run([sys.executable, str(RAIZ / 'tools' / 'gerar_compose.py'), '--check'],
