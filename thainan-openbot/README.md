@@ -205,8 +205,11 @@ A partir da versão `0.61.0-r8`, o OpenBot integra a Moondream Cloud API como fe
 2. **Moondream Cloud (`md point`) como fallback**: Utilize quando o aplicativo não tiver suporte a acessibilidade (canvas WebGL, interfaces sem bridge a11y, menus renderizados em bitmap, jogos) ou quando a busca semântica não localizar o elemento.
 
 ### 6.2 Comandos da CLI `md`
+- **Regra de ouro**: `md point`, `md detect` e cliques continuam no Moondream Cloud para mirar e clicar. Para **descrever a tela**, use `md ask` (agora Gemini via 9Router).
+- **Código 4 = tela vazia**: checagem obrigatória em todos os subcomandos (`point`, `detect`, `ask`). Se a miniatura 64x64 da captura tiver 2 cores ou menos (Xvfb sem janela mapeada), o `md` não chama nenhuma API, imprime `tela vazia: display <X> sem janela visivel` e sai com **código 4**. Os agentes são instruídos a não insistir e avisar que não há janela visível.
+
 ```bash
-# Mira e clique no elemento com glide e pulso Hark
+# Mira e clique no elemento com glide e pulso Hark (Moondream)
 md point "Send button" --click
 
 # Duplo clique ou clique com botão direito
@@ -216,18 +219,22 @@ md point "Table row" --right
 # Clique rápido sem animações
 md point "Confirm" --click --sem-cursor
 
-# Detecção de caixas delimitadoras de múltiplos objetos
+# Detecção de caixas delimitadoras de múltiplos objetos (Moondream)
 md detect "text input"
 
-# Perguntas visuais sobre o estado da tela (VQA)
+# Descrever a tela ou perguntas visuais (Gemini via 9Router)
+md ask "Descreva a tela e liste as janelas e botões visíveis"
 md ask "Qual formulário está aberto na tela?"
+
+# Troca de modelo via flag
+md ask "O que há na tela?" --modelo ag/gemini-3.8-flash-high
 ```
 
 ### 6.3 Configuração da Chave
-- **Página Web**: Acesse pela rota `/config` ou `/moondream` na porta principal 8592. O painel grava o arquivo `/config/moondream.key` com permissão restrita `600` e exibe apenas os últimos 4 dígitos.
-- **Variável de Ambiente**: Defina `MOONDREAM_API_KEY=<sua-chave>` no arquivo de ambiente do Umbrel ou no compose.
-- **Diagnóstico nos Logs**: O OpenBot e o serviço de configuração reportam `moondream: chave presente` ou `moondream: chave ausente` na inicialização.
-
+- **Moondream Cloud**: lida de `MOONDREAM_API_KEY` ou de `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`).
+- **9Router (para `md ask`)**: reutiliza o mesmo endpoint e chave do CLI `conselho` (`OPENBOT_9ROUTER_KEY` ou `/data/9router_key`, com endpoint em `CONSELHO_URL` ou padrão `http://192.168.18.171:20128/v1/chat/completions`). Nunca imprime a chave.
+- Se o 9Router falhar, o `md ask` faz fallback para o Moondream query com o aviso explícito `(resposta do Moondream, menos confiável)`.
+- **Códigos de Saída do `md`**: `0` sucesso; `1` erro geral / chave ausente; `2` nenhum alvo encontrado (`point`); `4` tela vazia (<= 2 cores, sem janela visível).
 ---
 
 ## 7. Modelo de Decisão por Passo com Liquid AI e Jev (r10)
@@ -301,3 +308,8 @@ conselho "Escolher a rota de deploy?" --modelos ag/gemini-3.8-flash-high,cerebra
 - Antes, `AGENTS.md` e a skill `moondream` mandavam o exit 3 ao modelo grande, e a skill `decide` e o `jeito-hark` mandavam perguntar ao Nan. Agora a regra é uma só, com a mesma frase em todos os textos (passo 5 de 7.1): decisão difícil de desfazer vai ao conselho, decisão do dia a dia vai ao modelo grande de raciocínio com contexto completo, e o Nan só é perguntado se o conselho também ficar com confiança baixa ou se a ação for destrutiva.
 - Textos com a regra: `/data/AGENTS.md`, `/data/skills/{conselho,decide,moondream}.md` (e a cópia em `/data/.config/opencode/skills/`), as `SKILL.md` de `conselho`, `decide`, `moondream`, `jeito-hark` e `cursor-hark` em `/data/.agents/skills/` e o bloco `jeito-hark` do `AGENTS.md` de cada agente.
 - Quem já tem a r4: o bloco dos agentes e a `jeito-hark` são recriados a cada início; `/data/AGENTS.md`, `skills/*.md` e as `SKILL.md` de `conselho`, `decide`, `moondream` e `cursor-hark` só são trocados se forem a cópia de fábrica de uma versão anterior (sha256 igual). Arquivo editado pelo Nan fica como está.
+### 7.7 md mais confiável (0.64.0-r6)
+- **Separação de papéis**: `md point`/`detect` continuam no Moondream para mirar e clicar com precisão; `md ask` passa a usar Gemini via 9Router (`ag/gemini-3.8-flash-high`) para descrever a tela objetivamente sem inventar, listando janelas e botões com posições aproximadas.
+- **Tela vazia (código 4)**: contagem de cores em miniatura 64x64 em todos os subcomandos; se `<= 2` cores (Xvfb sem janela mapeada), sai imediatamente com código 4 sem chamada de rede.
+- **Fallback resiliente**: se o 9Router falhar no `md ask`, cai no Moondream query com aviso explícito `(resposta do Moondream, menos confiável)`.
+- **Preservação de edições**: `troca_fabrica` atualizado com o sha256 das versões r5 dos arquivos alterados (`/data/AGENTS.md`, `skills/moondream.md`, `cursor-hark/SKILL.md`, `moondream/SKILL.md` e `bin/md`). Edições manuais do Nan continuam preservadas.

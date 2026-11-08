@@ -41,7 +41,9 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
 
 ## Ferramenta CLI `md`
 
-- **Mira e Clique**:
+- **Regra de ouro**: `md point`, `md detect` e cliques são para **mirar e clicar** (Moondream). Para **descrever a tela**, use `md ask` (Gemini via 9Router).
+- **Código 4 = tela vazia**: se a miniatura tiver 2 cores ou menos (display sem janela visível mapeada), o `md` não chama nenhuma API, imprime "tela vazia: display <X> sem janela visivel" e sai com **código 4**. **Não insista**: avise que não há janela visível.
+- **Mira e Clique (Moondream)**:
   `md point '<descricao do alvo>' --click`
   Localiza o elemento visual, move o cursor com glide suave estilo Hark (~12 passos, ~180 ms, com easing) e exibe um anel de pulso visual de 400 ms ao clicar.
 - **Clique Duplo**:
@@ -50,10 +52,11 @@ O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
   `md point '<alvo>' --right`
 - **Modo Rapido (sem animacao)**:
   `md point '<alvo>' --click --sem-cursor`
-- **Deteccao de Caixas Delimitadoras**:
+- **Deteccao de Caixas Delimitadoras (Moondream)**:
   `md detect '<alvo>'`
-- **Perguntas Visuais sobre a Tela (VQA)**:
-  `md ask '<pergunta>'`
+- **Descricao e Perguntas Visuais (Gemini via 9Router)**:
+  `md ask '<pergunta>' [--modelo <modelo>]`
+  Modelo padrão: `ag/gemini-3.8-flash-high`. Se o 9Router falhar, faz fallback para o Moondream query com aviso explicito no stderr.
 
 Display padrao: `:1` (pode ser sobrescrito com `--display :0` ou variavel `DISPLAY`).
-Chave da API Moondream: `MOONDREAM_API_KEY` ou arquivo `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`).
+Chaves: 9Router em `OPENBOT_9ROUTER_KEY` ou `/data/9router_key`; Moondream em `MOONDREAM_API_KEY` ou `/config/moondream.key` (painel web na porta 8592 rota `/config` ou `/moondream`). Nunca imprima chaves.
