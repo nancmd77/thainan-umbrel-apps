@@ -158,6 +158,92 @@ class OrigemPost(unittest.TestCase):
         self.assertTrue(E.origem_valida({'Host': '10.21.0.1:8536'}))
 
 
+class CsrfHttp(unittest.TestCase):
+    """POST real contra o servidor: origem e campo oculto csrf são checados juntos."""
+
+    @classmethod
+    def setUpClass(cls):
+        import http.client
+        import threading
+        cls.http = http.client
+        E.criar_simulacao()
+        E.CSRF['token'] = None
+        carregar()
+        cls.srv = E.Servidor(('127.0.0.1', 0), E.H)
+        cls.porta = cls.srv.server_address[1]
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def setUp(self):
+        with E.LOCK:
+            carregar()
+            E.ESTADO['turbo'] = 'on'
+            E.salvar_estado()
+
+    def campo_da_pagina(self):
+        import re
+        c = self.http.HTTPConnection('127.0.0.1', self.porta, timeout=5)
+        c.request('GET', '/')
+        html = c.getresponse().read().decode()
+        c.close()
+        return re.search(r'name="csrf" value="([0-9a-f]+)"', html).group(1)
+
+    def post(self, campos, extra=None):
+        import urllib.parse
+        corpo = urllib.parse.urlencode(campos)
+        cab = {'Content-Type': 'application/x-www-form-urlencoded', 'Host': '127.0.0.1:%d' % self.porta}
+        cab.update(extra or {})
+        c = self.http.HTTPConnection('127.0.0.1', self.porta, timeout=5)
+        c.request('POST', '/acao/turbo', corpo, cab)
+        r = c.getresponse()
+        res = (r.status, r.getheader('Content-Type'), r.read().decode())
+        c.close()
+        return res
+
+    def assertBloqueado(self, res):
+        status, tipo, html = res
+        self.assertEqual(status, 403)
+        self.assertTrue(tipo.startswith('text/html'))
+        self.assertIn('Requisição bloqueada', html)
+        self.assertIn('lang="pt-BR"', html)
+        self.assertEqual(E.ESTADO['turbo'], 'on')
+
+    def test_post_sem_campo_csrf_e_bloqueado(self):
+        self.assertBloqueado(self.post({'valor': 'off'}))
+
+    def test_post_com_campo_csrf_errado_e_bloqueado(self):
+        certo = self.campo_da_pagina()
+        trocado = ('0' if certo[0] != '0' else '1') + certo[1:]
+        self.assertBloqueado(self.post({'valor': 'off', 'csrf': trocado}))
+        self.assertBloqueado(self.post({'valor': 'off', 'csrf': 'abc'}))
+
+    def test_post_com_campo_csrf_certo_aplica(self):
+        status, _, _ = self.post({'valor': 'off', 'csrf': self.campo_da_pagina()}, {'Sec-Fetch-Site': 'same-origin'})
+        self.assertEqual(status, 303)
+        self.assertEqual(E.ESTADO['turbo'], 'off')
+
+    def test_origem_errada_e_bloqueada_mesmo_com_campo_csrf_certo(self):
+        certo = self.campo_da_pagina()
+        self.assertBloqueado(self.post({'valor': 'off', 'csrf': certo}, {'Sec-Fetch-Site': 'cross-site'}))
+        self.assertBloqueado(self.post({'valor': 'off', 'csrf': certo}, {'Origin': 'http://evil.example'}))
+
+    def test_segredo_fica_em_data_com_permissao_600_e_sobrevive_ao_restart(self):
+        arq = E.P(E.SEGREDO_CSRF)
+        antes = self.campo_da_pagina()
+        self.assertEqual(os.stat(arq).st_mode & 0o777, 0o600)
+        E.CSRF['token'] = None  # simula restart do processo
+        self.assertEqual(self.campo_da_pagina(), antes)
+        os.remove(arq)
+        E.CSRF['token'] = None  # primeira execução: gera segredo novo
+        self.assertNotEqual(self.campo_da_pagina(), antes)
+        self.assertEqual(os.stat(arq).st_mode & 0o777, 0o600)
+
+
+
 class EstadoEmDisco(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -251,10 +337,18 @@ class Paginas(unittest.TestCase):
             with self.subTest(acao=acao):
                 self.assertIn('action="%s"' % acao, html)
 
-    def test_formulario_nao_carrega_token_nem_campo_oculto_de_segredo(self):
-        html = E.pagina(E.status_data())
-        self.assertNotIn('name="csrf"', html)
-        self.assertNotIn('type="password"', html)
+    def test_todo_formulario_post_carrega_token_csrf(self):
+        import re
+        token = 'name="csrf" value="%s"' % E.token_csrf()
+        paginas = [E.pagina(E.status_data()),
+                   E.pagina_confirmacao('/acao/rtx', {'valor': 'off', 'csrf': 'velho'}, [{'processo': 'p', 'container': 'c', 'pid': '1'}])]
+        for html in paginas:
+            forms = re.findall(r'<form method="post".*?</form>', html, re.S)
+            self.assertTrue(forms)
+            for f in forms:
+                with self.subTest(form=f[:60]):
+                    self.assertEqual(f.count('name="csrf"'), 1)
+                    self.assertIn(token, f)
 
     def test_bloco_monta_legenda_e_botao(self):
         html = E.bloco('/acao/cpu', 'Limites', '<p>x</p>', 'Aplicar')
@@ -643,14 +737,17 @@ class GovernorEPP(unittest.TestCase):
             E.wr(c + '/scaling_governor', valor)
 
     def test_epp_travado_em_performance_e_liberado_trocando_governor(self):
-        self.governor_hw('performance')
+        # Começa com governor performance salvo e aplicado: sem a troca de governor, apply() regrava performance e o EPP não muda.
+        E.mudar({'governor': 'performance'}, True, 'x', 'Governor', lambda est: est['governor'])
+        self.assertEqual(E.ESTADO['governor'], 'performance')
+        self.assertEqual({v for _, v in E.lidos_cpufreq('scaling_governor')}, {'performance'})
         epp0 = self.cpus()[0] + '/energy_performance_preference'
         self.assertFalse(E.wr(epp0, 'power'))  # simulação do EBUSY: EPP não muda com governor performance
         self.assertEqual(E.rd(epp0), 'balance_performance')
         E.mudar({'epp': 'power'}, True, 'x', 'EPP', lambda est: est['epp'])
-        self.assertEqual(E.ESTADO['governor'], 'powersave')
         self.assertEqual({v for _, v in E.lidos_cpufreq('energy_performance_preference')}, {'power'})
         self.assertEqual({v for _, v in E.lidos_cpufreq('scaling_governor')}, {'powersave'})
+        self.assertEqual(E.ESTADO['governor'], 'powersave')
         self.assertEqual([e for e in E.conferir_tudo() if e['status'] != 'ok'], [])
         self.assertEqual(E.FLASH['v']['notas'], [E.MSG_GOV_TROCADO])
 

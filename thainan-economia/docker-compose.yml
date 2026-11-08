@@ -32,7 +32,7 @@ services:
 
         Este arquivo é a fonte; tools/gerar_compose.py embute o código no docker-compose.yml.
         """
-        import os, re, glob, time, threading, subprocess, html, http.server, socketserver, json, urllib.parse, math, shutil, datetime
+        import os, re, glob, time, threading, subprocess, html, http.server, socketserver, json, urllib.parse, math, shutil, datetime, secrets, hmac, hashlib
 
         SIM = os.environ.get('ECONOMIA_SIMULADO', '0').strip().lower() in ('1', 'on', 'true', 'sim')
         SIM_DIR = (os.environ.get('ECONOMIA_SIM_DIR') or '/tmp/economia-simulado') if SIM else ''
@@ -40,6 +40,7 @@ services:
         BIND = os.environ.get('BIND', '127.0.0.1' if SIM else '10.21.0.1')
         NIC = os.environ.get('NIC', 'enp64s0')
         DADOS = '/data/estado.json'
+        SEGREDO_CSRF = '/data/csrf.key'
         ZONES = ['/sys/class/powercap/intel-rapl:0', '/sys/class/powercap/intel-rapl-mmio:0']
         PP = '/sys/firmware/acpi/platform_profile'
         EPP_LISTA = '/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_available_preferences'
@@ -101,6 +102,7 @@ services:
         LOCK = threading.RLock()
         ESTADO = {}
         FLASH = {'v': None}
+        CSRF = {'token': None}
         ULTIMA_ACAO = {'v': None}  # última ação do usuário + conferência; vai para /status.json
         ULTIMO_REAPLICADO = {}  # último caso divergente logado pelo ciclo de 5 min (evita repetir)
         GEN = {'v': 0}
@@ -1321,7 +1323,7 @@ services:
             return html.escape(str(x), quote=True)
 
         def origem_valida(cab):
-            """Anti-CSRF sem segredo. Navegadores atuais enviam Sec-Fetch-Site; sem ele, confere Origin com Host."""
+            """Navegadores atuais enviam Sec-Fetch-Site; sem ele, confere Origin com Host. Soma-se ao token CSRF."""
             sfs = cab.get('Sec-Fetch-Site', '')
             if sfs:
                 return sfs in ('same-origin', 'none')
@@ -1329,6 +1331,51 @@ services:
             if origem:
                 return urllib.parse.urlparse(origem).netloc == cab.get('Host', '')
             return True
+
+
+        def carregar_segredo():
+            """Lê o segredo de /data; na primeira execução cria um aleatório com permissão 600."""
+            caminho = P(SEGREDO_CSRF)
+            os.makedirs(os.path.dirname(caminho), exist_ok=True)
+            try:
+                fd = os.open(caminho, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                os.chmod(caminho, 0o600)
+                with open(caminho) as f:
+                    segredo = f.read().strip()
+                if len(segredo) >= 64:
+                    return segredo
+                log('segredo CSRF inválido em %s; gerando outro' % SEGREDO_CSRF)
+                os.remove(caminho)
+                fd = os.open(caminho, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            segredo = secrets.token_hex(32)
+            with os.fdopen(fd, 'w') as f:
+                f.write(segredo)
+            log('segredo CSRF criado em %s' % SEGREDO_CSRF)
+            return segredo
+
+
+        def token_csrf():
+            with LOCK:
+                if CSRF['token'] is None:
+                    CSRF['token'] = hmac.new(carregar_segredo().encode(), b'economia-csrf', hashlib.sha256).hexdigest()
+                return CSRF['token']
+
+
+        def token_valido(enviado):
+            return hmac.compare_digest(enviado.encode('utf-8', 'replace'), token_csrf().encode())
+
+
+        def campo_csrf():
+            return '<input type="hidden" name="csrf" value="%s">' % token_csrf()
+
+
+        def pagina_bloqueio(motivo):
+            corpo = ('<header><h1>Requisição bloqueada</h1></header>'
+                     '<p class="aviso erro" role="alert">%s</p>'
+                     '<p><a href="/">Voltar ao painel</a></p>') % e(motivo)
+            return frame('Requisição bloqueada', corpo)
+
 
 
 
@@ -1346,9 +1393,9 @@ services:
             cards = []
             for chave, p in PERFIS.items():
                 marcado = ' aria-current="true"' if chave == ativo else ''
-                cards.append('<form method="post" action="/acao/perfil"><input type="hidden" name="perfil" value="%s">'
+                cards.append('<form method="post" action="/acao/perfil">%s<input type="hidden" name="perfil" value="%s">'
                              '<button class="perfil" type="submit"%s><span class="titulo">%s</span><span>%s</span></button></form>'
-                             % (chave, marcado, e(p['nome']), e(p['descricao'])))
+                             % (campo_csrf(), chave, marcado, e(p['nome']), e(p['descricao'])))
             titulo = PERFIS[ativo]['nome'] if ativo else 'Personalizado'
             return ('<section aria-labelledby="h-perfis"><h2 id="h-perfis">Perfil ativo: <strong>%s</strong></h2>'
                     '<p>Um clique aplica todos os valores do perfil e salva a escolha.</p><div class="perfis">%s</div></section>'
@@ -1435,8 +1482,8 @@ services:
 
 
         def bloco(acao, legenda, corpo, botao, classe=''):
-            return ('<form method="post" action="%s" class="ctl"><fieldset><legend>%s</legend>%s'
-                    '<button type="submit" class="%s">%s</button></fieldset></form>') % (acao, e(legenda), corpo, classe, e(botao))
+            return ('<form method="post" action="%s" class="ctl">%s<fieldset><legend>%s</legend>%s'
+                    '<button type="submit" class="%s">%s</button></fieldset></form>') % (acao, campo_csrf(), e(legenda), corpo, classe, e(botao))
 
 
         def radios(nome, opcoes, atual):
@@ -1461,8 +1508,8 @@ services:
                         faixa_cpu('pl2', 'Rajada (PL2)', pl2, lim_['short'], est['cpu_pl2'] == 'fabrica') +
                         '<p class="ajuda">A rajada (PL2) não pode ficar abaixo do contínuo (PL1).</p>',
                         'Aplicar limites')
-            cpu += ('<form method="post" action="/acao/cpu" class="ctl"><input type="hidden" name="pl1" value="fabrica">'
-                    '<input type="hidden" name="pl2" value="fabrica"><button type="submit" class="secundario">Voltar ao limite de fábrica</button></form>')
+            cpu += ('<form method="post" action="/acao/cpu" class="ctl">%s<input type="hidden" name="pl1" value="fabrica">'
+                    '<input type="hidden" name="pl2" value="fabrica"><button type="submit" class="secundario">Voltar ao limite de fábrica</button></form>') % campo_csrf()
             turbo = bloco('/acao/turbo', 'Turbo do processador',
                           '<p class="atual">Atual: %s</p>' % ('ligado' if est['turbo'] == 'on' else 'desligado') +
                           radios('valor', [('on', 'Ligado'), ('off', 'Desligado')], est['turbo']), 'Aplicar turbo')
@@ -1557,7 +1604,8 @@ services:
 
         def pagina_confirmacao(caminho, form, usos):
             linhas = ''.join('<tr><th scope="row">%s</th><td>%s</td><td>%s</td></tr>' % (e(u['processo']), e(u['container']), e(u['pid'])) for u in usos)
-            ocultos = ''.join('<input type="hidden" name="%s" value="%s">' % (e(k), e(v)) for k, v in form.items() if k != 'confirmar')
+            ocultos = campo_csrf() + ''.join('<input type="hidden" name="%s" value="%s">' % (e(k), e(v))
+                                             for k, v in form.items() if k not in ('confirmar', 'csrf'))
             corpo = ('<header><h1>Confirmar remoção da RTX</h1></header>'
                      '<p class="aviso erro" role="alert">A GPU NVIDIA está em uso. Remover a RTX agora pode derrubar os processos abaixo, inclusive containers.</p>'
                      '<table><thead><tr><th scope="col">Processo</th><th scope="col">Container</th><th scope="col">PID</th></tr></thead><tbody>%s</tbody></table>'
@@ -1629,7 +1677,9 @@ services:
                 except ValueError:
                     return self._texto(400, 'Formulário inválido.')
                 if not origem_valida(self.headers):
-                    return self._texto(403, 'Requisição bloqueada: origem diferente do painel. Recarregue a página.')
+                    return self._html(403, pagina_bloqueio('Origem diferente do painel. Recarregue a página e tente de novo.'))
+                if not token_valido(form.get('csrf', '')):
+                    return self._html(403, pagina_bloqueio('Formulário sem token válido. Recarregue a página e tente de novo.'))
                 confirmar = form.get('confirmar') == '1'
                 res = {}
                 try:
@@ -1663,6 +1713,7 @@ services:
                 criar_simulacao()
                 log('MODO SIMULADO: nada é tocado no hardware; raiz %s' % SIM_DIR)
             carregar_estado()
+            token_csrf()
             threading.Thread(target=servir, daemon=True).start()
             threading.Thread(target=meter, daemon=True).start()
             probe()
