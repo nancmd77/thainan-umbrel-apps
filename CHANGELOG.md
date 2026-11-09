@@ -10,6 +10,7 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 - O que mudou: texto opcional via Mercury 3 direto na Inception (`texto_url`, `texto_key`, `model_texto`), sem consumir o 9Router. Visão e Decider continuam no 9Router. Erro, timeout ou JSON inválido na Inception tenta o modelo atual do 9Router uma vez. Temperatura de 0.5 a 1.0, sem seed; teste de credencial em Configurações.
 - Complemento: `esforco_texto` (`instant` por padrão; `low`, `medium`, `high` opcionais) envia `reasoning_effort` só à Inception. Título, gancho, resumo, pontos, tags, tema, texto literal da tela, links e tópicos da síntese são validados antes dos cortes; excesso pede uma reescrita, persistência ou falha usa o fallback atual sem loop.
 - Verificação local: 119 testes (117 passaram, 2 pulados, nenhuma falha); smoke de um resumo com `instant`, HTTP 200 em duas requisições (uma reescrita), 1,332 s, resumo com 280 caracteres. Sem texto ou chave no relatório; produção não alterada.
+- YouTube: transcrição com Whisper Large v3 Turbo na Groq (`groq_key`, `groq_model`). Áudio mp3 mono 64k; acima de 24 MB, 32k a 16 kHz; ainda maior ou falha da Groq cai no Scribe se houver chave ElevenLabs. Linhas com tempo pelos segmentos do Whisper. Teste de credencial da Groq. 125 testes (2 pulados); smoke real com áudio de 7 s em 0,44 s.
 - Como desfazer: apagar a chave da Inception no formulário (`-`) para voltar ao fluxo anterior, ou voltar a `video-kb-v1.15.0`.
 
 ## thainan-openbot

@@ -1231,6 +1231,72 @@ class TMercury(unittest.TestCase):
         self.assertEqual(main.cfg()["texto_key"], "")
 
 
+class Groq(unittest.TestCase):
+    """YouTube transcreve na Groq (Whisper Large v3 Turbo) quando há chave; o resto segue no Scribe."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.audio = os.path.join(self.tmp, "a.mp3")
+        with open(self.audio, "wb") as f:
+            f.write(b"ID3" + b"\0" * 100)
+        self.j = {"id": 1, "orig": "https://www.youtube.com/watch?v=abc", "data": {"audio": self.audio}}
+        self.c = {"groq_key": "gk-" + secrets.token_hex(8), "elevenlabs_key": "ek-" + secrets.token_hex(8)}
+        self.chamadas = []
+
+    def fake_req(self, resp_groq=None, erro_groq=None):
+        def f(method, url, headers=None, body=None, timeout=60, raw=False):
+            self.chamadas.append((url, headers))
+            if "groq.com" in url:
+                if erro_groq:
+                    raise RuntimeError(erro_groq)
+                return resp_groq
+            return {"text": "scribe ok", "words": []}
+        return f
+
+    def test_youtube_vai_pra_groq_com_segmentos(self):
+        r = {"text": "ola mundo", "segments": [{"start": 0, "text": " ola"}, {"start": 65, "text": " mundo"}]}
+        with mock.patch.object(main, "req", self.fake_req(r)), mock.patch.object(main.shutil, "which", return_value=None):
+            main.step_transcricao(self.j, self.c)
+        self.assertEqual(self.chamadas[0][0], main.GROQ_STT)
+        self.assertEqual(self.chamadas[0][1]["Authorization"], "Bearer " + self.c["groq_key"])
+        self.assertEqual(self.j["data"]["transcript"], "ola mundo")
+        self.assertEqual(self.j["data"]["transcript_t"], "[00:00] ola\n[01:05] mundo")
+        self.assertEqual(self.j["data"]["stt"], "groq")
+
+    def test_instagram_segue_no_scribe(self):
+        self.j["orig"] = "https://www.instagram.com/reel/x/"
+        with mock.patch.object(main, "req", self.fake_req({"text": "x"})), mock.patch.object(main.shutil, "which", return_value=None):
+            main.step_transcricao(self.j, self.c)
+        self.assertIn("elevenlabs.io", self.chamadas[0][0])
+
+    def test_sem_chave_groq_youtube_segue_no_scribe(self):
+        del self.c["groq_key"]
+        with mock.patch.object(main, "req", self.fake_req({"text": "x"})), mock.patch.object(main.shutil, "which", return_value=None):
+            main.step_transcricao(self.j, self.c)
+        self.assertIn("elevenlabs.io", self.chamadas[0][0])
+
+    def test_groq_falha_cai_no_scribe_sem_vazar_chave(self):
+        logs = []
+        with mock.patch.object(main, "req", self.fake_req(erro_groq="HTTP 503 Authorization: Bearer " + self.c["groq_key"])), \
+                mock.patch.object(main.shutil, "which", return_value=None), mock.patch.object(main, "cfg", lambda: self.c), mock.patch.object(main, "log", lambda *a: logs.append(" ".join(map(str, a)))):
+            main.step_transcricao(self.j, self.c)
+        self.assertIn("elevenlabs.io", self.chamadas[-1][0])
+        self.assertEqual(self.j["data"]["transcript"], "scribe ok")
+        self.assertFalse(any(self.c["groq_key"] in l for l in logs))
+
+    def test_groq_falha_sem_scribe_propaga(self):
+        del self.c["elevenlabs_key"]
+        with mock.patch.object(main, "req", self.fake_req(erro_groq="HTTP 503")), mock.patch.object(main.shutil, "which", return_value=None):
+            with self.assertRaises(RuntimeError):
+                main.step_transcricao(self.j, self.c)
+
+    def test_audio_youtube_nao_exige_elevenlabs_com_groq(self):
+        del self.c["elevenlabs_key"]
+        with mock.patch.object(main, "baixar", return_value=self.audio):
+            main.step_audio(self.j, self.c)
+        self.assertEqual(self.j["data"]["audio"], self.audio)
+
+
 if __name__ == "__main__":
     unittest.main()
 

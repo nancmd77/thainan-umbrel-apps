@@ -29,6 +29,12 @@ Visual inspirado no [Linkding](https://github.com/sissbruecker/linkding) (MIT, �
 - Karakeep: `summary` = resumo; `note` é **substituída** pelos pontos-chave. Link colado à mão cria o bookmark.
 - Open Notebook: `POST /api/sources/json` `{type:text, notebooks:[id], embed:true, async_processing:true}`; embeddings dependem do provedor configurado lá.
 
+## Transcrição do YouTube na Groq (v1.16.0)
+
+- Em **Configurações**, informe `groq_key` (Chave Groq). `groq_model` usa `whisper-large-v3-turbo`.
+- Só links do YouTube vão à Groq; Instagram, TikTok e o resto seguem no Scribe. Sem `groq_key`, o YouTube também segue no Scribe.
+- O áudio vai como mp3 mono 64k (cerca de 52 min cabem em 24 MB); se passar, 32k a 16 kHz (cerca de 100 min). Maior que isso, ou se a Groq falhar, usa o Scribe quando há chave ElevenLabs.
+
 ## Texto na Inception (v1.16.0)
 
 - Em **Configurações**, informe `texto_key` (Chave da Inception). `texto_url` usa `https://api.inceptionlabs.ai/v1`; `model_texto` usa `mercury-3`, sem sufixo high. `esforco_texto` aceita `instant` (padrão), `low`, `medium` ou `high`; vira `reasoning_effort` somente no corpo enviado à Inception, inclusive na reescrita. A regra high continua exclusiva do Gemini; nenhum `reasoning_effort` vai ao 9Router.

@@ -33,6 +33,8 @@ DATA = os.environ.get("DATA_DIR", "/data")
 # v1.12: sem SilverBullet, as páginas e a mídia vão pra esta pasta (mesmo formato do space); o Selah lê daqui.
 SB_LOCAL = os.environ.get("SB_LOCAL", "")
 PORT = int(os.environ.get("PORT", "8080"))
+GROQ_STT = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_MAX = 24 * 1024 * 1024  # limite de arquivo da Groq: 25 MB no plano grátis (folga de 1 MB)
 SCRIBE_MODEL = "scribe_v2"  # doc POST /v1/speech-to-text (confirmado 2026-10)
 COOKIE_ERR = re.compile(r"login|log in|sign in|cookie|authentica|401|403|private|checkpoint", re.I)
 SITES = ("instagram.com", "tiktok.com")  # sempre vídeo; outros links: sonda do yt-dlp decide
@@ -44,6 +46,8 @@ KIND_PT = {"video": "Vídeo", "pagina": "Página", "pdf": "PDF", "texto": "Texto
 FIELDS = [
     ("h_con", "Conexões", "h", "", ""),
     ("elevenlabs_key", "Chave ElevenLabs", "secret", "Scribe (transcrição).", ""),
+    ("groq_key", "Chave Groq", "secret", "Whisper Large v3 Turbo na transcrição do YouTube. Vazio = Scribe.", ""),
+    ("groq_model", "Modelo Groq", "text", "Transcrição do YouTube.", "whisper-large-v3-turbo"),
     ("llm_url", "URL do 9Router", "text", "OpenAI-compatível (termina em /v1).", "http://thainan-9router_web_1:20128/v1"),
     ("llm_key", "Chave 9Router", "secret", "Resumo com Gemini.", ""),
     ("texto_url", "URL da Inception", "text", "API de texto (termina em /v1).", "https://api.inceptionlabs.ai/v1"),
@@ -747,8 +751,14 @@ def qual_download(c, dur):
 SO_FOTO = ("No video formats found", "There is no video in this post")
 
 
+def usa_groq(j, c):
+    """YouTube transcreve na Groq (Whisper Large v3 Turbo) quando há chave; o resto segue no Scribe."""
+    return bool(c.get("groq_key")) and fonte(j.get("orig") or "") == "youtube"
+
+
 def step_audio(j, c):
-    need(c, "elevenlabs_key")  # sem chave não adianta baixar
+    if not usa_groq(j, c):
+        need(c, "elevenlabs_key")  # sem chave não adianta baixar
     try:
         j["data"]["audio"] = baixar(c, j["orig"], os.path.join(DATA, "tmp", str(j["id"])), qual_download(c, j["data"].get("dur", 0)))
     except RuntimeError as e:  # carrossel/foto do Instagram: Cobalt devolve picker e o yt-dlp não acha vídeo
@@ -766,7 +776,55 @@ def so_audio(media):
     return out if p.returncode == 0 and os.path.exists(out) else media
 
 
+def audio_groq(media):
+    """mp3 mono 64k (~52 min em 24 MB); se passar, 32k a 16 kHz (~100 min). Devolve (caminho, temporário?)."""
+    if not shutil.which("ffmpeg"):
+        return media, False
+    base = os.path.splitext(media)[0]
+    for br, sr in (("64k", "44100"), ("32k", "16000")):
+        out = f"{base}-groq{br}.mp3"
+        p = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", media, "-vn", "-ac", "1", "-ar", sr, "-b:a", br, out], capture_output=True, timeout=900)
+        if p.returncode == 0 and os.path.exists(out):
+            if os.path.getsize(out) <= GROQ_MAX:
+                return out, True
+            os.remove(out)
+    return media, False
+
+
+def timed_seg(segs):
+    """Segmentos do Whisper -> linhas "[mm:ss] frase"."""
+    return "\n".join(f"[{mmss(s.get('start') or 0)}] {(s.get('text') or '').strip()}" for s in segs if (s.get("text") or "").strip())
+
+
+def transcrever_groq(j, c):
+    path, tmp = audio_groq(j["data"]["audio"])
+    try:
+        if os.path.getsize(path) > GROQ_MAX:
+            raise RuntimeError("áudio grande demais pra Groq")
+        campos = {"model": c.get("groq_model") or "whisper-large-v3-turbo", "response_format": "verbose_json", "temperature": "0",
+                  **({"language": c["idioma"]} if c.get("idioma") else {})}
+        with open(path, "rb") as f:
+            body, ctype = multipart(campos, os.path.basename(path), f.read())
+    finally:
+        if tmp and os.path.exists(path):
+            os.remove(path)
+    r = req("POST", GROQ_STT, {"Authorization": "Bearer " + c["groq_key"], "Content-Type": ctype}, body, timeout=300)
+    text = (r.get("text") or "").strip()
+    if not text:
+        raise RuntimeError("Transcrição vazia (vídeo sem fala?)")
+    j["data"]["transcript"] = text
+    j["data"]["transcript_t"] = timed_seg(r.get("segments") or []) or text
+    j["data"]["stt"] = "groq"
+
+
 def step_transcricao(j, c):
+    if usa_groq(j, c):
+        try:
+            return transcrever_groq(j, c)
+        except Exception as e:
+            if not c.get("elevenlabs_key") or "vazia" in str(e):
+                raise
+            log("Groq falhou (" + scrub(e)[:120] + "); transcrevendo no Scribe")
     need(c, "elevenlabs_key")
     path = so_audio(j["data"]["audio"])
     campos = {"model_id": SCRIBE_MODEL, "tag_audio_events": "false", "diarize": "false", **({"language_code": c["idioma"]} if c.get("idioma") else {})}
@@ -3176,6 +3234,7 @@ TESTES = {
     "llm": ("9Router", lambda c: modelos_ok(c)),
     "texto": ("Inception", texto_ok),
     "elevenlabs": ("ElevenLabs", lambda c: req("GET", "https://api.elevenlabs.io/v1/models", {"xi-api-key": c["elevenlabs_key"]}, timeout=20)),
+    "groq": ("Groq", lambda c: (need(c, "groq_key"), req("GET", "https://api.groq.com/openai/v1/models", {"Authorization": "Bearer " + c["groq_key"]}, timeout=20))),
     "cobalt": ("Cobalt", lambda c: req("GET", c["cobalt_url"].rstrip("/") + "/", {"Accept": "application/json"}, timeout=20)),
     "karakeep": ("Karakeep", kk_tags),
     "notebook": ("Open Notebook", notebooks),
