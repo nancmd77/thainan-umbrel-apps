@@ -4,7 +4,7 @@ name: Wallos
 tagline: Personal subscription tracker
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-wallos/icon.png
 category: Finance
-version: "1.0.5"
+version: "1.0.6"
 port: 8282
 description: >-
   Wallos is an open-source personal subscription tracker with categories, multi-currency, and notifications.
@@ -18,7 +18,7 @@ repo: https://github.com/ellite/Wallos
 support: https://github.com/ellite/Wallos/issues
 gallery: []
 releaseNotes: >-
-  Nova imagem latest publicada pelo projeto (sha256:78b73a32ae24). (2026-11-02)
+  Nova imagem latest publicada pelo projeto (sha256:182d4be4dae2). (2026-11-09)
 dependencies: []
 path: ""
 defaultUsername: ""

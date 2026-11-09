@@ -7,7 +7,7 @@ services:
       PROXY_AUTH_ADD: "false"
 
   web:
-    image: ghcr.io/chattocorp/chatto:latest@sha256:ae5f288499a6e524d1267962cd7cbdaaec5694503421a1e967e71208ece90bad
+    image: ghcr.io/chattocorp/chatto:latest@sha256:5990c82dbb6d6d8c9464dff9301060ea5a5253ccb26a39f0ad62bbe816df9bf0
     restart: on-failure
     entrypoint: ["/bin/sh","-c"]
     command:

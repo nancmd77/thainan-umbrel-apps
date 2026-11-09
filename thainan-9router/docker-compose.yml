@@ -6,7 +6,7 @@ services:
       APP_PORT: 20128
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/nancmd77/9router:0.5.112
+    image: ghcr.io/nancmd77/9router:0.5.116
     restart: unless-stopped
     mem_limit: 1g
     memswap_limit: 1g
