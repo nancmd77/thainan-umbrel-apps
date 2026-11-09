@@ -1,0 +1,22 @@
+manifestVersion: 1
+id: thainan-beszel
+name: Beszel
+tagline: Monitor leve de servidores e containers, com histórico e alertas
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-beszel/icon.png
+category: developer
+version: "0.21.1"
+port: 8595
+description: >-
+  Hub do Beszel (henrygd/beszel): painel leve com CPU, memória, disco, rede e uso de containers Docker, histórico e alertas. Crie o usuário admin no primeiro acesso e adicione os sistemas (agentes) pelo botão Add System.
+developer: henrygd
+website: https://beszel.dev
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/henrygd/beszel
+support: https://github.com/henrygd/beszel/issues
+gallery: []
+releaseNotes: ""
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
