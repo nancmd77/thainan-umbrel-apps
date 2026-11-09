@@ -2,6 +2,14 @@
 
 Organizado por app. Cada entrada informa versão, data da tag anotada, o que mudou e como desfazer: voltar à tag anterior. As descrições abaixo vêm exclusivamente das mensagens das tags anotadas existentes, sem completar detalhes a partir de commits ou suposições. Reverter a versão não restaura dados; veja [como reverter](docs/REVERTER.md).
 
+## thainan-video-kb
+
+### 1.16.0 — próxima versão
+
+- Tag prevista: `video-kb-v1.16.0` (Hark cria após o merge; ainda não publicada).
+- O que mudou: texto opcional via Mercury 3 direto na Inception (`texto_url`, `texto_key`, `model_texto`), sem consumir o 9Router. Visão e Decider continuam no 9Router. Erro, timeout ou JSON inválido na Inception tenta o modelo atual do 9Router uma vez. Temperatura de 0.5 a 1.0, sem seed; teste de credencial em Configurações.
+- Como desfazer: apagar a chave da Inception no formulário (`-`) para voltar ao fluxo anterior, ou voltar a `video-kb-v1.15.0`.
+
 ## thainan-openbot
 
 ### 0.64.0-r7 — 2026-11-08

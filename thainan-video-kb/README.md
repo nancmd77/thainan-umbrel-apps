@@ -29,6 +29,16 @@ Visual inspirado no [Linkding](https://github.com/sissbruecker/linkding) (MIT, �
 - Karakeep: `summary` = resumo; `note` é **substituída** pelos pontos-chave. Link colado à mão cria o bookmark.
 - Open Notebook: `POST /api/sources/json` `{type:text, notebooks:[id], embed:true, async_processing:true}`; embeddings dependem do provedor configurado lá.
 
+## Texto na Inception (v1.16.0)
+
+- Em **Configurações**, informe `texto_key` (Chave da Inception). `texto_url` usa `https://api.inceptionlabs.ai/v1`; `model_texto` usa `mercury-3`, sem sufixo high. A regra high continua exclusiva do Gemini.
+- Com a chave preenchida, toda chamada sem imagens vai à Inception: resumo, temas/tags, síntese, reestilo, extração e escolha de links. Imagens usam `model_visao` ou `model` no 9Router; Decider continua em `/systemone` no 9Router.
+- Mantenha URL/chave e modelos do 9Router configurados: são usados pela visão, pelo Decider e pelo fallback. Falha da Inception (erro, timeout, resposta inválida ou JSON inválido quando solicitado) tenta uma vez o modelo atual da operação no 9Router, sem tentar também o modelo reserva.
+- Temperatura enviada à Inception fica entre 0.5 e 1.0 (padrão 0.5), sem `seed`. Síntese aceita texto livre; resumo, reestilo e links pedem objeto JSON.
+- Chave ausente mantém o fluxo anterior, inclusive o modelo reserva do 9Router. Campo de senha vazio mantém a chave salva; `-` apaga. A chave da Inception não volta à página nem parcialmente, não entra na exportação/importação e é removida das mensagens de erro. Config permanece com permissão 600.
+- **Testar Inception** consulta `GET /v1/models` e confere o modelo de texto. Teste real de capacidade (09/11/2026): texto e `response_format: json_object` responderam HTTP 200 com JSON válido; `image_url` base64 PNG foi recusado com HTTP 400 (`Image inputs are not supported for this model`).
+- Testes sem rede: `cd thainan-video-kb/app && python3 -m unittest -v` (a partir da raiz do repositório).
+
 ## Visão (v1.3)
 Só pra vídeo: o arquivo baixado (qualidade em "Vídeo e mídia", ver v1.6) vai pro crv; o Scribe recebe só o áudio (mp3 mono 64k via ffmpeg). Depois os dois são apagados.
 - Etapa `visao`: `python -m claude_real_video <vídeo> -o tmp/crv-<id> --overwrite --no-transcribe --grid --max-frames <Configurações, 60>`, com `CRV_NO_MEMORY=1`. Usa `grids/*.jpg` (3x3, cada célula com o nome do frame) e `frames.json` (nome → mm:ss).

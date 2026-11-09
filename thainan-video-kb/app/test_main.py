@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import secrets
 import tempfile
 import time
 from contextlib import closing
@@ -967,6 +968,139 @@ class TestIgTodos(unittest.TestCase):
             main.ig_todos()
         st = json.loads(main.q("SELECT v FROM kv WHERE k='col:instagram_todos'")[0]["v"])
         self.assertIn("senha recusada", st["erro"]); self.assertFalse(st["rodando"])
+
+class TMercury(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.enterContext(mock.patch.object(main, "DATA", self.tmp.name))
+        main.init()
+        main.cfg_save({"texto_key": secrets.token_urlsafe(32), "llm_key": secrets.token_urlsafe(32),
+                       "llm_url": "http://router/v1", "model": "gemini-atual",
+                       "model_visao": "gemini-visao", "model_reserva": "gemini-reserva",
+                       "nb_on": "", "kk_on": "", "sb_on": "", "decider_on": ""})
+        self.c = main.cfg()
+        self.reply = {"choices": [{"message": {"content": json.dumps(ANALISE)}}]}
+        self.body = {"messages": [{"role": "user", "content": "Texto para resumir."}],
+                     "response_format": {"type": "json_object"}, "temperature": 0.2, "seed": 42}
+        self.req = self.enterContext(mock.patch.object(main, "req", return_value=self.reply))
+
+    def test_texto_temperatura_seed_e_config(self):
+        for temperatura, esperada in ((0.2, 0.5), (0.8, 0.8), (1.5, 1.0)):
+            with self.subTest(temperatura=temperatura):
+                body = {**self.body, "temperature": temperatura}
+                main.llm(self.c, body, "modelo-links", timeout=37)
+                args, kwargs = self.req.call_args
+                self.assertEqual(args[1], "https://api.inceptionlabs.ai/v1/chat/completions")
+                self.assertEqual(args[2]["Authorization"], "Bearer " + self.c["texto_key"])
+                self.assertEqual((args[3]["model"], args[3]["temperature"]), ("mercury-3", esperada))
+                self.assertNotIn("seed", args[3])
+                self.assertEqual((body["seed"], body["temperature"]), (42, temperatura))
+                self.assertEqual(kwargs["timeout"], 37)
+        main.cfg_save({"texto_url": "https://inception.local/v1/", "model_texto": "mercury-3"})
+        main.llm(main.cfg(), {"messages": [{"role": "user", "content": [{"type": "text", "text": "Só texto."}]}]}, "modelo")
+        self.assertEqual(self.req.call_args.args[1], "https://inception.local/v1/chat/completions")
+        self.assertEqual(self.req.call_args.args[3]["model"], "mercury-3")
+
+    def test_worker_resumo_texto_e_visao(self):
+        imagem = os.path.join(self.tmp.name, "frame.jpg")
+        with open(imagem, "wb") as f:
+            f.write(b"imagem")
+        for video, imagens, url, modelo in (
+            (False, [], "https://api.inceptionlabs.ai/v1/chat/completions", "mercury-3"),
+            (True, [], "https://api.inceptionlabs.ai/v1/chat/completions", "mercury-3"),
+            (True, [imagem], "http://router/v1/chat/completions", "gemini-visao"),
+        ):
+            with self.subTest(video=video, imagens=imagens):
+                j = {"id": 1, "data": {"kind": "video" if video else "texto", "transcript": "Texto útil. " * 30,
+                                      "visao": {"grids": imagens, "frames": "frame.jpg=00:01"}}}
+                self.req.reset_mock()
+                main.step_resumo(j, self.c)
+                self.assertEqual(j["data"]["analysis"]["titulo"], ANALISE["titulo"])
+                self.assertEqual(j["data"]["analysis"]["tags"], ["foco", "produtividade"])
+                self.req.assert_called_once()
+                self.assertEqual((self.req.call_args.args[1], self.req.call_args.args[3]["model"]), (url, modelo))
+                key = self.c["llm_key"] if imagens else self.c["texto_key"]
+                self.assertEqual(self.req.call_args.args[2]["Authorization"], "Bearer " + key)
+
+    def test_fallback_erro_timeout_json_e_envelope_invalidos(self):
+        invalidos = [RuntimeError(self.c["texto_key"]), TimeoutError("timeout"), ValueError("JSON HTTP inválido"),
+                     {}, {"choices": []}, {"choices": [{"message": {"content": None}}]},
+                     {"choices": [{"message": {"content": "não é JSON"}}]},
+                     {"choices": [{"message": {"content": "[]"}}]}]
+        for falha in invalidos:
+            with self.subTest(falha=type(falha).__name__):
+                self.req.reset_mock()
+                self.req.side_effect = [falha, self.reply]
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as logs:
+                    r = main.llm(self.c, self.body, "modelo-links")
+                self.assertEqual(main.json_llm(r)["resumo"], ANALISE["resumo"])
+                self.assertEqual(self.req.call_count, 2)
+                args = self.req.call_args.args
+                self.assertEqual((args[1], args[3]["model"]), ("http://router/v1/chat/completions", "modelo-links"))
+                self.assertEqual(args[2]["Authorization"], "Bearer " + self.c["llm_key"])
+                self.assertEqual(args[3]["temperature"], 0.2)
+                self.assertNotIn(self.c["texto_key"], logs.getvalue())
+                self.assertNotIn(self.c["llm_key"], logs.getvalue())
+
+    def test_fallback_nao_tenta_reserva_do_router(self):
+        self.req.side_effect = [TimeoutError(), RuntimeError("9Router indisponível")]
+        with self.assertRaisesRegex(RuntimeError, "9Router indisponível"):
+            main.llm(self.c, self.body, "modelo-atual")
+        self.assertEqual(self.req.call_count, 2)
+
+    def test_sem_chave_preserva_9router_e_reserva(self):
+        c = {**self.c, "texto_key": ""}
+        self.req.side_effect = [RuntimeError("503"), self.reply]
+        main.llm(c, self.body, "modelo-atual")
+        self.assertEqual([call.args[1] for call in self.req.call_args_list],
+                         ["http://router/v1/chat/completions"] * 2)
+        self.assertEqual([call.args[3]["model"] for call in self.req.call_args_list],
+                         ["modelo-atual", "gemini-reserva"])
+
+    def test_sintese_e_reestilo_usam_texto(self):
+        j = {"id": 1, "data": {"analysis": {**ANALISE}}}
+        self.req.return_value = {"choices": [{"message": {"content": "Concentre o trabalho em blocos curtos."}}]}
+        sintese = main.sb_sintese(j, self.c, "Produtividade")
+        self.assertIn("Concentre o trabalho em blocos curtos.", sintese)
+        self.req.return_value = {"choices": [{"message": {"content": '{"resumo":"Resumo reescrito.","gancho":"Trabalhe com foco."}'}}]}
+        main.sb_reestilo(j, self.c)
+        self.assertEqual(j["data"]["analysis"]["resumo"], "Resumo reescrito.")
+        self.assertEqual(j["data"]["analysis"]["gancho"], "Trabalhe com foco.")
+        self.assertEqual([call.args[1] for call in self.req.call_args_list],
+                         ["https://api.inceptionlabs.ai/v1/chat/completions"] * 2)
+
+    def test_decider_continua_9router(self):
+        self.req.return_value = {"answers": {"q": {"noul": 0.95}}}
+        self.assertTrue(main.decider_sim({**self.c, "decider_on": "1"}, "teste", {}, "?", "sim", "não"))
+        self.assertEqual(self.req.call_args.args[1], "http://router/v1/systemone")
+        self.assertEqual(self.req.call_args.args[2]["Authorization"], "Bearer " + self.c["llm_key"])
+
+    def test_credencial_modelos_inception(self):
+        self.req.return_value = {"data": [{"id": "mercury-3"}]}
+        self.assertEqual(main.testar("texto"), "Inception: ok")
+        self.assertEqual(self.req.call_args.args[:2], ("GET", "https://api.inceptionlabs.ai/v1/models"))
+        self.req.return_value = {"data": [{"id": "outro-modelo"}]}
+        self.assertIn("erro", main.testar("texto"))
+        self.req.side_effect = RuntimeError(self.c["texto_key"])
+        self.assertNotIn(self.c["texto_key"], main.testar("texto"))
+
+    def test_chave_nunca_exibida_exportada_importada_ou_logada(self):
+        key = self.c["texto_key"]
+        pagina = main.config_page()
+        self.assertNotIn(key, pagina)
+        self.assertNotIn(key[-4:], pagina)
+        self.assertIn('name="texto_key" type="password"', pagina)
+        self.assertNotIn("texto_key", main.exportar())
+        self.assertNotIn(key, main.scrub("erro: " + key))
+        main.importar('{"texto_key":"NÃO-IMPORTAR"}')
+        self.assertEqual(main.cfg()["texto_key"], key)
+        main.save_form({"texto_key": [""]})
+        self.assertEqual(main.cfg()["texto_key"], key)
+        self.assertEqual(os.stat(main.cfg_path()).st_mode & 0o777, 0o600)
+        main.save_form({"texto_key": ["-"]})
+        self.assertEqual(main.cfg()["texto_key"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

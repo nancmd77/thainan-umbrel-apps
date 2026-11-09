@@ -46,6 +46,8 @@ FIELDS = [
     ("elevenlabs_key", "Chave ElevenLabs", "secret", "Scribe (transcrição).", ""),
     ("llm_url", "URL do 9Router", "text", "OpenAI-compatível (termina em /v1).", "http://thainan-9router_web_1:20128/v1"),
     ("llm_key", "Chave 9Router", "secret", "Resumo com Gemini.", ""),
+    ("texto_url", "URL da Inception", "text", "API de texto (termina em /v1).", "https://api.inceptionlabs.ai/v1"),
+    ("texto_key", "Chave da Inception", "secret", "Preenchida: texto vai direto à Inception. Vazia: tudo continua no 9Router. Visão e Decider ficam no 9Router.", ""),
     ("cobalt_url", "URL do Cobalt", "text", "Baixa o vídeo.", "http://192.168.18.171:9013"),
     ("karakeep_url", "URL do Karakeep", "text", "", "http://192.168.18.171:8620"),
     ("karakeep_key", "API key do Karakeep", "secret", "Karakeep > Configurações > API keys.", ""),
@@ -55,7 +57,8 @@ FIELDS = [
     ("sb_token", "Token do SilverBullet", "secret", "Token de API do SilverBullet.", ""),
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
     ("h_ia", "IA e textos", "h", "", ""),
-    ("model", "Modelo de resumo", "text", "Nome do modelo no 9Router. Sempre na variante high.", "ag/gemini-3.8-flash-high"),
+    ("model_texto", "Modelo de texto na Inception", "text", "Resumo sem imagens, síntese, reestilo e links.", "mercury-3"),
+    ("model", "Modelo de resumo no 9Router", "text", "Também usado se a Inception falhar. Gemini sempre na variante high.", "ag/gemini-3.8-flash-high"),
     ("model_visao", "Modelo de visão", "text", "Usado quando vão as imagens do vídeo. Vazio = o de resumo.", ""),
     ("model_sintese", "Modelo de síntese", "text", "Síntese do assunto e reestilo. Vazio = o de resumo.", ""),
     ("model_links", "Modelo dos links", "text", "Acha o que o vídeo cita e escolhe o link certo. Vazio = o de resumo.", "ag/gemini-3.8-flash-high"),
@@ -168,7 +171,7 @@ MODELOS = ("model", "model_visao", "model_sintese", "model_links", "model_reserv
 
 
 def alto(v):
-    """Regra do nan (20 out 2026): modelos sempre em high. Gemini salvo em minimal/low/medium vira -high."""
+    """Regra do nan (20 out 2026): Gemini sempre em high; minimal/low/medium vira -high."""
     return re.sub(r"^(ag/gemini-[\w.-]+?)-(minimal|low|medium)$", r"\1-high", v) if isinstance(v, str) else v
 
 
@@ -887,7 +890,26 @@ class Ignorado(Exception):
 
 
 def llm(c, body, modelo, timeout=180):
-    """Chat no 9Router. Principal falhou e há reserva diferente: tenta uma vez com a reserva."""
+    """Texto na Inception quando configurada; imagens no 9Router. Falha da Inception: uma tentativa no 9Router."""
+    imagens = any(isinstance(m.get("content"), list) and any(
+        isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"]) for m in body.get("messages", []))
+    if c.get("texto_key") and not imagens:
+        texto = {**body, "model": c.get("model_texto") or DEFAULTS["model_texto"],
+                 "temperature": max(0.5, min(1.0, body.get("temperature", 0.5)))}
+        texto.pop("seed", None)
+        try:
+            r = req("POST", (c.get("texto_url") or DEFAULTS["texto_url"]).rstrip("/") + "/chat/completions",
+                    {"Authorization": "Bearer " + c["texto_key"]}, texto, timeout=timeout)
+            content = r["choices"][0]["message"]["content"]
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("resposta vazia")
+            if (body.get("response_format") or {}).get("type") == "json_object" and not isinstance(json_llm(r), dict):
+                raise ValueError("resposta não é objeto JSON")
+            return r
+        except Exception:
+            log("Inception falhou; tentando 9Router uma vez")
+        return req("POST", c["llm_url"].rstrip("/") + "/chat/completions",
+                   {"Authorization": "Bearer " + c["llm_key"]}, {**body, "model": modelo}, timeout=timeout)
     url, h = c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]}
     try:
         return req("POST", url, h, {**body, "model": modelo}, timeout=timeout)
@@ -1675,7 +1697,7 @@ def sb_reestilo(j, c):
     campos = {k: a[k] for k in ("resumo", "pontos_chave", "o_que_aparece") if a.get(k) and not a.get("estilo")}
     campos["gancho"] = a.get("gancho") or ""
     try:
-        r = llm(c, {"stream": False, "messages": [
+        r = llm(c, {"stream": False, "response_format": {"type": "json_object"}, "messages": [
                     {"role": "system", "content": "Reescreva os campos deste JSON em português do Brasil sem mudar fatos, sem acrescentar nem tirar informação. "
                      f"Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a {num(c, 'resumo_frases')} frases; listas continuam listas de strings). "
                      "Se \"gancho\" vier vazio, escreva 1 frase de até 100 caracteres dizendo do que se trata." + estilo(c)},
@@ -2970,7 +2992,7 @@ def campo(k, label, t, hint, v):
         ctl = f'<select id="{k}" name="{k}"{desc}>' + "".join(
             f'<option value="{e(o)}"{" selected" if o == v else ""}>{e(txt)}</option>' for o, txt in CHOICES[k]) + "</select>"
     else:
-        ph = (mask(v) or "não configurado") + (" (deixe em branco para manter, - para apagar)" if v else "")
+        ph = (("configurado" if v else "não configurado") if k == "texto_key" else (mask(v) or "não configurado")) + (" (deixe em branco para manter, - para apagar)" if v else "")
         ctl = (f'<textarea id="{k}" name="{k}" rows="3" placeholder="{e(ph)}"{desc} autocomplete="off"></textarea>' if t == "area"
                else f'<input id="{k}" name="{k}" type="password" placeholder="{e(ph)}"{desc} autocomplete="new-password">')
     return f'<label for="{k}">{e(label)}</label>{h}{ctl}'
@@ -3072,8 +3094,19 @@ def modelos_ok(c):
         raise RuntimeError("modelo não existe no 9Router: " + ", ".join(faltam))
 
 
+
+def texto_ok(c):
+    """Confere a credencial e o modelo de texto na Inception, sem consultar o 9Router."""
+    need(c, "texto_key")
+    r = req("GET", (c.get("texto_url") or DEFAULTS["texto_url"]).rstrip("/") + "/models",
+            {"Authorization": "Bearer " + c["texto_key"]}, timeout=20)
+    ids = {m.get("id") for m in (r.get("data") or []) if isinstance(m, dict)}
+    if (c.get("model_texto") or DEFAULTS["model_texto"]) not in ids:
+        raise RuntimeError("modelo de texto não existe na Inception")
+
 TESTES = {
     "llm": ("9Router", lambda c: modelos_ok(c)),
+    "texto": ("Inception", texto_ok),
     "elevenlabs": ("ElevenLabs", lambda c: req("GET", "https://api.elevenlabs.io/v1/models", {"xi-api-key": c["elevenlabs_key"]}, timeout=20)),
     "cobalt": ("Cobalt", lambda c: req("GET", c["cobalt_url"].rstrip("/") + "/", {"Accept": "application/json"}, timeout=20)),
     "karakeep": ("Karakeep", kk_tags),
