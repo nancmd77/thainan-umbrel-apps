@@ -42,11 +42,11 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.8.2
+      REF: selah-v0.8.3
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
-      # Papiro: texto completo pelo leitor (Scrapling); filtro por interesse e resumo em pt pelo 9Router da config do Video KB (só leitura)
+      # Papiro: texto completo pelo leitor (Scrapling); filtro por interesse no 9Router; tradução e resumo em pt no Mercury 3 (instant) quando a config do Video KB tem a chave da Inception, com o 9Router de reserva (só leitura)
       LEITOR_URL: http://thainan-videokb_leitor_1:8790
       VKB_CONFIG: /vkb/config.json
     volumes:
@@ -62,7 +62,7 @@ services:
       PORT: "8790"
       CEREBRO_DIR: /cerebro
       MINI_DIR: /leitor/mini
-      REF: selah-v0.8.2
+      REF: selah-v0.8.3
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
       PLAYWRIGHT_BROWSERS_PATH: /leitor/browsers
