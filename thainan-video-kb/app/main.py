@@ -33,6 +33,8 @@ DATA = os.environ.get("DATA_DIR", "/data")
 # v1.12: sem SilverBullet, as páginas e a mídia vão pra esta pasta (mesmo formato do space); o Selah lê daqui.
 SB_LOCAL = os.environ.get("SB_LOCAL", "")
 PORT = int(os.environ.get("PORT", "8080"))
+GROQ_STT = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_MAX = 24 * 1024 * 1024  # limite de arquivo da Groq: 25 MB no plano grátis (folga de 1 MB)
 SCRIBE_MODEL = "scribe_v2"  # doc POST /v1/speech-to-text (confirmado 2026-10)
 COOKIE_ERR = re.compile(r"login|log in|sign in|cookie|authentica|401|403|private|checkpoint", re.I)
 SITES = ("instagram.com", "tiktok.com")  # sempre vídeo; outros links: sonda do yt-dlp decide
@@ -44,8 +46,12 @@ KIND_PT = {"video": "Vídeo", "pagina": "Página", "pdf": "PDF", "texto": "Texto
 FIELDS = [
     ("h_con", "Conexões", "h", "", ""),
     ("elevenlabs_key", "Chave ElevenLabs", "secret", "Scribe (transcrição).", ""),
+    ("groq_key", "Chave Groq", "secret", "Whisper Large v3 Turbo na transcrição do YouTube. Vazio = Scribe.", ""),
+    ("groq_model", "Modelo Groq", "text", "Transcrição do YouTube.", "whisper-large-v3-turbo"),
     ("llm_url", "URL do 9Router", "text", "OpenAI-compatível (termina em /v1).", "http://thainan-9router_web_1:20128/v1"),
     ("llm_key", "Chave 9Router", "secret", "Resumo com Gemini.", ""),
+    ("texto_url", "URL da Inception", "text", "API de texto (termina em /v1).", "https://api.inceptionlabs.ai/v1"),
+    ("texto_key", "Chave da Inception", "secret", "Preenchida: texto vai direto à Inception. Vazia: tudo continua no 9Router. Visão e Decider ficam no 9Router.", ""),
     ("cobalt_url", "URL do Cobalt", "text", "Baixa o vídeo.", "http://192.168.18.171:9013"),
     ("karakeep_url", "URL do Karakeep", "text", "", "http://192.168.18.171:8620"),
     ("karakeep_key", "API key do Karakeep", "secret", "Karakeep > Configurações > API keys.", ""),
@@ -55,7 +61,9 @@ FIELDS = [
     ("sb_token", "Token do SilverBullet", "secret", "Token de API do SilverBullet.", ""),
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
     ("h_ia", "IA e textos", "h", "", ""),
-    ("model", "Modelo de resumo", "text", "Nome do modelo no 9Router. Sempre na variante high.", "ag/gemini-3.8-flash-high"),
+    ("model_texto", "Modelo de texto na Inception", "text", "Resumo sem imagens, síntese, reestilo e links.", "mercury-3"),
+    ("esforco_texto", "Esforço de texto na Inception", "choice", "Só na Inception; não altera o Gemini nem o fallback 9Router.", "instant"),
+    ("model", "Modelo de resumo no 9Router", "text", "Também usado se a Inception falhar. Gemini sempre na variante high.", "ag/gemini-3.8-flash-high"),
     ("model_visao", "Modelo de visão", "text", "Usado quando vão as imagens do vídeo. Vazio = o de resumo.", ""),
     ("model_sintese", "Modelo de síntese", "text", "Síntese do assunto e reestilo. Vazio = o de resumo.", ""),
     ("model_links", "Modelo dos links", "text", "Acha o que o vídeo cita e escolhe o link certo. Vazio = o de resumo.", "ag/gemini-3.8-flash-high"),
@@ -126,6 +134,7 @@ NUM = {"resumo_frases": (2, 10), "pontos_max": (3, 15), "tags_max": (3, 20), "cu
        "tl_quadros": (1, 60), "tl_largura": (120, 1920), "max_frames": (9, 200), "max_min": (1, 600),
        "col_min": (5, 1440), "first_run": (1, 200), "crawl_tries": (0, 20), "crawl_wait": (30, 3600), "poll_secs": (60, 3600)}
 CHOICES = {"dl_ordem": [("cobalt", "Cobalt, depois yt-dlp"), ("ytdlp", "yt-dlp, depois Cobalt")],
+           "esforco_texto": [(v, v) for v in ("instant", "low", "medium", "high")],
            "dl_qualidade": [("max", "Máxima (original)"), ("1080", "1080p"), ("720", "720p"), ("480", "480p")],
            "longo_politica": [("link", "Não enviar o vídeo: link do original + capa + quadros"), ("comprimir", "Enviar comprimido")],
            "longo_res": [("1080", "1080p"), ("720", "720p"), ("480", "480p"), ("360", "360p")],
@@ -168,7 +177,7 @@ MODELOS = ("model", "model_visao", "model_sintese", "model_links", "model_reserv
 
 
 def alto(v):
-    """Regra do nan (20 out 2026): modelos sempre em high. Gemini salvo em minimal/low/medium vira -high."""
+    """Regra do nan (20 out 2026): Gemini sempre em high; minimal/low/medium vira -high."""
     return re.sub(r"^(ag/gemini-[\w.-]+?)-(minimal|low|medium)$", r"\1-high", v) if isinstance(v, str) else v
 
 
@@ -742,8 +751,14 @@ def qual_download(c, dur):
 SO_FOTO = ("No video formats found", "There is no video in this post")
 
 
+def usa_groq(j, c):
+    """YouTube transcreve na Groq (Whisper Large v3 Turbo) quando há chave; o resto segue no Scribe."""
+    return bool(c.get("groq_key")) and fonte(j.get("orig") or "") == "youtube"
+
+
 def step_audio(j, c):
-    need(c, "elevenlabs_key")  # sem chave não adianta baixar
+    if not usa_groq(j, c):
+        need(c, "elevenlabs_key")  # sem chave não adianta baixar
     try:
         j["data"]["audio"] = baixar(c, j["orig"], os.path.join(DATA, "tmp", str(j["id"])), qual_download(c, j["data"].get("dur", 0)))
     except RuntimeError as e:  # carrossel/foto do Instagram: Cobalt devolve picker e o yt-dlp não acha vídeo
@@ -761,7 +776,55 @@ def so_audio(media):
     return out if p.returncode == 0 and os.path.exists(out) else media
 
 
+def audio_groq(media):
+    """mp3 mono 64k (~52 min em 24 MB); se passar, 32k a 16 kHz (~100 min). Devolve (caminho, temporário?)."""
+    if not shutil.which("ffmpeg"):
+        return media, False
+    base = os.path.splitext(media)[0]
+    for br, sr in (("64k", "44100"), ("32k", "16000")):
+        out = f"{base}-groq{br}.mp3"
+        p = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", media, "-vn", "-ac", "1", "-ar", sr, "-b:a", br, out], capture_output=True, timeout=900)
+        if p.returncode == 0 and os.path.exists(out):
+            if os.path.getsize(out) <= GROQ_MAX:
+                return out, True
+            os.remove(out)
+    return media, False
+
+
+def timed_seg(segs):
+    """Segmentos do Whisper -> linhas "[mm:ss] frase"."""
+    return "\n".join(f"[{mmss(s.get('start') or 0)}] {(s.get('text') or '').strip()}" for s in segs if (s.get("text") or "").strip())
+
+
+def transcrever_groq(j, c):
+    path, tmp = audio_groq(j["data"]["audio"])
+    try:
+        if os.path.getsize(path) > GROQ_MAX:
+            raise RuntimeError("áudio grande demais pra Groq")
+        campos = {"model": c.get("groq_model") or "whisper-large-v3-turbo", "response_format": "verbose_json", "temperature": "0",
+                  **({"language": c["idioma"]} if c.get("idioma") else {})}
+        with open(path, "rb") as f:
+            body, ctype = multipart(campos, os.path.basename(path), f.read())
+    finally:
+        if tmp and os.path.exists(path):
+            os.remove(path)
+    r = req("POST", GROQ_STT, {"Authorization": "Bearer " + c["groq_key"], "Content-Type": ctype}, body, timeout=300)
+    text = (r.get("text") or "").strip()
+    if not text:
+        raise RuntimeError("Transcrição vazia (vídeo sem fala?)")
+    j["data"]["transcript"] = text
+    j["data"]["transcript_t"] = timed_seg(r.get("segments") or []) or text
+    j["data"]["stt"] = "groq"
+
+
 def step_transcricao(j, c):
+    if usa_groq(j, c):
+        try:
+            return transcrever_groq(j, c)
+        except Exception as e:
+            if not c.get("elevenlabs_key") or "vazia" in str(e):
+                raise
+            log("Groq falhou (" + scrub(e)[:120] + "); transcrevendo no Scribe")
     need(c, "elevenlabs_key")
     path = so_audio(j["data"]["audio"])
     campos = {"model_id": SCRIBE_MODEL, "tag_audio_events": "false", "diarize": "false", **({"language_code": c["idioma"]} if c.get("idioma") else {})}
@@ -886,8 +949,89 @@ class Ignorado(Exception):
     """Item fora do que o usuário quer guardar (meme/humor, post só de foto): para sem erro."""
 
 
-def llm(c, body, modelo, timeout=180):
-    """Chat no 9Router. Principal falhou e há reserva diferente: tenta uma vez com a reserva."""
+def limites_resumo(c, reestilo=False):
+    limites = [("gancho", "caracteres", 100), ("gancho", "frases", 1),
+               ("resumo", "frases", num(c, "resumo_frases")),
+               ("pontos_chave", "itens", num(c, "pontos_max"))]
+    if not reestilo:
+        limites += [("titulo", "caracteres", 80), ("tags", "itens", num(c, "tags_max")),
+                    ("tags", "palavras", 2), ("tema", "caracteres", 60),
+                    ("tema", "palavras", 3), ("na_tela_literal", "itens", 20),
+                    ("na_tela_literal", "caracteres", 200)]
+    return limites
+
+
+def limites_excedidos(r, limites):
+    """Mede a saída bruta, antes dos cortes; listas têm limite por item, salvo unidade 'itens'."""
+    if not limites:
+        return []
+    texto = r["choices"][0]["message"]["content"]
+    markdown = any(unidade == "tópicos" for _, unidade, _ in limites)
+    if markdown:
+        dados, secao = {}, ""
+        for linha in texto.splitlines():
+            if titulo := re.match(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", linha):
+                secao = fold(titulo[1])
+                dados.setdefault(secao, [])
+            elif re.match(r"^\s*(?:[-+*]|\d+[.)])\s+", linha):
+                dados.setdefault(secao, []).append(linha)
+    else:
+        dados = json_llm(r)
+    excedidos = []
+    for campo, unidade, maximo in limites:
+        valor = dados.get(fold(campo) if markdown else campo)
+        if valor is None:
+            continue
+        if unidade in ("itens", "tópicos"):
+            tamanho = len(valor)
+        else:
+            valores = valor if isinstance(valor, list) else [valor]
+            if unidade == "caracteres":
+                tamanho = max((len(str(v).strip()) for v in valores), default=0)
+            elif unidade == "palavras":
+                tamanho = max((len(str(v).split()) for v in valores), default=0)
+            else:  # Frases: pontuação final (inclusive aspas) ou quebra de linha; decimais/URLs não separam.
+                tamanho = max((len([s for s in re.split(r'''[.!?…]+["”»')\]]*(?:\s+|$)|\n+''', str(v)) if s.strip()])
+                               for v in valores), default=0)
+        if tamanho > maximo:
+            excedidos.append(f"{campo}: máximo {maximo} {unidade}")
+    return excedidos
+
+
+def llm(c, body, modelo, timeout=180, limites=()):
+    """Texto na Inception quando configurada; imagens no 9Router. Falha da Inception: uma tentativa no 9Router."""
+    body = {k: v for k, v in body.items() if k != "reasoning_effort"}
+    imagens = any(isinstance(m.get("content"), list) and any(
+        isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"]) for m in body.get("messages", []))
+    if c.get("texto_key") and not imagens:
+        esforco = c.get("esforco_texto", DEFAULTS["esforco_texto"])
+        if esforco not in dict(CHOICES["esforco_texto"]):
+            esforco = DEFAULTS["esforco_texto"]
+        texto = {**body, "model": c.get("model_texto") or DEFAULTS["model_texto"],
+                 "reasoning_effort": esforco, "temperature": max(0.5, min(1.0, body.get("temperature", 0.5)))}
+        texto.pop("seed", None)
+        try:
+            for tentativa in range(2):
+                r = req("POST", (c.get("texto_url") or DEFAULTS["texto_url"]).rstrip("/") + "/chat/completions",
+                        {"Authorization": "Bearer " + c["texto_key"]}, texto, timeout=timeout)
+                content = r["choices"][0]["message"]["content"]
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("resposta vazia")
+                if (body.get("response_format") or {}).get("type") == "json_object" and not isinstance(json_llm(r), dict):
+                    raise ValueError("resposta não é objeto JSON")
+                excesso = limites_excedidos(r, limites)
+                if not excesso:
+                    return r
+                if tentativa:
+                    raise ValueError("limite excedido após reescrita")
+                log("Inception excedeu limite; reescrita única")
+                texto = {**texto, "messages": [*body.get("messages", []),
+                         {"role": "assistant", "content": content},
+                         {"role": "user", "content": "Reescreva respeitando o limite " + "; ".join(excesso) + "; responda no mesmo formato."}]}
+        except Exception:
+            log("Inception falhou; tentando 9Router uma vez")
+        return req("POST", c["llm_url"].rstrip("/") + "/chat/completions",
+                   {"Authorization": "Bearer " + c["llm_key"]}, {**body, "model": modelo}, timeout=timeout)
     url, h = c["llm_url"].rstrip("/") + "/chat/completions", {"Authorization": "Bearer " + c["llm_key"]}
     try:
         return req("POST", url, h, {**body, "model": modelo}, timeout=timeout)
@@ -1009,7 +1153,8 @@ def step_resumo(j, c):
         return llm(c, {"stream": False, "response_format": {"type": "json_object"},
                        "messages": [{"role": "system", "content": prompt(c, video) + (PROMPT_VISAO if video and com_imagens else "") + estilo(c) + ctx},
                                     {"role": "user", "content": user}]},
-                   (c.get("model_visao") or c["model"]) if com_imagens else c["model"], timeout=300 if com_imagens else 180)
+                   (c.get("model_visao") or c["model"]) if com_imagens else c["model"], timeout=300 if com_imagens else 180,
+                   limites=limites_resumo(c))
 
     if video and imgs:
         try:
@@ -1339,7 +1484,8 @@ def step_links(j, c):
            + f"\n\nLegenda do post:\n{leg or '(sem legenda)'}\n\nTranscrição:\n" + (a.get("transcricao_limpa") or d.get("transcript", ""))[:20000])
     modelo = c.get("model_links") or c["model"]
     itens = json_llm(llm(c, {"stream": False, "response_format": {"type": "json_object"},
-                              "messages": [{"role": "system", "content": PROMPT_LINKS}, {"role": "user", "content": ctx}]}, modelo)).get("itens") or []
+                              "messages": [{"role": "system", "content": PROMPT_LINKS}, {"role": "user", "content": ctx}]},
+                              modelo, limites=[("itens", "itens", 3)])).get("itens") or []
     links, log_links = [], []
     for it in itens[:3]:
         if not isinstance(it, dict) or not str(it.get("nome") or "").strip():
@@ -1366,7 +1512,8 @@ def step_links(j, c):
         lista = "\n".join(f"{i}. {x['titulo']} | {x['url']} | {x['trecho']}" for i, x in enumerate(cands))
         esc_ = json_llm(llm(c, {"stream": False, "response_format": {"type": "json_object"}, "messages": [
             {"role": "system", "content": PROMPT_ESCOLHA},
-            {"role": "user", "content": f"Item: {json.dumps(it, ensure_ascii=False)}\n\nVídeo: {a['titulo']}. {a['resumo']}\n\nCandidatos:\n{lista}"}]}, modelo))
+            {"role": "user", "content": f"Item: {json.dumps(it, ensure_ascii=False)}\n\nVídeo: {a['titulo']}. {a['resumo']}\n\nCandidatos:\n{lista}"}]},
+            modelo, limites=[("rotulo", "caracteres", 60), ("porque", "palavras", 8), ("porque", "caracteres", 80)]))
         i = int(esc_.get("i", -1)) if str(esc_.get("i", "-1")).lstrip("-").isdigit() else -1
         if not 0 <= i < len(cands):
             log_links.append(f"nenhum candidato certo: {it['nome']} (viu {len(cands)}: " + ", ".join(re.sub(r"^https?://(www\.)?", "", x["url"])[:50] for x in cands[:5]) + ")")
@@ -1659,7 +1806,8 @@ def sb_sintese(j, c, tema):
                      "Recebe resumos de vídeos salvos sobre um mesmo assunto. Escreva em Markdown: um parágrafo curto com o que esses vídeos têm em comum "
                      "e o que dá pra aprender juntando eles; depois '### Ideias que se repetem' com 3 a 6 tópicos curtos; "
                      "se houver, '### Onde eles discordam' com 1 a 3 tópicos. Não invente nada que não esteja nos resumos. Sem título principal."},
-                    {"role": "user", "content": f"Assunto: {tema}\n\n{lista}"}]}, c.get("model_sintese") or c["model"])
+                    {"role": "user", "content": f"Assunto: {tema}\n\n{lista}"}]}, c.get("model_sintese") or c["model"],
+                limites=[("Ideias que se repetem", "tópicos", 6), ("Onde eles discordam", "tópicos", 3)])
         txt = r["choices"][0]["message"]["content"].strip()
         return f"## Síntese\n_Atualizada pela IA em {time.strftime('%d/%m/%Y')} com {len(itens)} Reels._\n\n{txt}\n\n## Reels\n"
     except Exception as e:
@@ -1675,12 +1823,12 @@ def sb_reestilo(j, c):
     campos = {k: a[k] for k in ("resumo", "pontos_chave", "o_que_aparece") if a.get(k) and not a.get("estilo")}
     campos["gancho"] = a.get("gancho") or ""
     try:
-        r = llm(c, {"stream": False, "messages": [
+        r = llm(c, {"stream": False, "response_format": {"type": "json_object"}, "messages": [
                     {"role": "system", "content": "Reescreva os campos deste JSON em português do Brasil sem mudar fatos, sem acrescentar nem tirar informação. "
                      f"Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a {num(c, 'resumo_frases')} frases; listas continuam listas de strings). "
                      "Se \"gancho\" vier vazio, escreva 1 frase de até 100 caracteres dizendo do que se trata." + estilo(c)},
                     {"role": "user", "content": json.dumps({**campos, "titulo": a["titulo"], "resumo_atual": a["resumo"]}, ensure_ascii=False)}]},
-                   c.get("model_sintese") or c["model"])
+                   c.get("model_sintese") or c["model"], limites=limites_resumo(c, reestilo=True))
         txt = r["choices"][0]["message"]["content"].strip()
         novo = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
         for k, v in campos.items():
@@ -2970,7 +3118,7 @@ def campo(k, label, t, hint, v):
         ctl = f'<select id="{k}" name="{k}"{desc}>' + "".join(
             f'<option value="{e(o)}"{" selected" if o == v else ""}>{e(txt)}</option>' for o, txt in CHOICES[k]) + "</select>"
     else:
-        ph = (mask(v) or "não configurado") + (" (deixe em branco para manter, - para apagar)" if v else "")
+        ph = (("configurado" if v else "não configurado") if k == "texto_key" else (mask(v) or "não configurado")) + (" (deixe em branco para manter, - para apagar)" if v else "")
         ctl = (f'<textarea id="{k}" name="{k}" rows="3" placeholder="{e(ph)}"{desc} autocomplete="off"></textarea>' if t == "area"
                else f'<input id="{k}" name="{k}" type="password" placeholder="{e(ph)}"{desc} autocomplete="new-password">')
     return f'<label for="{k}">{e(label)}</label>{h}{ctl}'
@@ -3072,9 +3220,21 @@ def modelos_ok(c):
         raise RuntimeError("modelo não existe no 9Router: " + ", ".join(faltam))
 
 
+
+def texto_ok(c):
+    """Confere a credencial e o modelo de texto na Inception, sem consultar o 9Router."""
+    need(c, "texto_key")
+    r = req("GET", (c.get("texto_url") or DEFAULTS["texto_url"]).rstrip("/") + "/models",
+            {"Authorization": "Bearer " + c["texto_key"]}, timeout=20)
+    ids = {m.get("id") for m in (r.get("data") or []) if isinstance(m, dict)}
+    if (c.get("model_texto") or DEFAULTS["model_texto"]) not in ids:
+        raise RuntimeError("modelo de texto não existe na Inception")
+
 TESTES = {
     "llm": ("9Router", lambda c: modelos_ok(c)),
+    "texto": ("Inception", texto_ok),
     "elevenlabs": ("ElevenLabs", lambda c: req("GET", "https://api.elevenlabs.io/v1/models", {"xi-api-key": c["elevenlabs_key"]}, timeout=20)),
+    "groq": ("Groq", lambda c: (need(c, "groq_key"), req("GET", "https://api.groq.com/openai/v1/models", {"Authorization": "Bearer " + c["groq_key"]}, timeout=20))),
     "cobalt": ("Cobalt", lambda c: req("GET", c["cobalt_url"].rstrip("/") + "/", {"Accept": "application/json"}, timeout=20)),
     "karakeep": ("Karakeep", kk_tags),
     "notebook": ("Open Notebook", notebooks),

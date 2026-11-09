@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import secrets
 import tempfile
 import time
 from contextlib import closing
@@ -967,6 +968,334 @@ class TestIgTodos(unittest.TestCase):
             main.ig_todos()
         st = json.loads(main.q("SELECT v FROM kv WHERE k='col:instagram_todos'")[0]["v"])
         self.assertIn("senha recusada", st["erro"]); self.assertFalse(st["rodando"])
+
+class TMercury(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.enterContext(mock.patch.object(main, "DATA", self.tmp.name))
+        main.init()
+        main.cfg_save({"texto_key": secrets.token_urlsafe(32), "llm_key": secrets.token_urlsafe(32),
+                       "llm_url": "http://router/v1", "model": "gemini-atual",
+                       "model_visao": "gemini-visao", "model_reserva": "gemini-reserva",
+                       "nb_on": "", "kk_on": "", "sb_on": "", "decider_on": ""})
+        self.c = main.cfg()
+        self.reply = {"choices": [{"message": {"content": json.dumps(ANALISE)}}]}
+        self.body = {"messages": [{"role": "user", "content": "Texto para resumir."}],
+                     "response_format": {"type": "json_object"}, "temperature": 0.2, "seed": 42}
+        self.req = self.enterContext(mock.patch.object(main, "req", return_value=self.reply))
+
+    def test_texto_temperatura_seed_e_config(self):
+        for temperatura, esperada in ((0.2, 0.5), (0.8, 0.8), (1.5, 1.0)):
+            with self.subTest(temperatura=temperatura):
+                body = {**self.body, "temperature": temperatura}
+                main.llm(self.c, body, "modelo-links", timeout=37)
+                args, kwargs = self.req.call_args
+                self.assertEqual(args[1], "https://api.inceptionlabs.ai/v1/chat/completions")
+                self.assertEqual(args[2]["Authorization"], "Bearer " + self.c["texto_key"])
+                self.assertEqual((args[3]["model"], args[3]["temperature"]), ("mercury-3", esperada))
+                self.assertNotIn("seed", args[3])
+                self.assertEqual(args[3]["reasoning_effort"], "instant")
+                self.assertEqual((body["seed"], body["temperature"]), (42, temperatura))
+                self.assertEqual(kwargs["timeout"], 37)
+        main.cfg_save({"texto_url": "https://inception.local/v1/", "model_texto": "mercury-3"})
+        main.llm(main.cfg(), {"messages": [{"role": "user", "content": [{"type": "text", "text": "Só texto."}]}]}, "modelo")
+        self.assertEqual(self.req.call_args.args[1], "https://inception.local/v1/chat/completions")
+        self.assertEqual(self.req.call_args.args[3]["model"], "mercury-3")
+
+    def test_worker_resumo_texto_e_visao(self):
+        imagem = os.path.join(self.tmp.name, "frame.jpg")
+        with open(imagem, "wb") as f:
+            f.write(b"imagem")
+        for video, imagens, url, modelo in (
+            (False, [], "https://api.inceptionlabs.ai/v1/chat/completions", "mercury-3"),
+            (True, [], "https://api.inceptionlabs.ai/v1/chat/completions", "mercury-3"),
+            (True, [imagem], "http://router/v1/chat/completions", "gemini-visao"),
+        ):
+            with self.subTest(video=video, imagens=imagens):
+                j = {"id": 1, "data": {"kind": "video" if video else "texto", "transcript": "Texto útil. " * 30,
+                                      "visao": {"grids": imagens, "frames": "frame.jpg=00:01"}}}
+                self.req.reset_mock()
+                main.step_resumo(j, self.c)
+                self.assertEqual(j["data"]["analysis"]["titulo"], ANALISE["titulo"])
+                self.assertEqual(j["data"]["analysis"]["tags"], ["foco", "produtividade"])
+                self.req.assert_called_once()
+                self.assertEqual((self.req.call_args.args[1], self.req.call_args.args[3]["model"]), (url, modelo))
+                key = self.c["llm_key"] if imagens else self.c["texto_key"]
+                self.assertEqual(self.req.call_args.args[2]["Authorization"], "Bearer " + key)
+                self.assertEqual(self.req.call_args.args[3].get("reasoning_effort"), None if imagens else "instant")
+
+    def test_fallback_erro_timeout_json_e_envelope_invalidos(self):
+        invalidos = [RuntimeError(self.c["texto_key"]), TimeoutError("timeout"), ValueError("JSON HTTP inválido"),
+                     {}, {"choices": []}, {"choices": [{"message": {"content": None}}]},
+                     {"choices": [{"message": {"content": "não é JSON"}}]},
+                     {"choices": [{"message": {"content": "[]"}}]}]
+        for falha in invalidos:
+            with self.subTest(falha=type(falha).__name__):
+                self.req.reset_mock()
+                self.req.side_effect = [falha, self.reply]
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as logs:
+                    r = main.llm(self.c, self.body, "modelo-links")
+                self.assertEqual(main.json_llm(r)["resumo"], ANALISE["resumo"])
+                self.assertEqual(self.req.call_count, 2)
+                args = self.req.call_args.args
+                self.assertEqual((args[1], args[3]["model"]), ("http://router/v1/chat/completions", "modelo-links"))
+                self.assertEqual(args[2]["Authorization"], "Bearer " + self.c["llm_key"])
+                self.assertEqual(args[3]["temperature"], 0.2)
+                self.assertNotIn("reasoning_effort", args[3])
+                self.assertNotIn(self.c["texto_key"], logs.getvalue())
+                self.assertNotIn(self.c["llm_key"], logs.getvalue())
+
+    def test_fallback_nao_tenta_reserva_do_router(self):
+        self.req.side_effect = [TimeoutError(), RuntimeError("9Router indisponível")]
+        with self.assertRaisesRegex(RuntimeError, "9Router indisponível"):
+            main.llm(self.c, self.body, "modelo-atual")
+        self.assertEqual(self.req.call_count, 2)
+
+    def test_sem_chave_preserva_9router_e_reserva(self):
+        c = {**self.c, "texto_key": ""}
+        self.req.side_effect = [RuntimeError("503"), self.reply]
+        main.llm(c, self.body, "modelo-atual")
+        self.assertEqual([call.args[1] for call in self.req.call_args_list],
+                         ["http://router/v1/chat/completions"] * 2)
+        self.assertEqual([call.args[3]["model"] for call in self.req.call_args_list],
+                         ["modelo-atual", "gemini-reserva"])
+        self.assertTrue(all("reasoning_effort" not in call.args[3] for call in self.req.call_args_list))
+
+    def test_esforco_configuravel_e_importacao_validada(self):
+        for esforco in ("instant", "low", "medium", "high"):
+            with self.subTest(esforco=esforco):
+                self.assertEqual(main.importar(json.dumps({"esforco_texto": esforco})), [])
+                main.llm(main.cfg(), self.body, "modelo")
+                self.assertEqual(self.req.call_args.args[3]["reasoning_effort"], esforco)
+                self.assertEqual(main.exportar()["esforco_texto"], esforco)
+        self.assertTrue(main.importar('{"esforco_texto":"turbo"}'))
+        self.assertEqual(main.cfg()["esforco_texto"], "high")
+        c = {k: v for k, v in self.c.items() if k != "esforco_texto"}
+        for config in (c, {**c, "esforco_texto": "inválido"}):
+            main.llm(config, self.body, "modelo")
+            self.assertEqual(self.req.call_args.args[3]["reasoning_effort"], "instant")
+
+    def test_esforco_do_corpo_nunca_vaza_para_router(self):
+        body = {**self.body, "reasoning_effort": "high"}
+        for imagens, chave in ((False, ""), (True, self.c["texto_key"]), (False, self.c["texto_key"])):
+            with self.subTest(imagens=imagens, chave_presente=bool(chave)):
+                self.req.reset_mock()
+                self.req.side_effect = [TimeoutError(), self.reply] if not imagens and chave else None
+                enviado = {**body, "messages": [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}}]}]} if imagens else body
+                main.llm({**self.c, "texto_key": chave}, enviado, "modelo")
+                self.assertNotIn("reasoning_effort", self.req.call_args.args[3])
+                self.assertEqual(body["reasoning_effort"], "high")
+
+    def resumo(self):
+        return {"id": 1, "data": {"kind": "texto", "transcript": "Texto útil. " * 30}}
+
+    def resposta(self, dados):
+        return {"choices": [{"message": {"content": json.dumps(dados, ensure_ascii=False)}}]}
+
+    def test_resumo_reescreve_cada_limite_antes_de_cortar(self):
+        casos = [("titulo", "á" * 81), ("gancho", "g" * 101), ("gancho", "Uma. Outra."),
+                 ("resumo", "Uma. " * 5), ("pontos_chave", ["p"] * 8), ("tags", ["tag"] * 9),
+                 ("tags", ["uma duas três"]), ("tema", "um dois três quatro"), ("tema", "t" * 61),
+                 ("na_tela_literal", ["x"] * 21), ("na_tela_literal", ["x" * 201])]
+        for campo, valor in casos:
+            with self.subTest(campo=campo, valor=valor):
+                self.req.reset_mock()
+                excedida = self.resposta({**ANALISE, campo: valor})
+                self.req.side_effect = [excedida, self.reply]
+                j = self.resumo()
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as logs:
+                    main.step_resumo(j, self.c)
+                self.assertEqual(j["data"]["analysis"]["titulo"], ANALISE["titulo"])
+                self.assertEqual(self.req.call_count, 2)
+                self.assertTrue(all(call.args[1].startswith(self.c["texto_url"]) for call in self.req.call_args_list))
+                mensagens = self.req.call_args.args[3]["messages"]
+                self.assertEqual(mensagens[-2], {"role": "assistant", "content": excedida["choices"][0]["message"]["content"]})
+                self.assertIn(campo, mensagens[-1]["content"])
+                self.assertEqual(self.req.call_args.args[3]["reasoning_effort"], "instant")
+                self.assertNotIn(self.c["texto_key"], logs.getvalue())
+
+    def test_resumo_no_limite_nao_reescreve(self):
+        a = {**ANALISE, "titulo": "á" * 80, "gancho": "g" * 99 + ".",
+             "resumo": "Visite https://example.org/teste. Custa 1.25 reais! Faça agora? Pronto.",
+             "pontos_chave": ["p"] * 7, "tags": ["uma duas"] * 8, "tema": "Um Dois Três",
+             "na_tela_literal": ["á" * 200] * 20}
+        self.req.return_value = self.resposta(a)
+        j = self.resumo()
+        main.step_resumo(j, self.c)
+        self.req.assert_called_once()
+        self.assertEqual(j["data"]["analysis"]["titulo"], a["titulo"])
+        self.assertEqual(j["data"]["analysis"]["resumo"], a["resumo"])
+
+    def test_limites_configuraveis_no_worker(self):
+        self.req.side_effect = [self.resposta({**ANALISE, "resumo": "Uma. Duas. Três."}), self.reply]
+        j = self.resumo()
+        main.step_resumo(j, {**self.c, "resumo_frases": "2", "pontos_max": "3", "tags_max": "3"})
+        self.assertEqual(self.req.call_count, 2)
+        self.assertIn("máximo 2 frases", self.req.call_args.args[3]["messages"][-1]["content"])
+        self.assertEqual(j["data"]["analysis"]["resumo"], ANALISE["resumo"])
+
+    def test_reescrita_unica_e_fallback_original_sem_reserva(self):
+        excedida = self.resposta({**ANALISE, "titulo": "x" * 81})
+        for segunda in (excedida, self.resposta([]), TimeoutError()):
+            with self.subTest(segunda=type(segunda).__name__):
+                self.req.reset_mock()
+                self.req.side_effect = [excedida, segunda, self.reply]
+                j = self.resumo()
+                main.step_resumo(j, self.c)
+                self.assertEqual(j["data"]["analysis"]["titulo"], ANALISE["titulo"])
+                self.assertEqual(self.req.call_count, 3)
+                chamadas = self.req.call_args_list
+                self.assertEqual([c.args[3]["model"] for c in chamadas], ["mercury-3", "mercury-3", "gemini-atual"])
+                self.assertNotIn("reasoning_effort", chamadas[-1].args[3])
+                self.assertEqual(chamadas[-1].args[3]["messages"], chamadas[0].args[3]["messages"])
+        self.req.reset_mock()
+        self.req.side_effect = [excedida, excedida, RuntimeError("router indisponível")]
+        with self.assertRaisesRegex(RuntimeError, "router indisponível"):
+            main.step_resumo(self.resumo(), self.c)
+        self.assertEqual(self.req.call_count, 3)
+
+    def test_sintese_reescreve_topicos_excedentes(self):
+        for secao, maximo in (("Ideias que se repetem", 6), ("Onde eles discordam", 3)):
+            with self.subTest(secao=secao):
+                self.req.reset_mock()
+                txt = f"Parágrafo.\n### {secao}\n" + "\n".join(f"{i}. Ideia." for i in range(1, maximo + 2))
+                correta = f"Parágrafo.\n### {secao}\n" + "- Ideia.\n" * maximo
+                self.req.side_effect = [{"choices": [{"message": {"content": v}}]} for v in (txt, correta)]
+                j = {"id": 1, "data": {"analysis": {**ANALISE}}}
+                self.assertIn(correta.strip(), main.sb_sintese(j, self.c, "Produtividade"))
+                self.assertEqual(self.req.call_count, 2)
+
+    def test_reestilo_reescreve_resumo_excedente(self):
+        self.req.side_effect = [self.resposta({"resumo": "Frase. " * 5}),
+                                self.resposta({"resumo": "Resumo corrigido.", "gancho": "Foco."})]
+        j = {"id": 1, "data": {"analysis": {**ANALISE}}}
+        main.sb_reestilo(j, self.c)
+        self.assertEqual(j["data"]["analysis"]["resumo"], "Resumo corrigido.")
+        self.assertEqual(self.req.call_count, 2)
+
+    def test_links_reescrevem_limites(self):
+        for campo, valor, maximo, unidade in (("itens", [{}] * 4, 3, "itens"),
+                                             ("rotulo", "x" * 61, 60, "caracteres"),
+                                             ("porque", "palavra " * 9, 8, "palavras"),
+                                             ("porque", "x" * 81, 80, "caracteres")):
+            with self.subTest(campo=campo, unidade=unidade):
+                self.req.reset_mock()
+                self.req.side_effect = [self.resposta({campo: valor}), self.resposta({campo: [] if campo == "itens" else "curto"})]
+                r = main.llm(self.c, self.body, "modelo-links", limites=[(campo, unidade, maximo)])
+                self.assertEqual(main.json_llm(r)[campo], [] if campo == "itens" else "curto")
+                self.assertEqual(self.req.call_count, 2)
+
+    def test_sintese_e_reestilo_usam_texto(self):
+        j = {"id": 1, "data": {"analysis": {**ANALISE}}}
+        self.req.return_value = {"choices": [{"message": {"content": "Concentre o trabalho em blocos curtos."}}]}
+        sintese = main.sb_sintese(j, self.c, "Produtividade")
+        self.assertIn("Concentre o trabalho em blocos curtos.", sintese)
+        self.req.return_value = {"choices": [{"message": {"content": '{"resumo":"Resumo reescrito.","gancho":"Trabalhe com foco."}'}}]}
+        main.sb_reestilo(j, self.c)
+        self.assertEqual(j["data"]["analysis"]["resumo"], "Resumo reescrito.")
+        self.assertEqual(j["data"]["analysis"]["gancho"], "Trabalhe com foco.")
+        self.assertEqual([call.args[1] for call in self.req.call_args_list],
+                         ["https://api.inceptionlabs.ai/v1/chat/completions"] * 2)
+
+    def test_decider_continua_9router(self):
+        self.req.return_value = {"answers": {"q": {"noul": 0.95}}}
+        self.assertTrue(main.decider_sim({**self.c, "decider_on": "1"}, "teste", {}, "?", "sim", "não"))
+        self.assertEqual(self.req.call_args.args[1], "http://router/v1/systemone")
+        self.assertEqual(self.req.call_args.args[2]["Authorization"], "Bearer " + self.c["llm_key"])
+
+    def test_credencial_modelos_inception(self):
+        self.req.return_value = {"data": [{"id": "mercury-3"}]}
+        self.assertEqual(main.testar("texto"), "Inception: ok")
+        self.assertEqual(self.req.call_args.args[:2], ("GET", "https://api.inceptionlabs.ai/v1/models"))
+        self.req.return_value = {"data": [{"id": "outro-modelo"}]}
+        self.assertIn("erro", main.testar("texto"))
+        self.req.side_effect = RuntimeError(self.c["texto_key"])
+        self.assertNotIn(self.c["texto_key"], main.testar("texto"))
+
+    def test_chave_nunca_exibida_exportada_importada_ou_logada(self):
+        key = self.c["texto_key"]
+        pagina = main.config_page()
+        self.assertNotIn(key, pagina)
+        self.assertNotIn(key[-4:], pagina)
+        self.assertIn('name="texto_key" type="password"', pagina)
+        self.assertNotIn("texto_key", main.exportar())
+        self.assertNotIn(key, main.scrub("erro: " + key))
+        main.importar('{"texto_key":"NÃO-IMPORTAR"}')
+        self.assertEqual(main.cfg()["texto_key"], key)
+        main.save_form({"texto_key": [""]})
+        self.assertEqual(main.cfg()["texto_key"], key)
+        self.assertEqual(os.stat(main.cfg_path()).st_mode & 0o777, 0o600)
+        main.save_form({"texto_key": ["-"]})
+        self.assertEqual(main.cfg()["texto_key"], "")
+
+
+class Groq(unittest.TestCase):
+    """YouTube transcreve na Groq (Whisper Large v3 Turbo) quando há chave; o resto segue no Scribe."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.audio = os.path.join(self.tmp, "a.mp3")
+        with open(self.audio, "wb") as f:
+            f.write(b"ID3" + b"\0" * 100)
+        self.j = {"id": 1, "orig": "https://www.youtube.com/watch?v=abc", "data": {"audio": self.audio}}
+        self.c = {"groq_key": "gk-" + secrets.token_hex(8), "elevenlabs_key": "ek-" + secrets.token_hex(8)}
+        self.chamadas = []
+
+    def fake_req(self, resp_groq=None, erro_groq=None):
+        def f(method, url, headers=None, body=None, timeout=60, raw=False):
+            self.chamadas.append((url, headers))
+            if "groq.com" in url:
+                if erro_groq:
+                    raise RuntimeError(erro_groq)
+                return resp_groq
+            return {"text": "scribe ok", "words": []}
+        return f
+
+    def test_youtube_vai_pra_groq_com_segmentos(self):
+        r = {"text": "ola mundo", "segments": [{"start": 0, "text": " ola"}, {"start": 65, "text": " mundo"}]}
+        with mock.patch.object(main, "req", self.fake_req(r)), mock.patch.object(main.shutil, "which", return_value=None):
+            main.step_transcricao(self.j, self.c)
+        self.assertEqual(self.chamadas[0][0], main.GROQ_STT)
+        self.assertEqual(self.chamadas[0][1]["Authorization"], "Bearer " + self.c["groq_key"])
+        self.assertEqual(self.j["data"]["transcript"], "ola mundo")
+        self.assertEqual(self.j["data"]["transcript_t"], "[00:00] ola\n[01:05] mundo")
+        self.assertEqual(self.j["data"]["stt"], "groq")
+
+    def test_instagram_segue_no_scribe(self):
+        self.j["orig"] = "https://www.instagram.com/reel/x/"
+        with mock.patch.object(main, "req", self.fake_req({"text": "x"})), mock.patch.object(main.shutil, "which", return_value=None):
+            main.step_transcricao(self.j, self.c)
+        self.assertIn("elevenlabs.io", self.chamadas[0][0])
+
+    def test_sem_chave_groq_youtube_segue_no_scribe(self):
+        del self.c["groq_key"]
+        with mock.patch.object(main, "req", self.fake_req({"text": "x"})), mock.patch.object(main.shutil, "which", return_value=None):
+            main.step_transcricao(self.j, self.c)
+        self.assertIn("elevenlabs.io", self.chamadas[0][0])
+
+    def test_groq_falha_cai_no_scribe_sem_vazar_chave(self):
+        logs = []
+        with mock.patch.object(main, "req", self.fake_req(erro_groq="HTTP 503 Authorization: Bearer " + self.c["groq_key"])), \
+                mock.patch.object(main.shutil, "which", return_value=None), mock.patch.object(main, "cfg", lambda: self.c), mock.patch.object(main, "log", lambda *a: logs.append(" ".join(map(str, a)))):
+            main.step_transcricao(self.j, self.c)
+        self.assertIn("elevenlabs.io", self.chamadas[-1][0])
+        self.assertEqual(self.j["data"]["transcript"], "scribe ok")
+        self.assertFalse(any(self.c["groq_key"] in l for l in logs))
+
+    def test_groq_falha_sem_scribe_propaga(self):
+        del self.c["elevenlabs_key"]
+        with mock.patch.object(main, "req", self.fake_req(erro_groq="HTTP 503")), mock.patch.object(main.shutil, "which", return_value=None):
+            with self.assertRaises(RuntimeError):
+                main.step_transcricao(self.j, self.c)
+
+    def test_audio_youtube_nao_exige_elevenlabs_com_groq(self):
+        del self.c["elevenlabs_key"]
+        with mock.patch.object(main, "baixar", return_value=self.audio):
+            main.step_audio(self.j, self.c)
+        self.assertEqual(self.j["data"]["audio"], self.audio)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,14 +4,14 @@ name: Video KB Worker
 tagline: Vídeos, páginas e PDFs viram resumo, tags e página no Selah
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-video-kb/icon.png
 category: AI
-version: "1.15.0"
+version: "1.16.0"
 port: 8519
 description: >-
-  Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe, vê os quadros e resume com Gemini pelo 9Router do Nonve. Página e PDF: o próprio worker lê o texto do link. Tudo vira página guardada no seu servidor, que o Selah mostra e, se ligado, fonte no Open Notebook.
+  Cole um link na caixa do app ou ligue os coletores (YouTube, Instagram salvos, Reddit salvos, TikTok favoritos). Vídeo: o worker baixa (Cobalt, com yt-dlp de reserva), transcreve com ElevenLabs Scribe (YouTube pode usar Whisper na Groq) e vê os quadros com Gemini pelo 9Router do Nonve. Texto pode usar Mercury 3 direto na Inception; sem chave da Inception, continua no 9Router. Página e PDF: o próprio worker lê o texto do link. Tudo vira página guardada no seu servidor, que o Selah mostra e, se ligado, fonte no Open Notebook.
 
   Karakeep é opcional: ligue em Configurações para usar bookmarks como entrada e gravar resumo, nota e tags lá.
 
-  Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, Open Notebook). As chaves ficam só no volume do app.
+  Depois de instalar, abra o app > Configurações e cole as chaves (ElevenLabs, 9Router, Inception opcional, Open Notebook). As chaves ficam só no volume do app.
 developer: Thainan Caldeira
 website: https://github.com/nancmd77/thainan-umbrel-apps
 submitter: Thainan Caldeira
@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  URL base configurável e reenvio de reels (backfill) para o Supermemory.
+  Texto via Mercury 3 direto na Inception, com retorno único ao 9Router se falhar. Esforço de texto configurável (instant por padrão; low, medium ou high), enviado só à Inception. Saídas acima dos limites de título, gancho, resumo, pontos, tags, tema, links e síntese recebem uma única reescrita; se persistir, segue o fallback atual. Visão e Decider continuam no 9Router. Teste de credencial da Inception nas configurações. YouTube transcreve com Whisper Large v3 Turbo na Groq quando a chave Groq estiver preenchida; o resto segue no Scribe, que também é a reserva se a Groq falhar.
 dependencies: []
 path: ""
 defaultUsername: ""

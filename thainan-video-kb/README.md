@@ -29,6 +29,43 @@ Visual inspirado no [Linkding](https://github.com/sissbruecker/linkding) (MIT, �
 - Karakeep: `summary` = resumo; `note` é **substituída** pelos pontos-chave. Link colado à mão cria o bookmark.
 - Open Notebook: `POST /api/sources/json` `{type:text, notebooks:[id], embed:true, async_processing:true}`; embeddings dependem do provedor configurado lá.
 
+## Transcrição do YouTube na Groq (v1.16.0)
+
+- Em **Configurações**, informe `groq_key` (Chave Groq). `groq_model` usa `whisper-large-v3-turbo`.
+- Só links do YouTube vão à Groq; Instagram, TikTok e o resto seguem no Scribe. Sem `groq_key`, o YouTube também segue no Scribe.
+- O áudio vai como mp3 mono 64k (cerca de 52 min cabem em 24 MB); se passar, 32k a 16 kHz (cerca de 100 min). Maior que isso, ou se a Groq falhar, usa o Scribe quando há chave ElevenLabs.
+
+## Texto na Inception (v1.16.0)
+
+- Em **Configurações**, informe `texto_key` (Chave da Inception). `texto_url` usa `https://api.inceptionlabs.ai/v1`; `model_texto` usa `mercury-3`, sem sufixo high. `esforco_texto` aceita `instant` (padrão), `low`, `medium` ou `high`; vira `reasoning_effort` somente no corpo enviado à Inception, inclusive na reescrita. A regra high continua exclusiva do Gemini; nenhum `reasoning_effort` vai ao 9Router.
+- Com a chave preenchida, toda chamada sem imagens vai à Inception: resumo, temas/tags, síntese, reestilo, extração e escolha de links. Imagens usam `model_visao` ou `model` no 9Router; Decider continua em `/systemone` no 9Router.
+- Mantenha URL/chave e modelos do 9Router configurados: são usados pela visão, pelo Decider e pelo fallback. Falha da Inception (erro, timeout, resposta inválida ou JSON inválido quando solicitado) tenta uma vez o modelo atual da operação no 9Router, sem tentar também o modelo reserva.
+- Temperatura enviada à Inception fica entre 0.5 e 1.0 (padrão 0.5), sem `seed`. Síntese aceita texto livre; resumo, reestilo e links pedem objeto JSON.
+- Chave ausente mantém o fluxo anterior, inclusive o modelo reserva do 9Router. Campo de senha vazio mantém a chave salva; `-` apaga. A chave da Inception não volta à página nem parcialmente, não entra na exportação/importação e é removida das mensagens de erro. Config permanece com permissão 600.
+- **Testar Inception** consulta `GET /v1/models` e confere o modelo de texto. Teste real de capacidade (09/11/2026): texto e `response_format: json_object` responderam HTTP 200 com JSON válido; `image_url` base64 PNG foi recusado com HTTP 400 (`Image inputs are not supported for this model`).
+- Testes sem rede: `cd thainan-video-kb/app && python3 -m unittest -v` (a partir da raiz do repositório).
+
+### Limites da saída da Inception
+
+Validação antes do parse e dos cortes existentes. Se qualquer máximo for excedido, pede **uma única reescrita** à Inception: “Reescreva respeitando o limite X; responda no mesmo formato”, incluindo os campos e máximos excedidos. Se a reescrita ainda exceder, falhar ou vier inválida, usa o fallback atual uma vez no 9Router, com o prompt original e sem modelo reserva. Não há loop; logs informam apenas reescrita/fallback, sem conteúdo nem credenciais.
+
+| Operação/campo | Máximo validado |
+|---|---|
+| Resumo: `titulo` / `gancho` | 80 / 100 caracteres; gancho com 1 frase |
+| `resumo` / `pontos_chave` / `tags` | `resumo_frases` frases / `pontos_max` itens / `tags_max` itens (padrões 4 / 7 / 8) |
+| Cada tag / `tema` | 2 palavras / 3 palavras e 60 caracteres |
+| `na_tela_literal` | 20 itens, cada um com 200 caracteres |
+| Extração de links: `itens` | 3 itens |
+| Escolha de link: `rotulo` / `porque` | 60 caracteres / 8 palavras e 80 caracteres |
+| Síntese Markdown | 6 tópicos em “Ideias que se repetem”; 3 em “Onde eles discordam” |
+| Reestilo | Mesmos máximos de gancho, resumo e pontos-chave |
+
+Frases são contadas por pontuação final seguida de espaço/fim (com aspas opcionais), ou quebra de linha; decimais e URLs não separam frases, mas abreviações podem contar como fim de frase. Síntese conta marcadores Markdown (`-`, `+`, `*` ou numeração) por seção. Os mínimos do prompt não geram reescrita por tamanho. “Curto” sem máximo numérico (parágrafo da síntese, evidência, busca, `o_que_aparece`) não recebe teto inventado. Limites de entrada/mídia não são limites da resposta.
+
+Os cortes legados do parser (título/gancho 120, tema 60, tags configuráveis e `na_tela_literal` 20 × 200), do nome de página (90) e dos links (60/80) continuam no fallback; a validação da Inception respeita os tetos mais restritos do prompt (80/100).
+
+Verificado em 09/11/2026: suíte inteira com 119 testes (117 passaram, 2 pulados, nenhuma falha). Smoke real via `step_resumo`, `mercury-3`, `instant`: um resumo, duas requisições HTTP 200 (uma reescrita), **1,332 s** no total, resumo de **280 caracteres**, título de 30 caracteres, 5 pontos e 5 tags. Execução local isolada, sem acessar Umbrel/produção e sem exibir texto ou chave.
+
 ## Visão (v1.3)
 Só pra vídeo: o arquivo baixado (qualidade em "Vídeo e mídia", ver v1.6) vai pro crv; o Scribe recebe só o áudio (mp3 mono 64k via ffmpeg). Depois os dois são apagados.
 - Etapa `visao`: `python -m claude_real_video <vídeo> -o tmp/crv-<id> --overwrite --no-transcribe --grid --max-frames <Configurações, 60>`, com `CRV_NO_MEMORY=1`. Usa `grids/*.jpg` (3x3, cada célula com o nome do frame) e `frames.json` (nome → mm:ss).
