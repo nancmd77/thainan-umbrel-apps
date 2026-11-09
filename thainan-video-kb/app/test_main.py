@@ -995,6 +995,7 @@ class TMercury(unittest.TestCase):
                 self.assertEqual(args[2]["Authorization"], "Bearer " + self.c["texto_key"])
                 self.assertEqual((args[3]["model"], args[3]["temperature"]), ("mercury-3", esperada))
                 self.assertNotIn("seed", args[3])
+                self.assertEqual(args[3]["reasoning_effort"], "instant")
                 self.assertEqual((body["seed"], body["temperature"]), (42, temperatura))
                 self.assertEqual(kwargs["timeout"], 37)
         main.cfg_save({"texto_url": "https://inception.local/v1/", "model_texto": "mercury-3"})
@@ -1022,6 +1023,7 @@ class TMercury(unittest.TestCase):
                 self.assertEqual((self.req.call_args.args[1], self.req.call_args.args[3]["model"]), (url, modelo))
                 key = self.c["llm_key"] if imagens else self.c["texto_key"]
                 self.assertEqual(self.req.call_args.args[2]["Authorization"], "Bearer " + key)
+                self.assertEqual(self.req.call_args.args[3].get("reasoning_effort"), None if imagens else "instant")
 
     def test_fallback_erro_timeout_json_e_envelope_invalidos(self):
         invalidos = [RuntimeError(self.c["texto_key"]), TimeoutError("timeout"), ValueError("JSON HTTP inválido"),
@@ -1040,6 +1042,7 @@ class TMercury(unittest.TestCase):
                 self.assertEqual((args[1], args[3]["model"]), ("http://router/v1/chat/completions", "modelo-links"))
                 self.assertEqual(args[2]["Authorization"], "Bearer " + self.c["llm_key"])
                 self.assertEqual(args[3]["temperature"], 0.2)
+                self.assertNotIn("reasoning_effort", args[3])
                 self.assertNotIn(self.c["texto_key"], logs.getvalue())
                 self.assertNotIn(self.c["llm_key"], logs.getvalue())
 
@@ -1057,6 +1060,132 @@ class TMercury(unittest.TestCase):
                          ["http://router/v1/chat/completions"] * 2)
         self.assertEqual([call.args[3]["model"] for call in self.req.call_args_list],
                          ["modelo-atual", "gemini-reserva"])
+        self.assertTrue(all("reasoning_effort" not in call.args[3] for call in self.req.call_args_list))
+
+    def test_esforco_configuravel_e_importacao_validada(self):
+        for esforco in ("instant", "low", "medium", "high"):
+            with self.subTest(esforco=esforco):
+                self.assertEqual(main.importar(json.dumps({"esforco_texto": esforco})), [])
+                main.llm(main.cfg(), self.body, "modelo")
+                self.assertEqual(self.req.call_args.args[3]["reasoning_effort"], esforco)
+                self.assertEqual(main.exportar()["esforco_texto"], esforco)
+        self.assertTrue(main.importar('{"esforco_texto":"turbo"}'))
+        self.assertEqual(main.cfg()["esforco_texto"], "high")
+        c = {k: v for k, v in self.c.items() if k != "esforco_texto"}
+        for config in (c, {**c, "esforco_texto": "inválido"}):
+            main.llm(config, self.body, "modelo")
+            self.assertEqual(self.req.call_args.args[3]["reasoning_effort"], "instant")
+
+    def test_esforco_do_corpo_nunca_vaza_para_router(self):
+        body = {**self.body, "reasoning_effort": "high"}
+        for imagens, chave in ((False, ""), (True, self.c["texto_key"]), (False, self.c["texto_key"])):
+            with self.subTest(imagens=imagens, chave_presente=bool(chave)):
+                self.req.reset_mock()
+                self.req.side_effect = [TimeoutError(), self.reply] if not imagens and chave else None
+                enviado = {**body, "messages": [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}}]}]} if imagens else body
+                main.llm({**self.c, "texto_key": chave}, enviado, "modelo")
+                self.assertNotIn("reasoning_effort", self.req.call_args.args[3])
+                self.assertEqual(body["reasoning_effort"], "high")
+
+    def resumo(self):
+        return {"id": 1, "data": {"kind": "texto", "transcript": "Texto útil. " * 30}}
+
+    def resposta(self, dados):
+        return {"choices": [{"message": {"content": json.dumps(dados, ensure_ascii=False)}}]}
+
+    def test_resumo_reescreve_cada_limite_antes_de_cortar(self):
+        casos = [("titulo", "á" * 81), ("gancho", "g" * 101), ("gancho", "Uma. Outra."),
+                 ("resumo", "Uma. " * 5), ("pontos_chave", ["p"] * 8), ("tags", ["tag"] * 9),
+                 ("tags", ["uma duas três"]), ("tema", "um dois três quatro"), ("tema", "t" * 61),
+                 ("na_tela_literal", ["x"] * 21), ("na_tela_literal", ["x" * 201])]
+        for campo, valor in casos:
+            with self.subTest(campo=campo, valor=valor):
+                self.req.reset_mock()
+                excedida = self.resposta({**ANALISE, campo: valor})
+                self.req.side_effect = [excedida, self.reply]
+                j = self.resumo()
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as logs:
+                    main.step_resumo(j, self.c)
+                self.assertEqual(j["data"]["analysis"]["titulo"], ANALISE["titulo"])
+                self.assertEqual(self.req.call_count, 2)
+                self.assertTrue(all(call.args[1].startswith(self.c["texto_url"]) for call in self.req.call_args_list))
+                mensagens = self.req.call_args.args[3]["messages"]
+                self.assertEqual(mensagens[-2], {"role": "assistant", "content": excedida["choices"][0]["message"]["content"]})
+                self.assertIn(campo, mensagens[-1]["content"])
+                self.assertEqual(self.req.call_args.args[3]["reasoning_effort"], "instant")
+                self.assertNotIn(self.c["texto_key"], logs.getvalue())
+
+    def test_resumo_no_limite_nao_reescreve(self):
+        a = {**ANALISE, "titulo": "á" * 80, "gancho": "g" * 99 + ".",
+             "resumo": "Visite https://example.org/teste. Custa 1.25 reais! Faça agora? Pronto.",
+             "pontos_chave": ["p"] * 7, "tags": ["uma duas"] * 8, "tema": "Um Dois Três",
+             "na_tela_literal": ["á" * 200] * 20}
+        self.req.return_value = self.resposta(a)
+        j = self.resumo()
+        main.step_resumo(j, self.c)
+        self.req.assert_called_once()
+        self.assertEqual(j["data"]["analysis"]["titulo"], a["titulo"])
+        self.assertEqual(j["data"]["analysis"]["resumo"], a["resumo"])
+
+    def test_limites_configuraveis_no_worker(self):
+        self.req.side_effect = [self.resposta({**ANALISE, "resumo": "Uma. Duas. Três."}), self.reply]
+        j = self.resumo()
+        main.step_resumo(j, {**self.c, "resumo_frases": "2", "pontos_max": "3", "tags_max": "3"})
+        self.assertEqual(self.req.call_count, 2)
+        self.assertIn("máximo 2 frases", self.req.call_args.args[3]["messages"][-1]["content"])
+        self.assertEqual(j["data"]["analysis"]["resumo"], ANALISE["resumo"])
+
+    def test_reescrita_unica_e_fallback_original_sem_reserva(self):
+        excedida = self.resposta({**ANALISE, "titulo": "x" * 81})
+        for segunda in (excedida, self.resposta([]), TimeoutError()):
+            with self.subTest(segunda=type(segunda).__name__):
+                self.req.reset_mock()
+                self.req.side_effect = [excedida, segunda, self.reply]
+                j = self.resumo()
+                main.step_resumo(j, self.c)
+                self.assertEqual(j["data"]["analysis"]["titulo"], ANALISE["titulo"])
+                self.assertEqual(self.req.call_count, 3)
+                chamadas = self.req.call_args_list
+                self.assertEqual([c.args[3]["model"] for c in chamadas], ["mercury-3", "mercury-3", "gemini-atual"])
+                self.assertNotIn("reasoning_effort", chamadas[-1].args[3])
+                self.assertEqual(chamadas[-1].args[3]["messages"], chamadas[0].args[3]["messages"])
+        self.req.reset_mock()
+        self.req.side_effect = [excedida, excedida, RuntimeError("router indisponível")]
+        with self.assertRaisesRegex(RuntimeError, "router indisponível"):
+            main.step_resumo(self.resumo(), self.c)
+        self.assertEqual(self.req.call_count, 3)
+
+    def test_sintese_reescreve_topicos_excedentes(self):
+        for secao, maximo in (("Ideias que se repetem", 6), ("Onde eles discordam", 3)):
+            with self.subTest(secao=secao):
+                self.req.reset_mock()
+                txt = f"Parágrafo.\n### {secao}\n" + "\n".join(f"{i}. Ideia." for i in range(1, maximo + 2))
+                correta = f"Parágrafo.\n### {secao}\n" + "- Ideia.\n" * maximo
+                self.req.side_effect = [{"choices": [{"message": {"content": v}}]} for v in (txt, correta)]
+                j = {"id": 1, "data": {"analysis": {**ANALISE}}}
+                self.assertIn(correta.strip(), main.sb_sintese(j, self.c, "Produtividade"))
+                self.assertEqual(self.req.call_count, 2)
+
+    def test_reestilo_reescreve_resumo_excedente(self):
+        self.req.side_effect = [self.resposta({"resumo": "Frase. " * 5}),
+                                self.resposta({"resumo": "Resumo corrigido.", "gancho": "Foco."})]
+        j = {"id": 1, "data": {"analysis": {**ANALISE}}}
+        main.sb_reestilo(j, self.c)
+        self.assertEqual(j["data"]["analysis"]["resumo"], "Resumo corrigido.")
+        self.assertEqual(self.req.call_count, 2)
+
+    def test_links_reescrevem_limites(self):
+        for campo, valor, maximo, unidade in (("itens", [{}] * 4, 3, "itens"),
+                                             ("rotulo", "x" * 61, 60, "caracteres"),
+                                             ("porque", "palavra " * 9, 8, "palavras"),
+                                             ("porque", "x" * 81, 80, "caracteres")):
+            with self.subTest(campo=campo, unidade=unidade):
+                self.req.reset_mock()
+                self.req.side_effect = [self.resposta({campo: valor}), self.resposta({campo: [] if campo == "itens" else "curto"})]
+                r = main.llm(self.c, self.body, "modelo-links", limites=[(campo, unidade, maximo)])
+                self.assertEqual(main.json_llm(r)[campo], [] if campo == "itens" else "curto")
+                self.assertEqual(self.req.call_count, 2)
 
     def test_sintese_e_reestilo_usam_texto(self):
         j = {"id": 1, "data": {"analysis": {**ANALISE}}}

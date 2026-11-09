@@ -58,6 +58,7 @@ FIELDS = [
     ("webhook_token", "Token do webhook", "secret", "Mesmo valor que você põe no webhook do Karakeep. Vazio = webhook desligado.", ""),
     ("h_ia", "IA e textos", "h", "", ""),
     ("model_texto", "Modelo de texto na Inception", "text", "Resumo sem imagens, síntese, reestilo e links.", "mercury-3"),
+    ("esforco_texto", "Esforço de texto na Inception", "choice", "Só na Inception; não altera o Gemini nem o fallback 9Router.", "instant"),
     ("model", "Modelo de resumo no 9Router", "text", "Também usado se a Inception falhar. Gemini sempre na variante high.", "ag/gemini-3.8-flash-high"),
     ("model_visao", "Modelo de visão", "text", "Usado quando vão as imagens do vídeo. Vazio = o de resumo.", ""),
     ("model_sintese", "Modelo de síntese", "text", "Síntese do assunto e reestilo. Vazio = o de resumo.", ""),
@@ -129,6 +130,7 @@ NUM = {"resumo_frases": (2, 10), "pontos_max": (3, 15), "tags_max": (3, 20), "cu
        "tl_quadros": (1, 60), "tl_largura": (120, 1920), "max_frames": (9, 200), "max_min": (1, 600),
        "col_min": (5, 1440), "first_run": (1, 200), "crawl_tries": (0, 20), "crawl_wait": (30, 3600), "poll_secs": (60, 3600)}
 CHOICES = {"dl_ordem": [("cobalt", "Cobalt, depois yt-dlp"), ("ytdlp", "yt-dlp, depois Cobalt")],
+           "esforco_texto": [(v, v) for v in ("instant", "low", "medium", "high")],
            "dl_qualidade": [("max", "Máxima (original)"), ("1080", "1080p"), ("720", "720p"), ("480", "480p")],
            "longo_politica": [("link", "Não enviar o vídeo: link do original + capa + quadros"), ("comprimir", "Enviar comprimido")],
            "longo_res": [("1080", "1080p"), ("720", "720p"), ("480", "480p"), ("360", "360p")],
@@ -889,23 +891,85 @@ class Ignorado(Exception):
     """Item fora do que o usuário quer guardar (meme/humor, post só de foto): para sem erro."""
 
 
-def llm(c, body, modelo, timeout=180):
+def limites_resumo(c, reestilo=False):
+    limites = [("gancho", "caracteres", 100), ("gancho", "frases", 1),
+               ("resumo", "frases", num(c, "resumo_frases")),
+               ("pontos_chave", "itens", num(c, "pontos_max"))]
+    if not reestilo:
+        limites += [("titulo", "caracteres", 80), ("tags", "itens", num(c, "tags_max")),
+                    ("tags", "palavras", 2), ("tema", "caracteres", 60),
+                    ("tema", "palavras", 3), ("na_tela_literal", "itens", 20),
+                    ("na_tela_literal", "caracteres", 200)]
+    return limites
+
+
+def limites_excedidos(r, limites):
+    """Mede a saída bruta, antes dos cortes; listas têm limite por item, salvo unidade 'itens'."""
+    if not limites:
+        return []
+    texto = r["choices"][0]["message"]["content"]
+    markdown = any(unidade == "tópicos" for _, unidade, _ in limites)
+    if markdown:
+        dados, secao = {}, ""
+        for linha in texto.splitlines():
+            if titulo := re.match(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", linha):
+                secao = fold(titulo[1])
+                dados.setdefault(secao, [])
+            elif re.match(r"^\s*(?:[-+*]|\d+[.)])\s+", linha):
+                dados.setdefault(secao, []).append(linha)
+    else:
+        dados = json_llm(r)
+    excedidos = []
+    for campo, unidade, maximo in limites:
+        valor = dados.get(fold(campo) if markdown else campo)
+        if valor is None:
+            continue
+        if unidade in ("itens", "tópicos"):
+            tamanho = len(valor)
+        else:
+            valores = valor if isinstance(valor, list) else [valor]
+            if unidade == "caracteres":
+                tamanho = max((len(str(v).strip()) for v in valores), default=0)
+            elif unidade == "palavras":
+                tamanho = max((len(str(v).split()) for v in valores), default=0)
+            else:  # Frases: pontuação final (inclusive aspas) ou quebra de linha; decimais/URLs não separam.
+                tamanho = max((len([s for s in re.split(r'''[.!?…]+["”»')\]]*(?:\s+|$)|\n+''', str(v)) if s.strip()])
+                               for v in valores), default=0)
+        if tamanho > maximo:
+            excedidos.append(f"{campo}: máximo {maximo} {unidade}")
+    return excedidos
+
+
+def llm(c, body, modelo, timeout=180, limites=()):
     """Texto na Inception quando configurada; imagens no 9Router. Falha da Inception: uma tentativa no 9Router."""
+    body = {k: v for k, v in body.items() if k != "reasoning_effort"}
     imagens = any(isinstance(m.get("content"), list) and any(
         isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"]) for m in body.get("messages", []))
     if c.get("texto_key") and not imagens:
+        esforco = c.get("esforco_texto", DEFAULTS["esforco_texto"])
+        if esforco not in dict(CHOICES["esforco_texto"]):
+            esforco = DEFAULTS["esforco_texto"]
         texto = {**body, "model": c.get("model_texto") or DEFAULTS["model_texto"],
-                 "temperature": max(0.5, min(1.0, body.get("temperature", 0.5)))}
+                 "reasoning_effort": esforco, "temperature": max(0.5, min(1.0, body.get("temperature", 0.5)))}
         texto.pop("seed", None)
         try:
-            r = req("POST", (c.get("texto_url") or DEFAULTS["texto_url"]).rstrip("/") + "/chat/completions",
-                    {"Authorization": "Bearer " + c["texto_key"]}, texto, timeout=timeout)
-            content = r["choices"][0]["message"]["content"]
-            if not isinstance(content, str) or not content.strip():
-                raise ValueError("resposta vazia")
-            if (body.get("response_format") or {}).get("type") == "json_object" and not isinstance(json_llm(r), dict):
-                raise ValueError("resposta não é objeto JSON")
-            return r
+            for tentativa in range(2):
+                r = req("POST", (c.get("texto_url") or DEFAULTS["texto_url"]).rstrip("/") + "/chat/completions",
+                        {"Authorization": "Bearer " + c["texto_key"]}, texto, timeout=timeout)
+                content = r["choices"][0]["message"]["content"]
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("resposta vazia")
+                if (body.get("response_format") or {}).get("type") == "json_object" and not isinstance(json_llm(r), dict):
+                    raise ValueError("resposta não é objeto JSON")
+                excesso = limites_excedidos(r, limites)
+                if not excesso:
+                    return r
+                if tentativa:
+                    raise ValueError("limite excedido após reescrita")
+                log("Inception excedeu limite; reescrita única")
+                texto = {**texto, "messages": [*body.get("messages", []),
+                         {"role": "assistant", "content": content},
+                         {"role": "user", "content": "Reescreva respeitando o limite " + "; ".join(excesso) + "; responda no mesmo formato."}]}
         except Exception:
             log("Inception falhou; tentando 9Router uma vez")
         return req("POST", c["llm_url"].rstrip("/") + "/chat/completions",
@@ -1031,7 +1095,8 @@ def step_resumo(j, c):
         return llm(c, {"stream": False, "response_format": {"type": "json_object"},
                        "messages": [{"role": "system", "content": prompt(c, video) + (PROMPT_VISAO if video and com_imagens else "") + estilo(c) + ctx},
                                     {"role": "user", "content": user}]},
-                   (c.get("model_visao") or c["model"]) if com_imagens else c["model"], timeout=300 if com_imagens else 180)
+                   (c.get("model_visao") or c["model"]) if com_imagens else c["model"], timeout=300 if com_imagens else 180,
+                   limites=limites_resumo(c))
 
     if video and imgs:
         try:
@@ -1361,7 +1426,8 @@ def step_links(j, c):
            + f"\n\nLegenda do post:\n{leg or '(sem legenda)'}\n\nTranscrição:\n" + (a.get("transcricao_limpa") or d.get("transcript", ""))[:20000])
     modelo = c.get("model_links") or c["model"]
     itens = json_llm(llm(c, {"stream": False, "response_format": {"type": "json_object"},
-                              "messages": [{"role": "system", "content": PROMPT_LINKS}, {"role": "user", "content": ctx}]}, modelo)).get("itens") or []
+                              "messages": [{"role": "system", "content": PROMPT_LINKS}, {"role": "user", "content": ctx}]},
+                              modelo, limites=[("itens", "itens", 3)])).get("itens") or []
     links, log_links = [], []
     for it in itens[:3]:
         if not isinstance(it, dict) or not str(it.get("nome") or "").strip():
@@ -1388,7 +1454,8 @@ def step_links(j, c):
         lista = "\n".join(f"{i}. {x['titulo']} | {x['url']} | {x['trecho']}" for i, x in enumerate(cands))
         esc_ = json_llm(llm(c, {"stream": False, "response_format": {"type": "json_object"}, "messages": [
             {"role": "system", "content": PROMPT_ESCOLHA},
-            {"role": "user", "content": f"Item: {json.dumps(it, ensure_ascii=False)}\n\nVídeo: {a['titulo']}. {a['resumo']}\n\nCandidatos:\n{lista}"}]}, modelo))
+            {"role": "user", "content": f"Item: {json.dumps(it, ensure_ascii=False)}\n\nVídeo: {a['titulo']}. {a['resumo']}\n\nCandidatos:\n{lista}"}]},
+            modelo, limites=[("rotulo", "caracteres", 60), ("porque", "palavras", 8), ("porque", "caracteres", 80)]))
         i = int(esc_.get("i", -1)) if str(esc_.get("i", "-1")).lstrip("-").isdigit() else -1
         if not 0 <= i < len(cands):
             log_links.append(f"nenhum candidato certo: {it['nome']} (viu {len(cands)}: " + ", ".join(re.sub(r"^https?://(www\.)?", "", x["url"])[:50] for x in cands[:5]) + ")")
@@ -1681,7 +1748,8 @@ def sb_sintese(j, c, tema):
                      "Recebe resumos de vídeos salvos sobre um mesmo assunto. Escreva em Markdown: um parágrafo curto com o que esses vídeos têm em comum "
                      "e o que dá pra aprender juntando eles; depois '### Ideias que se repetem' com 3 a 6 tópicos curtos; "
                      "se houver, '### Onde eles discordam' com 1 a 3 tópicos. Não invente nada que não esteja nos resumos. Sem título principal."},
-                    {"role": "user", "content": f"Assunto: {tema}\n\n{lista}"}]}, c.get("model_sintese") or c["model"])
+                    {"role": "user", "content": f"Assunto: {tema}\n\n{lista}"}]}, c.get("model_sintese") or c["model"],
+                limites=[("Ideias que se repetem", "tópicos", 6), ("Onde eles discordam", "tópicos", 3)])
         txt = r["choices"][0]["message"]["content"].strip()
         return f"## Síntese\n_Atualizada pela IA em {time.strftime('%d/%m/%Y')} com {len(itens)} Reels._\n\n{txt}\n\n## Reels\n"
     except Exception as e:
@@ -1702,7 +1770,7 @@ def sb_reestilo(j, c):
                      f"Responda SOMENTE o JSON com as mesmas chaves e tipos (resumo string 2 a {num(c, 'resumo_frases')} frases; listas continuam listas de strings). "
                      "Se \"gancho\" vier vazio, escreva 1 frase de até 100 caracteres dizendo do que se trata." + estilo(c)},
                     {"role": "user", "content": json.dumps({**campos, "titulo": a["titulo"], "resumo_atual": a["resumo"]}, ensure_ascii=False)}]},
-                   c.get("model_sintese") or c["model"])
+                   c.get("model_sintese") or c["model"], limites=limites_resumo(c, reestilo=True))
         txt = r["choices"][0]["message"]["content"].strip()
         novo = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
         for k, v in campos.items():

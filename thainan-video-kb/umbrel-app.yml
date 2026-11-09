@@ -20,7 +20,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Texto via Mercury 3 direto na Inception, com retorno único ao 9Router se falhar. Visão e Decider continuam no 9Router. Teste de credencial da Inception nas configurações.
+  Texto via Mercury 3 direto na Inception, com retorno único ao 9Router se falhar. Esforço de texto configurável (instant por padrão; low, medium ou high), enviado só à Inception. Saídas acima dos limites de título, gancho, resumo, pontos, tags, tema, links e síntese recebem uma única reescrita; se persistir, segue o fallback atual. Visão e Decider continuam no 9Router. Teste de credencial da Inception nas configurações.
 dependencies: []
 path: ""
 defaultUsername: ""
