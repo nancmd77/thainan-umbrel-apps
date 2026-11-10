@@ -5,14 +5,14 @@
 O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
 
 1. **AT-SPI (Leitura de Estado)**:
-   - Inspecione a arvore de acessibilidade da janela ativa via AT-SPI. A leitura semantica e imediata, confiavel e sem custo de inferencia.
+   - Inspecione a arvore de acessibilidade com `agent-desktop snapshot --app <nome> -i --compact` (skill agent-desktop). A leitura semantica e imediata, confiavel e sem custo de inferencia.
 
 2. **decide escolhe (Decisao por Passo)**:
    - Execute a CLI `decide --objetivo '<meta>' --estado '<lista AT-SPI>' --opcao id='descricao' ...`.
    - O modelo leve calibrado (Liquid AI `d1-ultra` com reserva Jev `jev-latest` via API oficial da TypeSafe) seleciona a melhor opcao com confianca e custo minimo.
 
 3. **Clique pela arvore**:
-   - Apos a escolha do `decide`, clique diretamente no no da arvore AT-SPI correspondente ao elemento.
+   - Apos a escolha do `decide`, clique pelo ref: `agent-desktop click <ref>` (ou `type`, `set-value`), e confira com novo snapshot.
 
 4. **md point se nao houver rotulo (Mira Visual)**:
    - Se o elemento nao possuir rotulo acessivel, estiver em canvas WebGL, bitmaps, jogos ou a arvore falhar, utilize `md point '<alvo>' --click` para mira visual com glide e pulso Hark.

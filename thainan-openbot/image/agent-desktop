@@ -1,0 +1,6 @@
+#!/bin/sh
+# thainan-openbot: agent-desktop com o barramento de acessibilidade da sessão e DISPLAY=:1 por padrão
+[ -r /run/openbot/a11y.env ] && . /run/openbot/a11y.env
+: "${DISPLAY:=:1}"
+export DISPLAY
+exec /usr/local/lib/agent-desktop/agent-desktop "$@"

@@ -64,6 +64,7 @@ services:
         troca_fabrica /data/AGENTS.md 2b42c64ea704214abf7cfbd6ad1ce2295084ef7db42d1dc8ac4f44aa81ac420f # fábrica da 0.61.0-r10 até a 0.64.0-r4
         troca_fabrica /data/AGENTS.md bbb5043aa0833833a8d6d5766f50abcc73608876ffed15adba23b004c3e53b07 # fábrica da 0.64.0-r5
         troca_fabrica /data/AGENTS.md 17c82a1a9b9aa8b3e869840f8561014964352efec92f4c485b44c1b8dd05affb # fábrica da 0.64.0-r6
+        troca_fabrica /data/AGENTS.md b08f5d2657a39f1c8c4852b09ea3ee9823b3e8259a0e6e22a1172aa27e110009 # fábrica da 0.64.0-r7 até a 0.66.0-r1
         if [ ! -e /data/AGENTS.md ]; then
         cat <<'EOF' > /data/AGENTS.md
         # Diretrizes para Agentes OpenBot (Computer Use)
@@ -73,14 +74,14 @@ services:
         O agente de uso de computador (CUA) segue estritamente este pipeline por passo:
 
         1. **AT-SPI (Leitura de Estado)**:
-           - Inspecione a arvore de acessibilidade da janela ativa via AT-SPI. A leitura semantica e imediata, confiavel e sem custo de inferencia.
+           - Inspecione a arvore de acessibilidade com `agent-desktop snapshot --app <nome> -i --compact` (skill agent-desktop). A leitura semantica e imediata, confiavel e sem custo de inferencia.
 
         2. **decide escolhe (Decisao por Passo)**:
            - Execute a CLI `decide --objetivo '<meta>' --estado '<lista AT-SPI>' --opcao id='descricao' ...`.
            - O modelo leve calibrado (Liquid AI `d1-ultra` com reserva Jev `jev-latest` via API oficial da TypeSafe) seleciona a melhor opcao com confianca e custo minimo.
 
         3. **Clique pela arvore**:
-           - Apos a escolha do `decide`, clique diretamente no no da arvore AT-SPI correspondente ao elemento.
+           - Apos a escolha do `decide`, clique pelo ref: `agent-desktop click <ref>` (ou `type`, `set-value`), e confira com novo snapshot.
 
         4. **md point se nao houver rotulo (Mira Visual)**:
            - Se o elemento nao possuir rotulo acessivel, estiver em canvas WebGL, bitmaps, jogos ou a arvore falhar, utilize `md point '<alvo>' --click` para mira visual com glide e pulso Hark.
@@ -300,6 +301,31 @@ services:
         skill_agentes conselho 'Use só em decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados; inclui o decide com confiança abaixo de 0,35 nesse tipo de decisão), quando dois nichados ou plano e revisão discordam ou quando o Nan pedir "pergunta ao conselho". Nunca no dia a dia. Só o Chefe chama, no máximo 1 vez por tarefa; subagente devolve a decisão ao Chefe.'
         skill_agentes decide 'Use para escolher entre opções fechadas na tela (qual botão, qual aba, qual resultado) quando a escolha não for óbvia. Rode decide com objetivo, estado e opções. Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).'
         skill_agentes moondream 'Use md point/detect para mirar e clicar quando o alvo não tem rótulo acessível (canvas, jogo, imagem) ou AT-SPI falha. Para descrever a tela use md ask (Qwen Cerebras rápido, reserva Gemini); coordenadas do ask não servem pra clicar. Código 4 = tela vazia (display sem janela visível), não insista.'
+        # 0.66.0-r2: skill agent-desktop (árvore AT-SPI por ref, Moondream de reserva)
+        if [ ! -s /data/skills/agent-desktop.md ]; then
+        cat <<'EOF' > /data/skills/agent-desktop.md
+        # Skill: agent-desktop
+
+        Programa de desktop na área remota (:1): leia e aja pela árvore de acessibilidade com o `agent-desktop`, sem print e sem chute de pixel. É o primeiro recurso; o Moondream fica de reserva.
+
+        ## Ordem
+        1. Ache o app: `agent-desktop list-apps`. Abrir um: `agent-desktop launch <comando> --activate`.
+        2. Leia: `agent-desktop snapshot --app <nome> -i --compact`. Cada elemento acionável vem com um `ref_id` (ex. `@s1abc:e2`). O ref só vale pro snapshot que o gerou.
+        3. Aja pelo ref: `click`, `type <ref> "texto"`, `set-value`, `select`, `check`, `toggle`, `press return`. Pra achar um elemento sem ler a árvore toda: `agent-desktop find --app <nome> --name "Salvar"`.
+        4. Confira antes de dizer que terminou: `snapshot` de novo ou `agent-desktop wait --window "<título>" --app <nome>`.
+        5. Escolha difícil entre refs: `decide` com as opções do snapshot.
+        6. App fora da árvore (erro `APP_NOT_FOUND ... not on the accessibility bus`), canvas, jogo, imagem ou elemento sem nome: `md point '<alvo>' --click` (skill moondream).
+        7. Página web: navegador interno do OpenBot, não o agent-desktop. Chromium aberto à mão precisa de `--force-renderer-accessibility`; app Qt, de `QT_ACCESSIBILITY=1`.
+
+        ## Notas
+        - O comando já carrega o barramento de acessibilidade e usa DISPLAY=:1 quando nada foi definido. Outra tela: `DISPLAY=:0 agent-desktop ...`.
+        - A saída é JSON. Com `ok:false`, leia `error.suggestion` antes de tentar de novo; não repita o mesmo comando mais de 2 vezes.
+        - Detalhes da versão instalada: `agent-desktop <comando> --help` e `agent-desktop skills get platform`.
+        - Mostre o que faz (skill cursor-hark): avise "vou fazer na área remota" antes de começar.
+        EOF
+        fi
+        cp -f /data/skills/agent-desktop.md /data/.config/opencode/skills/agent-desktop.md 2>/dev/null || true
+        skill_agentes agent-desktop 'Use pra ler e operar programas de desktop da área remota pela árvore de acessibilidade: snapshot com refs, click e type por ref, snapshot de novo pra conferir. Primeiro recurso; md/Moondream só quando o app não está na árvore ou o alvo não tem nome. Não serve pra página web.'
         # Jeito Hark (r3): skills globais em ~/.agents/skills e bloco no AGENTS.md de cada agente
         mkdir -p /data/.agents/skills/jeito-hark /data/.agents/skills/cursor-hark
         cat <<'FIM_HARK' > /data/.agents/skills/jeito-hark/SKILL.md
@@ -418,6 +444,7 @@ services:
         - Em toda ação no navegador ou na área remota, siga a skill cursor-hark (bolinha do Hark visível, clique em dois tempos, md para mirar/clicar com Moondream e md ask para descrever com Qwen/Gemini, coordenadas do ask não servem pra clicar, código 4 = tela vazia, e decide).
         - Conselho, só nestes 4 casos: decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados); dois nichados discordam, ou plano e revisão discordam; decide com confiança abaixo de 0,35 numa decisão difícil de desfazer; o Nan pede "pergunta ao conselho". Siga a skill conselho. Nunca no dia a dia. Só o Chefe chama, no máximo 1 vez por tarefa; subagente devolve a decisão ao Chefe.
         - Se o `decide` deu ESCALAR (exit 3, confiança < 0,35), leve a decisão difícil de desfazer (arquitetura, escolha de serviço, produção, apagar dados) ao conselho (máx. 1 vez por tarefa; só o Chefe chama; subagente devolve a decisão ao Chefe) e a decisão do dia a dia (inclui cliques de computer use, md/moondream) ao modelo grande de raciocínio com contexto completo; só pergunte ao Nan se o conselho também ficar com confiança baixa ou se a ação for destrutiva (que já exige OK do Nan).
+        - Programa de desktop na área remota: siga a skill agent-desktop (árvore de acessibilidade por ref primeiro; md/Moondream só se o app não estiver na árvore).
         - Memória: siga a skill supermemory (sm buscar antes de responder, sm gravar decisões e resultados no mesmo turno).
         - Cartões no chat (tabela, pergunta com opções, várias escolhas, campos, sim ou não, confirmação de compra, login, chave de API, código): siga a skill openui-hark. Senha, cartão e chave nunca em campo do cartão; use o cofre.
         - Skills em ~/.agents/skills. Se não achar, avise o Nan.
@@ -3865,7 +3892,21 @@ services:
         fi
         export ACCESSIBILITY_ENABLED=1
         export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
-        export AT_SPI_BUS_ADDRESS=$$(dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --fork --print-address)
+        # 0.66.0-r2: barramento de sessão + at-spi-bus-launcher (apps GTK4 e o agent-desktop acham o AT-SPI pelo org.a11y.Bus)
+        eval "$$(dbus-launch --sh-syntax)" || true
+        export AT_SPI_BUS_ADDRESS=
+        if [ -n "$${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -x /usr/libexec/at-spi-bus-launcher ]; then
+          ( /usr/libexec/at-spi-bus-launcher --launch-immediately >/dev/null 2>&1 & )
+          for _ in $$(seq 1 50); do
+            AT_SPI_BUS_ADDRESS=$$(dbus-send --session --print-reply --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress 2>/dev/null | awk -F'"' '/string/{print $$2}')
+            [ -n "$$AT_SPI_BUS_ADDRESS" ] && break
+            sleep 0.1
+          done
+        fi
+        [ -n "$$AT_SPI_BUS_ADDRESS" ] || AT_SPI_BUS_ADDRESS=$$(dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --fork --print-address)
+        export AT_SPI_BUS_ADDRESS
+        echo "openbot: barramento AT-SPI em $${AT_SPI_BUS_ADDRESS%%,*}"
+        { printf 'export DBUS_SESSION_BUS_ADDRESS=%s\n' "'$${DBUS_SESSION_BUS_ADDRESS:-}'"; printf 'export AT_SPI_BUS_ADDRESS=%s\n' "'$$AT_SPI_BUS_ADDRESS'"; } > /run/openbot/a11y.env 2>/dev/null || true
         (
           for _ in $$(seq 1 100); do
             DISPLAY=:1 xdpyinfo >/dev/null 2>&1 && break
@@ -3880,7 +3921,7 @@ services:
           ) &
           (
             while true; do
-              /usr/libexec/at-spi2-registryd || true
+              pgrep -x at-spi2-registr >/dev/null 2>&1 || /usr/libexec/at-spi2-registryd || true
               sleep 1
             done
           ) &
