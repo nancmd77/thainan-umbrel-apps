@@ -60,13 +60,16 @@ def digest(reg, repo, tag):
     return hd.get("Docker-Content-Digest")
 
 
-def ver(t):
-    m = re.fullmatch(r"(v?)(\d+)\.(\d+)\.(\d+)", t)
-    return (m[1], tuple(int(x) for x in m.groups()[1:])) if m else None
+def ver(t, patched=False):
+    # patched=True aceita a tag atual com sufixo (ex.: 0.5.116-cc.1, patch local do Hark);
+    # candidatas seguem só X.Y.Z estável, então a próxima release oficial maior substitui o patch.
+    pat = r"(v?)(\d+)\.(\d+)\.(\d+)" + (r"(?:-[0-9A-Za-z.-]+)?" if patched else "")
+    m = re.fullmatch(pat, t)
+    return (m[1], tuple(int(x) for x in m.groups()[1:4])) if m else None
 
 
 def newest(cur, all_tags):
-    c = ver(cur)
+    c = ver(cur, patched=True)
     if not c:
         return None
     cands = [t for t in all_tags if (v := ver(t)) and v[0] == c[0]]
