@@ -52,7 +52,7 @@ echo "== docker compose config (com override do app_proxy)"
 "${COMPOSE[@]}" config -q
 
 echo "== pull $IMAGE"
-"${DOCKER[@]}" pull "$IMAGE" >/dev/null
+"${DOCKER[@]}" pull "$IMAGE" >/dev/null 2>&1 || "${DOCKER[@]}" image inspect "$IMAGE" >/dev/null
 
 echo "== init (serviço real do docker-compose.yml)"
 if ! "${COMPOSE[@]}" run -T --rm init >"$WORK/init.log" 2>&1; then
@@ -77,6 +77,30 @@ bloco_trocado() { local f=/data/OpenBot/Agents/smoke-antigo/AGENTS.md; test "$(g
 sm_ok() { python3 /data/bin/sm --help | grep -q 'sm buscar'; }
 conselho_ok() { python3 /data/bin/conselho --help | grep -q 'conselho'; }
 chave_ok() { test -s /config/supermemory.key && test "$(stat -c %a /config/supermemory.key)" = 600; }
+ad_versao() { agent-desktop version | grep -q '"ok":true'; }
+# /data é só leitura aqui: o estado do agent-desktop vai pra /tmp. Sessão igual à do app (Xvfb :1, dbus de sessão, at-spi-bus-launcher, openbox); zenity com botão "Sim"; clica pelo ref e exige saída 0
+ad_clique() {
+  local s ref
+  Xvfb :1 -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
+  sleep 1.5
+  export DISPLAY=:1
+  eval "$(dbus-launch --sh-syntax)"
+  ( /usr/libexec/at-spi-bus-launcher --launch-immediately >/dev/null 2>&1 & )
+  sleep 1.5
+  openbox >/dev/null 2>&1 &
+  ( zenity --question --title=smoke-ad --text=Fechar --ok-label=Sim --cancel-label=Nao >/dev/null 2>&1; echo $? > /tmp/zenity.rc ) &
+  sleep 3
+  s=$(AGENT_DESKTOP_HOME=/tmp/adh agent-desktop snapshot --app zenity -i --compact) || return 1
+  ref=$(printf '%s' "$s" | python3 -c 'import sys,json
+def anda(n):
+    if n.get("name")=="Sim" and n.get("ref_id"): print(n["ref_id"]); raise SystemExit
+    for c in n.get("children",[]): anda(c)
+anda(json.load(sys.stdin)["data"]["tree"])')
+  [ -n "$ref" ] || return 1
+  AGENT_DESKTOP_HOME=/tmp/adh agent-desktop click "$ref" | grep -q '"ok":true' || return 1
+  sleep 1
+  test "$(cat /tmp/zenity.rc 2>/dev/null)" = 0
+}
 no_at() { test -z "${NO_AT_BRIDGE+x}"; }
 # regra do ESCALAR: todo texto dos agentes cita ESCALAR e a frase que começa em "Se o `decide` deu ESCALAR" é a mesma em todos
 TEXTOS_ESCALAR=(/data/AGENTS.md /data/skills/{conselho,decide,moondream}.md /data/.agents/skills/{conselho,decide,moondream,jeito-hark,cursor-hark}/SKILL.md /data/OpenBot/Agents/smoke-{agente,antigo}/AGENTS.md)
@@ -94,12 +118,14 @@ check "md" test -x /usr/local/bin/md
 check "decide" test -x /usr/local/bin/decide
 check "openbox/xdotool/scrot" bins openbox xdotool scrot
 check "sudo sem senha" sudo -n true
+check "agent-desktop version" ad_versao
+check "agent-desktop: snapshot de janela GTK no :1 e clique por ref" ad_clique
 check "at-spi-bus-launcher instalado" test -x /usr/libexec/at-spi-bus-launcher -o -x /usr/lib/at-spi2-core/at-spi-bus-launcher
 check "NO_AT_BRIDGE não definido no shell" no_at
 
 # customizações geradas pelo init
-for s in jeito-hark cursor-hark openui-hark supermemory conselho decide moondream; do check "skill $s" skill "$s"; done
-for s in conselho decide moondream; do
+for s in jeito-hark cursor-hark openui-hark supermemory conselho decide moondream agent-desktop; do check "skill $s" skill "$s"; done
+for s in conselho decide moondream agent-desktop; do
   check "skill $s = front matter + skills/$s.md" fonte "$s"
   check "skill $s com dono 1000:1000" dono "/data/.agents/skills/$s/SKILL.md"
 done
