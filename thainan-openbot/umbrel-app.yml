@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.64.0-r7"
+version: "0.66.0-r1"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.64.0-r7: md ask muito mais rápido. CLI md ask adota por padrão cerebras/qwen-3.8-27b via 9Router (~1 s), com reserva automática ag/gemini-3.8-flash-high e fallback Moondream query com aviso se ambos falharem. Flag --modelo força modelo único sem cadeia; JSON traz o modelo respondente e lista de tentativas com motivo curto em caso de falha. Prompt instrui que coordenadas do ask são aproximadas e cliques usam md point. Textos, skills e troca_fabrica atualizados somando sha256 da r6; edição do Nan preservada.
+  Versão 0.66.0-r1: base OpenBot atualizada para v0.66.0 (upstream nightly-labs). Notas completas da release: https://github.com/nightly-labs/openbot/releases/tag/v0.66.0.
 dependencies: []
 path: ""
 defaultUsername: ""
