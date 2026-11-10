@@ -63,3 +63,6 @@ thainan-9router:
 thainan-waha:
   image: devlikeapro/waha
   mode: digest
+thainan-omniroute:
+  image: diegosouzapw/omniroute
+  mode: tag

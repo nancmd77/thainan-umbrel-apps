@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-omniroute
+name: OmniRoute
+tagline: Gateway de IA com um endpoint e centenas de provedores
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-omniroute/icon.png
+category: AI
+version: "3.8.53"
+port: 20140
+description: >-
+  OmniRoute junta provedores de IA (muitos grátis) num endpoint compatível com OpenAI, com fallback por cota, compressão de tokens e MCP. Funciona com Claude Code, Codex, Cursor, OpenCode e Cline.
+
+  A senha inicial do painel é a senha do app no Umbrel. A API exige chave (crie no painel).
+developer: cheaper-inference
+website: https://github.com/cheaper-inference/OmniRoute
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/cheaper-inference/OmniRoute
+support: https://github.com/cheaper-inference/OmniRoute/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão na Thainan Appstore (OmniRoute 3.8.53).
+dependencies: []
+path: ""
+deterministicPassword: true
+defaultUsername: ""

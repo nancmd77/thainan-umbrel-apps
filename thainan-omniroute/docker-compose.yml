@@ -1,0 +1,25 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-omniroute_web_1
+      APP_PORT: 20128
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: diegosouzapw/omniroute:3.8.53@sha256:b52a17661a1aff42ffb78f349f423e986dfc55b57274f28559f8387622ef8ee4
+    user: "1000:1000"
+    restart: unless-stopped
+    stop_grace_period: 40s
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    environment:
+      DATA_DIR: /app/data
+      PORT: "20128"
+      HOSTNAME: "0.0.0.0"
+      OMNIROUTE_MEMORY_MB: "1024"
+      INITIAL_PASSWORD: "${APP_PASSWORD}"
+      JWT_SECRET: "${APP_THAINAN_OMNIROUTE_JWT_SECRET}"
+      API_KEY_SECRET: "${APP_THAINAN_OMNIROUTE_API_KEY_SECRET}"
+      REQUIRE_API_KEY: "true"
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/data
