@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.66.0-r2"
+version: "0.68.0-r1"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.66.0-r2: agent-desktop 1.2.0 (Vercel) para os agentes lerem e clicarem em programas de desktop pela árvore de acessibilidade, com o Moondream de reserva; barramento AT-SPI com sessão (apps GTK4 entram na árvore); skill agent-desktop para todos os agentes.
+  Versão 0.68.0-r1: base OpenBot atualizada para v0.68.0 (upstream nightly-labs). Notas completas da release: https://github.com/nightly-labs/openbot/releases/tag/v0.68.0.
 dependencies: []
 path: ""
 defaultUsername: ""
