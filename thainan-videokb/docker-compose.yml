@@ -42,7 +42,7 @@ services:
         cd /tmp/app && exec node server.js
     environment:
       PORT: "8765"
-      REF: selah-v0.8.3
+      REF: selah-v0.9.0
       DATA_DIR: /tmp/app/dados
       STATE_DIR: /estado
       SB_DIR: /cerebro
@@ -60,9 +60,11 @@ services:
     restart: on-failure
     environment:
       PORT: "8790"
+      # 0.9.0: cache das listas do Product Hunt (Papiro)
+      PH_CACHE_DIR: /leitor/producthunt
       CEREBRO_DIR: /cerebro
       MINI_DIR: /leitor/mini
-      REF: selah-v0.8.3
+      REF: selah-v0.9.0
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_ROOT_USER_ACTION: ignore
       PLAYWRIGHT_BROWSERS_PATH: /leitor/browsers
@@ -79,10 +81,10 @@ services:
         # código: baixa leitor.py da tag REF (o Umbrel não troca a pasta do app no update); sem rede, usa a cópia local
         ok=0
         for t in $$(seq 1 30); do
-          python -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/leitor.py', '/leitor/leitor.py.new')" 2>/dev/null && mv /leitor/leitor.py.new /leitor/leitor.py && ok=1 && break
+          python -c "import urllib.request as u; b='https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$REF/thainan-videokb/'; u.urlretrieve(b+'leitor.py', '/leitor/leitor.py.new'); u.urlretrieve(b+'producthunt.py', '/leitor/producthunt.py.new')" 2>/dev/null && mv /leitor/producthunt.py.new /leitor/producthunt.py && mv /leitor/leitor.py.new /leitor/leitor.py && ok=1 && break
           echo "leitor: tentativa $$t sem rede, de novo em 10 s"; sleep 10
         done
-        [ "$$ok" = 1 ] || { [ -f /leitor/leitor.py ] || cp /bundle/leitor.py /leitor/leitor.py; echo "download do leitor falhou, usando a cópia local"; }
+        [ "$$ok" = 1 ] || { [ -f /leitor/leitor.py ] || cp /bundle/leitor.py /leitor/leitor.py; [ -f /leitor/producthunt.py ] || cp /bundle/producthunt.py /leitor/producthunt.py 2>/dev/null || true; echo "download do leitor falhou, usando a cópia local"; }
         # Scrapling e dependências em versões fixas, instalados uma vez no volume
         [ -f /leitor/pylib/.v0.5 ] || { pip install -q --target /leitor/pylib scrapling==0.5 curl_cffi==0.16.3 patchright==1.64.2 browserforge==1.2.4 && touch /leitor/pylib/.v0.5; }
         # Pillow pras miniaturas das capas (0.6.2)

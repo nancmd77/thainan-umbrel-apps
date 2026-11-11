@@ -2,6 +2,8 @@
 O site fica atrás do Cloudflare; o Scrapling (Fetcher leve, curl_cffi imitando o TLS do Chrome/Safari) passa sem abrir navegador.
 Só a rede interna do app usa. GET /ler?url=<matéria>  ->  {titulo, paragrafos, externos, links, apps_at, og, autor};  GET /app?url=<app no AlternativeTo> -> {nome, site, github}
 GET /feed?url=<feed>  ->  o XML do feed, pra fontes que barram o Selah (403/429 do Cloudflare); só os domínios de FEED_HOSTS; último recurso = navegador (StealthyFetcher). Papiro 0.7 (30 out).
+GET /producthunt?lista=hoje|dia|semana|mes -> Posts Apollo normalizados, cache em disco, navegador serializado.
+GET /producthunt/produto?url=<página do produto> -> galeria, descrição, makers, links (cache 7 dias, mesmo navegador).
 GET /saude -> ok
 GET /mini?f=<caminho no cerebro>  ->  miniatura webp (480 px de largura) da capa, com cache em disco. Desempenho do Selah (23 out).
 Na partida, gera em segundo plano as miniaturas que faltam."""
@@ -10,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import threading, hashlib
 from scrapling.fetchers import Fetcher
+from producthunt import producthunt, produto
 
 CEREBRO = os.environ.get('CEREBRO_DIR', '/cerebro')
 MINI_DIR = os.environ.get('MINI_DIR', '/leitor/mini')
@@ -201,6 +204,16 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == '/saude': return self.responder(200, {'ok': True})
+        if u.path == '/producthunt':
+            lista = (parse_qs(u.query).get('lista') or ['hoje'])[0]
+            try: return self.responder(200, producthunt(lista))
+            except ValueError as e: return self.responder(400, {'erro': str(e)})
+            except Exception as e: return self.responder(502, {'erro': str(e)[:240]})
+        if u.path == '/producthunt/produto':
+            alvo = (parse_qs(u.query).get('url') or [''])[0]
+            try: return self.responder(200, produto(alvo))
+            except ValueError as e: return self.responder(400, {'erro': str(e)})
+            except Exception as e: print('[leitor] produto falhou', alvo, e, flush=True); return self.responder(502, {'erro': str(e)[:240]})
         if u.path == '/mini':
             try:
                 b, etag = mini((parse_qs(u.query).get('f') or [''])[0])

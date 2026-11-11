@@ -15,6 +15,12 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 
 ## thainan-videokb (Selah)
 
+### 0.9.0 — 2026-11-11
+
+- Tag: `selah-v0.9.0`.
+- O que mudou: visual "Copilot" vira o padrão (`?copilot=0` desliga): trilho lateral fino com ícones, busca grande com Rápida e Por sentido (IA escolhe os salvos pelo assunto, `/search?modo=sentido`), celular no mesmo padrão. Tema Duna. Tipografia Ginto. Papiro: Product Hunt (Hoje, Ontem, Semana, Mês, Lançamentos) ao lado do AlternativeTo; as outras 12 fontes deixam de ser coletadas (histórico preservado). Leitor ganha `/producthunt` e baixa também `producthunt.py`; cache em `PH_CACHE_DIR`.
+- Como desfazer: voltar a `selah-v0.8.3`.
+
 ### 0.8.3 — 2026-11-09
 
 - Tag: `selah-v0.8.3`.
