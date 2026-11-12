@@ -1,6 +1,6 @@
 """Leitor do Papiro: devolve o texto completo de uma matéria (AlternativeTo com extração própria; outros sites, genérica).
 O site fica atrás do Cloudflare; o Scrapling (Fetcher leve, curl_cffi imitando o TLS do Chrome/Safari) passa sem abrir navegador.
-Só a rede interna do app usa. GET /ler?url=<matéria>  ->  {titulo, paragrafos, externos, links, apps_at, og, autor};  GET /app?url=<app no AlternativeTo> -> {nome, site, github}
+Só a rede interna do app usa. GET /ler?url=<matéria>  ->  {titulo, paragrafos, externos, links, apps_at, og, autor};  GET /app?url=<app no AlternativeTo> -> {nome, site, github, icone}
 GET /feed?url=<feed>  ->  o XML do feed, pra fontes que barram o Selah (403/429 do Cloudflare); só os domínios de FEED_HOSTS; último recurso = navegador (StealthyFetcher). Papiro 0.7 (30 out).
 GET /producthunt?lista=hoje|dia|semana|mes -> Posts Apollo normalizados, cache em disco, navegador serializado.
 GET /producthunt/produto?url=<página do produto> -> galeria, descrição, makers, links (cache 7 dias, mesmo navegador).
@@ -188,8 +188,14 @@ def app(url):
                 if not re.match(r'^https?://', h) or 'sponsored' in (a.attrib.get('rel') or ''): continue
                 if not site and t.startswith('Official Website'): site = h
                 if not gh and re.match(r'^https://github\.com/[^/]+', h) and t in ('GitHub', 'View on GitHub'): gh = h
-            h1 = um(p, 'h1')
-            return {'nome': espaco(h1.get_all_text()) if h1 is not None else '', 'site': site[:300], 'github': gh[:300]}
+            h1 = um(p, 'h1'); nome = espaco(h1.get_all_text()) if h1 is not None else ''
+            # ícone do app (nan 11 nov): a imagem "<Nome> icon" em img.alternativeto.net/icons/
+            icone = ''
+            for i in p.css('img'):
+                s, alt = i.attrib.get('src', ''), espaco(i.attrib.get('alt', ''))
+                if re.match(r'^https://img\.alternativeto\.net/icons/', s) and nome and alt.lower() == (nome + ' icon').lower():
+                    icone = re.sub(r'/icons/\d+/', '/icons/140/', s); break
+            return {'nome': nome, 'site': site[:300], 'github': gh[:300], 'icone': icone[:300]}
         except Exception as e:
             erro = f'{perfil}: {str(e)[:160]}'
     raise RuntimeError(erro)

@@ -15,6 +15,12 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 
 ## thainan-videokb (Selah)
 
+### 0.10.0 — 2026-11-12
+
+- Tag: `selah-v0.10.0`.
+- O que mudou: comentários no card (resumo do público, perguntas por sentido respondidas com vídeo e comentários, pódio dos 3 mais relevantes, posturas Confirma/Acrescenta/Contesta, "Ler tudo" com desfoque); dados coletados de 11 reels em `dados/coment.json`, anexados pelo id do reel. Ficha com pontos-chave em linha do tempo, céu atrás dos comentários, emojis estilo iOS. Computador (≥1200 px): três cards de vidro (vídeo, ficha, comentários) sobre o céu, com desfoque nas bordas do scroll. Player com onda removido (vídeo usa os controles nativos). Retalho e Pavio saem do menu; tema Duna fixo. Leitor devolve o ícone do app (AlternativeTo).
+- Como desfazer: voltar a `selah-v0.9.0`.
+
 ### 0.9.0 — 2026-11-11
 
 - Tag: `selah-v0.9.0`.
