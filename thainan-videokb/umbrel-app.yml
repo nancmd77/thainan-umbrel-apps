@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.9.0"
+version: "0.10.0"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,8 +18,8 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Visual novo como padrão: trilho lateral fino, busca grande com "Rápida" e "Por sentido" (IA), celular no mesmo padrão do computador.
-  Tema Duna, tipografia Ginto, Papiro com Product Hunt (Hoje, Ontem, Semana, Mês e Lançamentos) ao lado do AlternativeTo.
+  Comentários no card: resumo do que o público diz, perguntas respondidas com o vídeo e os comentários, pódio dos mais relevantes e posturas (Confirma, Acrescenta, Contesta).
+  Ficha nova com pontos-chave em linha do tempo, céu atrás dos comentários e emojis no estilo iOS. No computador, o card abre em três painéis: vídeo, ficha e comentários.
 dependencies: []
 path: ""
 defaultUsername: ""
