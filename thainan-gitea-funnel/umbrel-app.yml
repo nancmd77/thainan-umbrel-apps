@@ -1,0 +1,24 @@
+manifestVersion: 1
+id: thainan-gitea-funnel
+name: Gitea Funnel
+tagline: Publica o Gitea do Nonve em gitea.taila412b1.ts.net pelo Tailscale Funnel
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-gitea-funnel/icon.png
+category: Networking
+version: "1.104.7"
+port: 8612
+description: >-
+  Nó Tailscale próprio (hostname gitea) que publica o app Gitea (gitea_server_1:8085) com HTTPS pelo Tailscale Funnel. Sobe sozinho no boot e guarda o estado em data/. Na primeira execução, o link de aprovação aparece no log do app. Separado do nó principal para que o token do Gitea não colida com o do Umbrel MCP.
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nancmd77/thainan-umbrel-apps
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão: Tailscale 1.104.7 em modo userspace com Funnel para o Gitea.
+dependencies:
+  - gitea
+path: ""
+defaultUsername: ""
+defaultPassword: ""
