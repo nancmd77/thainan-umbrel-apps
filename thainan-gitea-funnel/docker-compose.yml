@@ -19,6 +19,7 @@ services:
         sleep 3
         # Sem timeout: espera a aprovação do link pelo tempo que for (o link fica no log do app).
         until tailscale --socket=$$S up --hostname=gitea --accept-dns=false; do sleep 10; done
-        until tailscale --socket=$$S funnel --bg --https=443 http://gitea_server_1:8085; do sleep 10; done
+        # Funnel só aceita IP/localhost no destino: resolve o IP do container do Gitea a cada boot.
+        until IP=$$(getent hosts gitea_server_1 | awk '{print $$1}' | head -1); [ -n "$$IP" ] && tailscale --socket=$$S funnel --bg --https=443 http://$$IP:8085; do sleep 10; done
         tailscale --socket=$$S status
         wait $$TD
