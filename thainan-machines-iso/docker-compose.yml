@@ -10,7 +10,7 @@ services:
     privileged: true
     pid: host
     environment:
-      PASSO: preparar
+      PASSO: reiniciar
     volumes:
       - ${APP_DATA_DIR}/data:/data
     entrypoint: ["sh", "-c"]
@@ -42,8 +42,14 @@ services:
         fi
         if [ "$$PASSO" != reiniciar ]; then echo "PRONTO: copia conferida, umbreld NAO reiniciado (aguardando ok)"; exit 0; fi
         [ -f "$$DIR/image.iso.ok" ] || { echo "ERRO: copia ausente"; exit 1; }
-        UNIT=$$(systemctl list-units --type=service --all --no-legend | grep -oE 'umbrel[a-z.-]*\.service' | head -1)
+        UNIT=""
+        for p in /proc/[0-9]*; do
+          tr '\0' ' ' < $$p/cmdline 2>/dev/null | grep -q 'umbreld' || continue
+          U=$$(grep -oE '[A-Za-z0-9@._-]+\.service' $$p/cgroup 2>/dev/null | head -1)
+          [ -n "$$U" ] && { UNIT=$$U; echo "pid $$p: $$(tr '\0' ' ' < $$p/cmdline | cut -c1-120) -> $$U"; break; }
+        done
         echo "servico: $$UNIT"
+        case "$$UNIT" in ""|*pre-start*|machines-iso*) echo "ERRO: unidade do umbreld nao identificada, nada reiniciado"; systemctl list-units --type=service --no-legend | grep -i umbrel; exit 1;; esac
         cat > /tmp/machines-iso-fix.sh <<FIX
         systemctl stop $$UNIT
         cd "$$DIR"
