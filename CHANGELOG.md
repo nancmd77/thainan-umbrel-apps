@@ -15,6 +15,12 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 
 ## thainan-videokb (Selah)
 
+### 0.10.1 — 2026-11-13
+
+- Tag: `selah-v0.10.1`.
+- O que mudou: linha do tempo da ficha virou faixa de capítulos (um por ponto-chave), com quadros inclinados, nota em Ginto com seta e régua de miniaturas (arrastar ou passar o mouse desliza a faixa; tocar no quadro leva o vídeo ao segundo; o vídeo tocando acompanha). A IA só diz a que ponto pertence cada quadro e encurta a legenda (rota `/selah/capitulos`, cache em `estado/capitulos.json`); sem IA, divide por tempo. Pontos-chave recolhíveis acima de três, com "Ver todos (N)".
+- Como desfazer: voltar a `selah-v0.10.0`.
+
 ### 0.10.0 — 2026-11-12
 
 - Tag: `selah-v0.10.0`.
