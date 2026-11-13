@@ -6,7 +6,7 @@ services:
       APP_PORT: 3000
       PROXY_AUTH_ADD: "false"
   web:
-    image: mauriceboe/trek:latest@sha256:6a6bb48bdf5c71314717ef3f1de8da51855d55f68e911ab68fd963644c7416d9
+    image: mauriceboe/trek:latest@sha256:991ff5aa53244b25d5a8ea40361dc286cfc8211638044eabe12b9926729db5cc
     restart: on-failure
     environment:
       NODE_ENV: production

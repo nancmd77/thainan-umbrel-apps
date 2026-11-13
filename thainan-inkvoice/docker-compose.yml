@@ -6,7 +6,7 @@ services:
       APP_PORT: 3000
       PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/pigontech/inkvoice:latest@sha256:40e8f93da12a879193b3b2b069cc7ca97e1d71a57415251a8410302e53eede56
+    image: ghcr.io/pigontech/inkvoice:latest@sha256:71b950bddb439e931ab0c738e4d209d8c4fe29339697631f7a93094fd9553cc3
     restart: on-failure
     environment:
       JWT_SECRET: "${APP_THAINAN_INKVOICE_JWT_SECRET}"
