@@ -3693,7 +3693,7 @@ services:
         exec python3 -u /tmp/server.py
 
   openbot:
-    image: ghcr.io/nancmd77/thainan-openbot:0.69.0-r1@sha256:ef03867ebb1017dca82f712442e94e43bcacce81f734d50a094fda0bf9030799
+    image: ghcr.io/nancmd77/thainan-openbot:0.70.0-r1@sha256:f81b8758aef2ebc3fd58abf6bed650f11bd4654ddabc91be506fd9474cadf981
     restart: unless-stopped
     user: "1000:1000"
     depends_on:
