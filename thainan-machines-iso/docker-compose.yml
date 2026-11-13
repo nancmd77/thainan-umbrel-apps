@@ -1,0 +1,57 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-machines-iso_web_1
+      APP_PORT: 8597
+  web:
+    image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
+    restart: "no"
+    privileged: true
+    pid: host
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        LOG=/data/log.txt
+        command -v nsenter >/dev/null || apk add --no-cache util-linux >/dev/null 2>&1
+        (cd /data && python -m http.server 8597 >/dev/null 2>&1 &)
+        if [ -f /data/feito ]; then echo "$$(date) ja feito" >> $$LOG; exec sleep 2147483647; fi
+        cat > /data/job.sh <<'JOB'
+        set -u
+        ID=windows-11-25h2-amd64
+        SHA=768984706b909479417b2368438909440f2967ff05c6a9195ed2667254e465e3
+        ISO=Win11_25H2_English_x64_Official.iso
+        R=""
+        for d in /home/umbrel/umbrel /home/umbrel /umbrel; do [ -d "$$d/machine-images" ] && R=$$d && break; done
+        [ -z "$$R" ] && R=$$(dirname "$$(find / -xdev -maxdepth 5 -type d -name machine-images 2>/dev/null | head -1)")
+        echo "raiz: $$R"
+        SRC=$$(find "$$R/home/Downloads" "$$R/home" -maxdepth 2 -name "$$ISO" 2>/dev/null | head -1)
+        echo "iso: $$SRC"
+        DIR=$$R/machine-images/$$ID
+        [ -f "$$SRC" ] && [ -f "$$DIR/image.yaml" ] || { echo "ERRO: iso ou image.yaml ausente"; ls -la "$$DIR"; exit 1; }
+        echo "sha256..."; S=$$(sha256sum "$$SRC" | cut -d' ' -f1); echo "$$S"
+        [ "$$S" = "$$SHA" ] || { echo "ERRO: sha256 diferente"; exit 1; }
+        echo "copiando..."; cp "$$SRC" "$$DIR/image.iso.local" && sync
+        S2=$$(sha256sum "$$DIR/image.iso.local" | cut -d' ' -f1); [ "$$S2" = "$$SHA" ] || { echo "ERRO: copia corrompida"; exit 1; }
+        UNIT=$$(systemctl list-units --type=service --all --no-legend | grep -oE 'umbrel[a-z.-]*\.service' | head -1)
+        echo "servico: $$UNIT"
+        cat > /tmp/machines-iso-fix.sh <<FIX
+        systemctl stop $$UNIT
+        cd "$$DIR"
+        rm -f image.iso.*.download
+        mv -f image.iso.local image.iso
+        sed -i -e '/^downloadProgress:/d' -e '/^downloadedMb:/d' -e '/^errorMessage:/d' -e 's/^state:.*/state: downloaded/' image.yaml
+        grep -q '^fileName:' image.yaml || echo 'fileName: image.iso' >> image.yaml
+        cat image.yaml > /tmp/machines-iso-yaml.txt
+        systemctl start $$UNIT
+        FIX
+        echo "reiniciando umbreld (unidade transitoria no host)"
+        systemd-run --unit=machines-iso-fix --collect sh /tmp/machines-iso-fix.sh
+        echo OK
+        JOB
+        echo "$$(date) inicio" >> $$LOG
+        nsenter -t 1 -m -u -i -n -p -- sh -s < /data/job.sh >> $$LOG 2>&1 && touch /data/feito
+        echo "$$(date) fim rc=$$?" >> $$LOG
+        exec sleep 2147483647
