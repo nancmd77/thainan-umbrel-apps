@@ -1,5 +1,8 @@
-# 5: troca audio pela gpu no slot livre
-V="virsh -c qemu:///system"; D=umbrel-machine-windows-11
-echo "== detach audio"; $V detach-device $D /run/gpu-vm/aud.xml --live 2>&1; sleep 4
-echo "== attach gpu"; $V attach-device $D /run/gpu-vm/gpu2.xml --live 2>&1
-sleep 3; $V dumpxml $D | grep -A6 "<hostdev" | grep -E "address"
+# 6: baixar virtio-win no host (segundo plano)
+D=/home/umbrel/umbrel/app-data/thainan-machines-iso/data
+which curl wget python3 2>&1 | head
+cd $D && rm -f virtio-win.iso.part
+U=https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
+if command -v curl >/dev/null; then setsid sh -c "curl -sL -o virtio-win.iso.part $U && mv virtio-win.iso.part virtio-win.iso" >/dev/null 2>&1 < /dev/null &
+else setsid sh -c "wget -q -O virtio-win.iso.part $U && mv virtio-win.iso.part virtio-win.iso" >/dev/null 2>&1 < /dev/null & fi
+sleep 30; ls -la $D | grep virtio
