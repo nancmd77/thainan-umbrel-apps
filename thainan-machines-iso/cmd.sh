@@ -1,19 +1,18 @@
-# 2: RTX -> VM windows-11 (hot-plug)
+# 3: detach ambos, depois attach managed=no
 set -u
 V="virsh -c qemu:///system"; D=umbrel-machine-windows-11
-mkdir -p /run/gpu-vm && cd /run/gpu-vm
-echo 1 > /sys/bus/pci/devices/0000:01:00.0/rom; cat /sys/bus/pci/devices/0000:01:00.0/rom > rtx2050.rom; echo 0 > /sys/bus/pci/devices/0000:01:00.0/rom
-ls -la rtx2050.rom; head -c 2 rtx2050.rom | od -An -tx1
-chmod 644 rtx2050.rom; chown libvirt-qemu:libvirt-qemu rtx2050.rom 2>/dev/null
+cd /run/gpu-vm
+echo "== grupo 16"; ls /sys/kernel/iommu_groups/16/devices/
+echo "== detach"; $V nodedev-detach pci_0000_01_00_1 2>&1; $V nodedev-detach pci_0000_01_00_0 2>&1
+lspci -nnk -s 01:00 | grep driver
+echo 1 > /sys/bus/pci/devices/0000:01:00.0/rom; cat /sys/bus/pci/devices/0000:01:00.0/rom > rtx2050.rom 2>&1; echo 0 > /sys/bus/pci/devices/0000:01:00.0/rom
+ls -la rtx2050.rom; R=""; [ -s rtx2050.rom ] && R="<rom file='/run/gpu-vm/rtx2050.rom'/>"
+chmod 644 rtx2050.rom
 cat > gpu.xml <<X
-<hostdev mode='subsystem' type='pci' managed='yes'><source><address domain='0x0000' bus='0x01' slot='0x00' function='0x0'/></source><rom file='/run/gpu-vm/rtx2050.rom'/></hostdev>
+<hostdev mode='subsystem' type='pci' managed='no'><source><address domain='0x0000' bus='0x01' slot='0x00' function='0x0'/></source>$R</hostdev>
 X
-cat > aud.xml <<X
-<hostdev mode='subsystem' type='pci' managed='yes'><source><address domain='0x0000' bus='0x01' slot='0x00' function='0x1'/></source></hostdev>
-X
+sed -i "s/managed='yes'/managed='no'/" aud.xml
 echo "== attach gpu"; $V attach-device $D gpu.xml --live 2>&1
 echo "== attach audio"; $V attach-device $D aud.xml --live 2>&1
-sleep 3
-lspci -nnk -s 01:00 | grep -E "^0|driver"
-$V dumpxml $D | grep -A4 "<hostdev" | head -20
-tail -5 /run/umbrel-machines/windows-11/qemu.log
+sleep 3; lspci -nnk -s 01:00 | grep driver
+$V dumpxml $D | grep -A3 "<hostdev" | head -12
