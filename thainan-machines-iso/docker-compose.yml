@@ -10,7 +10,7 @@ services:
     privileged: true
     pid: host
     environment:
-      PASSO: diagnostico
+      PASSO: diagnostico2
     volumes:
       - ${APP_DATA_DIR}/data:/data
     entrypoint: ["sh", "-c"]
@@ -64,28 +64,17 @@ services:
         systemd-run --unit=machines-iso-fix --collect sh /tmp/machines-iso-fix.sh
         echo OK
         JOB
-        if [ "$$PASSO" = diagnostico ]; then
+        if [ "$$PASSO" = diagnostico2 ]; then
         cat > /data/diag.sh <<'DIAG'
-        echo "== qemu windows-11"
-        for p in /proc/[0-9]*; do a=$$(tr '\0' ' ' < $$p/cmdline 2>/dev/null); case "$$a" in *qemu-system*) echo "$$p: $$a";; esac; done
-        echo "== umbreld"
-        U=$$(for p in /proc/[0-9]*; do tr '\0' ' ' < $$p/cmdline 2>/dev/null | grep -q umbreld && readlink $$p/exe && tr '\0' ' ' < $$p/cmdline && echo && readlink $$p/cwd && break; done); echo "$$U"
-        for d in /opt/umbreld /usr/lib/umbreld /usr/local/lib/umbreld; do [ -d $$d ] && echo "dir $$d" && grep -rlE "vfio|hostdev|extraArgs|qemuArgs|passthrough" $$d --include=*.js --include=*.ts 2>/dev/null | head; done
-        echo "== grep args"
-        for d in /opt/umbreld /usr/lib/umbreld /usr/local/lib/umbreld; do [ -d $$d ] && grep -rhoE ".{0,120}(vfio|extraArgs|qemuArgs|customArgs|passthrough).{0,160}" $$d 2>/dev/null | head -20; done
-        echo "== nvidia"
-        ls -la /dev/nvidia* 2>&1; for p in /proc/[0-9]*; do ls -l $$p/fd 2>/dev/null | grep -q nvidia && echo "usa nvidia: $$(basename $$p) $$(tr '\0' ' ' < $$p/cmdline | cut -c1-150)"; done
-        command -v nvidia-smi && nvidia-smi
-        echo "== docker gpu"
-        for c in $$(docker ps -q); do docker inspect -f '{{.Name}} {{.HostConfig.DeviceRequests}} {{.HostConfig.Runtime}}' $$c; done | grep -iE "gpu|nvidia" 
-        echo "== rom"
-        ls -la /sys/bus/pci/devices/0000:01:00.0/ 2>&1 | grep -E "rom|reset|boot_vga"
-        cat /sys/bus/pci/devices/0000:01:00.0/reset_method 2>&1
-        ls /sys/kernel/iommu_groups/16/devices
-        lspci -nnk 2>/dev/null | grep -A3 -iE "vga|3d|nvidia"
+        echo "== xml"
+        virsh -c qemu:///system dumpxml umbrel-machine-windows-11 2>&1 | grep -vE "masterKey|secret" | head -200
+        echo "== domain.ts defineXML/start"
+        grep -nE "defineXML|define\(|undefine|createXML|domain(Create|Start)|virsh|hostdev|usb" /opt/umbreld/source/modules/machines/*.ts 2>/dev/null | grep -v test | head -60
+        echo "== libvirt hooks"; ls -la /etc/libvirt/hooks 2>&1
+        echo "== vfio"; ls /sys/bus/pci/drivers | grep -i vfio; modinfo vfio-pci 2>&1 | head -3
         DIAG
         nsenter -t 1 -m -u -i -n -p -- sh -s < /data/diag.sh 2>&1 | tee /data/diag.txt
-        touch /data/feito-diagnostico; exec sleep 2147483647
+        touch /data/feito-diagnostico2; exec sleep 2147483647
         fi
         echo "$$(date) inicio" >> $$LOG
         nsenter -t 1 -m -u -i -n -p -- env PASSO=$$PASSO sh -s < /data/job.sh >> $$LOG 2>&1 && touch /data/feito-$$PASSO

@@ -4,7 +4,7 @@ name: Machines ISO
 tagline: Usa uma ISO já baixada em Home/Downloads como imagem do Machines
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-desempenho/icon.png
 category: Developer
-version: "1.1.0"
+version: "1.1.1"
 port: 8597
 description: >-
   Ferramenta de uso único. Confere o sha256 da ISO do Windows 11 25H2 em Home/Downloads, copia para o cache de imagens do Machines, marca a imagem como baixada e reinicia o umbreld. Depois disso a instalação da máquina segue sem baixar de novo. Log na porta 8597.
