@@ -51,6 +51,8 @@ services:
           sleep 1
         done
         SCRIPT
+        # Desligar o servidor: criar a pasta /data/desligar-host (Arquivos do Umbrel ou MCP). Some antes de desligar.
+        (while :; do if [ -d /data/desligar-host ]; then rmdir /data/desligar-host; echo "$$(date '+%F %T') desligando o host a pedido" >> /data/gpu-vm.log; sync; nsenter -t 1 -m -u -i -n -p -- systemctl poweroff; fi; sleep 3; done &)
         while true; do
           nsenter -t 1 -m -u -i -n -p -- sh /home/umbrel/umbrel/app-data/thainan-machines-iso/data/gpu-vm.sh 2>&1 | tee -a /data/gpu-vm.log
           sleep 5
