@@ -10,16 +10,16 @@ while :; do
   st=$($V domstate $D 2>/dev/null)
   if [ "$st" = "running" ]; then
     if ! $V dumpxml $D 2>/dev/null | grep -A3 "<hostdev" | grep -q "bus='0x01' slot='0x00' function='0x0'"; then
-      log "VM ligada sem GPU: assumindo a RTX"
+      P=$(pgrep -f "guest=$D" | head -1); et=$(ps -o etimes= -p "$P" 2>/dev/null | tr -d ' '); NOVO=0; if [ -n "$et" ] && [ "$et" -lt 20 ]; then NOVO=1; $V suspend $D >/dev/null 2>&1; fi; log "VM ligada sem GPU (ha ${et}s): assumindo a RTX"
       for c in $(docker ps --format '{{.Names}}'); do
         if [ "$c" != thainan-machines-iso_web_1 ] && docker inspect -f '{{json .HostConfig.DeviceRequests}} {{json .HostConfig.Devices}} {{.HostConfig.Runtime}}' "$c" 2>/dev/null | grep -qi nvidia; then echo "$c" >> $S/parados; log "parando $c"; docker stop -t 10 "$c" >/dev/null 2>&1; fi
       done
       [ "$(drv 0000:01:00.1)" = vfio-pci ] || $V nodedev-detach pci_0000_01_00_1 2>&1
       [ "$(drv 0000:01:00.0)" = vfio-pci ] || $V nodedev-detach pci_0000_01_00_0 2>&1
       if $V attach-device $D $S/gpu2.xml --live 2>&1; then
-        P=$(pgrep -f "guest=$D" | head -1); et=$(ps -o etimes= -p "$P" 2>/dev/null | tr -d ' ')
-        if [ -n "$et" ] && [ "$et" -lt 90 ]; then log "VM recem ligada (${et}s): reset para alocar a GPU"; $V reset $D 2>&1; else log "VM ligada ha ${et}s: GPU anexada; reinicie o Windows por dentro para ativar"; fi
+        if [ $NOVO = 1 ]; then log "VM recem ligada: reset pausado para alocar a GPU"; $V reset $D 2>&1; else log "GPU anexada; reinicie o Windows por dentro para ativar"; fi
       fi
+      [ $NOVO = 1 ] && $V resume $D 2>&1
     fi
   elif [ -z "$st" ] || [ "$st" = "shut off" ]; then
     if [ "$(drv 0000:01:00.0)" = vfio-pci ]; then
@@ -29,5 +29,5 @@ while :; do
       if [ -f $S/parados ]; then for c in $(sort -u $S/parados); do log "subindo $c"; docker start "$c" >/dev/null 2>&1; done; rm -f $S/parados; fi
     fi
   fi
-  sleep 3
+  sleep 1
 done
