@@ -9,7 +9,7 @@ log "gpu-vm: vigiando $D"
 while :; do
   st=$($V domstate $D 2>/dev/null)
   if [ "$st" = "running" ]; then
-    if ! $V dumpxml $D 2>/dev/null | grep -q "bus='0x01' slot='0x00' function='0x0'"; then
+    if ! $V dumpxml $D 2>/dev/null | grep -A3 "<hostdev" | grep -q "bus='0x01' slot='0x00' function='0x0'"; then
       log "VM ligada sem GPU: assumindo a RTX"
       for c in $(docker ps --format '{{.Names}}'); do
         if docker inspect "$c" 2>/dev/null | grep -qi nvidia; then echo "$c" >> $S/parados; log "parando $c"; docker stop -t 10 "$c" >/dev/null 2>&1; fi

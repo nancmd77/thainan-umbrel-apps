@@ -4,7 +4,7 @@ name: GPU na VM
 tagline: A RTX vai para a VM windows-11 quando ela liga e volta ao host quando desliga
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-desempenho/icon.png
 category: Developer
-version: "1.3.1"
+version: "1.3.2"
 port: 8597
 description: >-
   Vigia a VM windows-11. Ligou: para os containers que usam a NVIDIA (Immich), solta a RTX do host e anexa na VM (reset se acabou de ligar). Desligou: devolve a RTX ao host e sobe de novo os containers. Log na porta 8597.
