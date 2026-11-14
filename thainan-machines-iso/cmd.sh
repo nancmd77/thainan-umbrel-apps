@@ -1,7 +1,8 @@
-# 8: copiar iso para pasta da VM e trocar CD
-D=/home/umbrel/umbrel/app-data/thainan-machines-iso/data
-M=/run/umbrel-machines/windows-11/storage/media
-ls -la $M; df -h $M | tail -1
-cp $D/virtio-win.iso $M/virtio-win.iso && chown --reference=$M/install.iso $M/virtio-win.iso; chmod 644 $M/virtio-win.iso
-virsh -c qemu:///system change-media umbrel-machine-windows-11 sdb $M/virtio-win.iso --live 2>&1
-virsh -c qemu:///system domblklist umbrel-machine-windows-11 | grep sdb
+# 9: diagnostico para automacao gpu (leitura)
+C=/home/umbrel/umbrel/app-data/immich/docker-compose.yml
+echo "== immich compose gpu"; grep -nE 'container_name|image:|gpus|driver|nvidia|capabilities|runtime|devices' $C | head -40
+echo "== docker"; which docker; docker ps -a --format '{{.Names}} {{.Status}}' | grep -i immich
+echo "== qemu pid/inicio"; P=$(pgrep -f 'guest=umbrel-machine-windows-11' | head -1); echo $P; ps -o lstart=,etime= -p $P
+echo "== drv"; lspci -nnk -s 01:00 | grep -E 'driver'
+echo "== hooks"; ls -la /etc/libvirt/hooks 2>&1; mount | grep -E ' / | /etc ' | head
+echo "== systemd persist?"; ls /etc/systemd/system | head -30
