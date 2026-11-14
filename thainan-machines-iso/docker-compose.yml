@@ -10,73 +10,28 @@ services:
     privileged: true
     pid: host
     environment:
-      PASSO: diagnostico2
+      PASSO: runner
     volumes:
       - ${APP_DATA_DIR}/data:/data
     entrypoint: ["sh", "-c"]
     command:
       - |
-        LOG=/data/log.txt
-        command -v nsenter >/dev/null || apk add --no-cache util-linux >/dev/null 2>&1
-        (cd /data && python -m http.server 8597 >/dev/null 2>&1 &)
-        if [ -f /data/feito-$$PASSO ]; then echo "$$(date) ja feito" >> $$LOG; exec sleep 2147483647; fi
-        cat > /data/job.sh <<'JOB'
-        set -u
-        ID=windows-11-25h2-amd64
-        SHA=768984706b909479417b2368438909440f2967ff05c6a9195ed2667254e465e3
-        ISO=Win11_25H2_English_x64_Official.iso
-        R=""
-        for d in /home/umbrel/umbrel /home/umbrel /umbrel; do [ -d "$$d/machine-images" ] && R=$$d && break; done
-        [ -z "$$R" ] && R=$$(dirname "$$(find / -xdev -maxdepth 5 -type d -name machine-images 2>/dev/null | head -1)")
-        echo "raiz: $$R"
-        SRC=$$(find "$$R/home/Downloads" "$$R/home" -maxdepth 2 -name "$$ISO" 2>/dev/null | head -1)
-        echo "iso: $$SRC"
-        DIR=$$R/machine-images/$$ID
-        [ -f "$$SRC" ] && [ -f "$$DIR/image.yaml" ] || { echo "ERRO: iso ou image.yaml ausente"; ls -la "$$DIR"; exit 1; }
-        if [ "$$PASSO" = reiniciar ] && [ -f "$$DIR/image.iso.ok" ]; then echo "copia ja existe"; else
-        echo "sha256..."; S=$$(sha256sum "$$SRC" | cut -d' ' -f1); echo "$$S"
-        [ "$$S" = "$$SHA" ] || { echo "ERRO: sha256 diferente"; exit 1; }
-        echo "copiando..."; cp "$$SRC" "$$DIR/image.iso.local" && sync
-        S2=$$(sha256sum "$$DIR/image.iso.local" | cut -d' ' -f1); [ "$$S2" = "$$SHA" ] || { echo "ERRO: copia corrompida"; exit 1; }
-        mv -f "$$DIR/image.iso.local" "$$DIR/image.iso.ok"
-        fi
-        if [ "$$PASSO" != reiniciar ]; then echo "PRONTO: copia conferida, umbreld NAO reiniciado (aguardando ok)"; exit 0; fi
-        [ -f "$$DIR/image.iso.ok" ] || { echo "ERRO: copia ausente"; exit 1; }
-        UNIT=""
-        for p in /proc/[0-9]*; do
-          tr '\0' ' ' < $$p/cmdline 2>/dev/null | grep -q 'umbreld' || continue
-          U=$$(grep -oE '[A-Za-z0-9@._-]+\.service' $$p/cgroup 2>/dev/null | head -1)
-          [ -n "$$U" ] && { UNIT=$$U; echo "pid $$p: $$(tr '\0' ' ' < $$p/cmdline | cut -c1-120) -> $$U"; break; }
+        apk add --no-cache util-linux curl >/dev/null 2>&1
+        (mkdir -p /data && cd /data && python -m http.server 8597 >/dev/null 2>&1 &)
+        echo "runner: aguardando cmd.sh"
+        LAST=""
+        while true; do
+          SHA=$$(curl -s -m 20 https://api.github.com/repos/nancmd77/thainan-umbrel-apps/commits/main | grep -m1 '"sha"' | cut -d'"' -f4)
+          if [ -n "$$SHA" ] && [ "$$SHA" != "$$LAST" ]; then
+            LAST=$$SHA
+            curl -s -m 30 -o /tmp/cmd.new https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$SHA/thainan-machines-iso/cmd.sh
+            H=$$(sha256sum /tmp/cmd.new | cut -c1-16)
+            if [ -s /tmp/cmd.new ] && [ ! -f /data/done-$$H ]; then
+              touch /data/done-$$H
+              echo "===== CMD $$H inicio $$(date)"
+              nsenter -t 1 -m -u -i -n -p -- sh -s < /tmp/cmd.new 2>&1 | sed 's/^/| /' | cut -c1-400
+              echo "===== CMD $$H fim $$(date)"
+            fi
+          fi
+          sleep 75
         done
-        echo "servico: $$UNIT"
-        case "$$UNIT" in ""|*pre-start*|machines-iso*) echo "ERRO: unidade do umbreld nao identificada, nada reiniciado"; systemctl list-units --type=service --no-legend | grep -i umbrel; exit 1;; esac
-        cat > /tmp/machines-iso-fix.sh <<FIX
-        systemctl stop $$UNIT
-        cd "$$DIR"
-        rm -f image.iso.*.download
-        mv -f image.iso.ok image.iso
-        sed -i -e '/^downloadProgress:/d' -e '/^downloadedMb:/d' -e '/^errorMessage:/d' -e 's/^state:.*/state: downloaded/' image.yaml
-        grep -q '^fileName:' image.yaml || echo 'fileName: image.iso' >> image.yaml
-        cat image.yaml > /tmp/machines-iso-yaml.txt
-        systemctl start $$UNIT
-        FIX
-        echo "reiniciando umbreld (unidade transitoria no host)"
-        systemd-run --unit=machines-iso-fix --collect sh /tmp/machines-iso-fix.sh
-        echo OK
-        JOB
-        if [ "$$PASSO" = diagnostico2 ]; then
-        cat > /data/diag.sh <<'DIAG'
-        echo "== xml"
-        virsh -c qemu:///system dumpxml umbrel-machine-windows-11 2>&1 | grep -vE "masterKey|secret" | head -200
-        echo "== domain.ts defineXML/start"
-        grep -nE "defineXML|define\(|undefine|createXML|domain(Create|Start)|virsh|hostdev|usb" /opt/umbreld/source/modules/machines/*.ts 2>/dev/null | grep -v test | head -60
-        echo "== libvirt hooks"; ls -la /etc/libvirt/hooks 2>&1
-        echo "== vfio"; ls /sys/bus/pci/drivers | grep -i vfio; modinfo vfio-pci 2>&1 | head -3
-        DIAG
-        nsenter -t 1 -m -u -i -n -p -- sh -s < /data/diag.sh 2>&1 | tee /data/diag.txt
-        touch /data/feito-diagnostico2; exec sleep 2147483647
-        fi
-        echo "$$(date) inicio" >> $$LOG
-        nsenter -t 1 -m -u -i -n -p -- env PASSO=$$PASSO sh -s < /data/job.sh >> $$LOG 2>&1 && touch /data/feito-$$PASSO
-        echo "$$(date) fim rc=$$?" >> $$LOG
-        exec sleep 2147483647
