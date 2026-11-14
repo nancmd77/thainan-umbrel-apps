@@ -1,13 +1,13 @@
 manifestVersion: 1
 id: thainan-machines-iso
-name: Machines ISO
-tagline: Usa uma ISO já baixada em Home/Downloads como imagem do Machines
+name: GPU na VM
+tagline: A RTX vai para a VM windows-11 quando ela liga e volta ao host quando desliga
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-desempenho/icon.png
 category: Developer
-version: "1.2.0"
+version: "1.3.0"
 port: 8597
 description: >-
-  Ferramenta de uso único. Confere o sha256 da ISO do Windows 11 25H2 em Home/Downloads, copia para o cache de imagens do Machines, marca a imagem como baixada e reinicia o umbreld. Depois disso a instalação da máquina segue sem baixar de novo. Log na porta 8597.
+  Vigia a VM windows-11. Ligou: para os containers que usam a NVIDIA (Immich), solta a RTX do host e anexa na VM (reset se acabou de ligar). Desligou: devolve a RTX ao host e sobe de novo os containers. Log na porta 8597.
 developer: Thainan Caldeira
 website: https://github.com/nancmd77/thainan-umbrel-apps
 submitter: Thainan Caldeira
@@ -15,7 +15,7 @@ submission: https://github.com/nancmd77/thainan-umbrel-apps
 repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
-releaseNotes: "1.0.1: so prepara (sha256 e copia). O reinicio do umbreld so roda com PASSO=reiniciar, depois do ok do nan."
+releaseNotes: "1.3.0: remove o executor remoto de comandos; agora so roda o vigia da GPU (gpu-vm.sh)."
 dependencies: []
 path: ""
 defaultUsername: ""

@@ -6,32 +6,17 @@ services:
       APP_PORT: 8597
   web:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
-    restart: "no"
+    restart: unless-stopped
     privileged: true
     pid: host
-    environment:
-      PASSO: runner
     volumes:
       - ${APP_DATA_DIR}/data:/data
     entrypoint: ["sh", "-c"]
     command:
       - |
-        apk add --no-cache util-linux curl >/dev/null 2>&1
-        (mkdir -p /data && cd /data && python -m http.server 8597 >/dev/null 2>&1 &)
-        echo "runner: aguardando cmd.sh"
-        LAST=""
+        apk add --no-cache util-linux >/dev/null 2>&1
+        mkdir -p /data && cd /data && (python -m http.server 8597 >/dev/null 2>&1 &)
         while true; do
-          SHA=$$(curl -s -m 20 https://api.github.com/repos/nancmd77/thainan-umbrel-apps/commits/main | grep -m1 '"sha"' | cut -d'"' -f4)
-          if [ -n "$$SHA" ] && [ "$$SHA" != "$$LAST" ]; then
-            LAST=$$SHA
-            curl -s -m 30 -o /tmp/cmd.new https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$$SHA/thainan-machines-iso/cmd.sh
-            H=$$(sha256sum /tmp/cmd.new | cut -c1-16)
-            if [ -s /tmp/cmd.new ] && [ ! -f /data/done-$$H ]; then
-              touch /data/done-$$H
-              echo "===== CMD $$H inicio $$(date)"
-              nsenter -t 1 -m -u -i -n -p -- sh -s < /tmp/cmd.new 2>&1 | sed 's/^/| /' | cut -c1-400
-              echo "===== CMD $$H fim $$(date)"
-            fi
-          fi
-          sleep 75
+          nsenter -t 1 -m -u -i -n -p -- sh /home/umbrel/umbrel/app-data/thainan-machines-iso/gpu-vm.sh 2>&1 | tee -a /data/gpu-vm.log
+          sleep 5
         done
