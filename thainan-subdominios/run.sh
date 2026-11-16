@@ -1,7 +1,7 @@
 #!/bin/sh
 # Acesso remoto ao dashboard do Umbrel: Caddy na frente do painel (porta 80 do host).
 # Injeta /__nonve-tiles.js no index para os tiles abrirem os endereços públicos
-# (NetBird) em vez de <host>:<porta>, que só funciona em casa.
+# (Cloudflare Tunnel) em vez de <host>:<porta>, que só funciona em casa.
 UP="${UPSTREAM:-10.203.0.1:80}"
 REF="${REF:-main}"
 RAW="https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$REF/thainan-subdominios"

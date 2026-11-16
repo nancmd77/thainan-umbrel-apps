@@ -22,30 +22,31 @@ services:
         8796=10.21.0.1:8533
       REF: main
       TILES: >-
-        20128=nonve-9router.eu1.netbird.services
-        13119=nonve-ntfy.eu1.netbird.services
-        3001=nonve-llm.eu1.netbird.services
-        8233=nonve-links.eu1.netbird.services
-        5230=nonve-memos.eu1.netbird.services
-        8088=nonve-opengym.eu1.netbird.services
-        3100=nonve-yuvomi.eu1.netbird.services
-        8519=nonve-videokb.eu1.netbird.services
-        8502=nonve-notebook.eu1.netbird.services
-        8550=nonve-prospeccao.eu1.netbird.services
-        8765=selah.eu1.netbird.services
-        8560=nonve-radar.eu1.netbird.services
-        8095=nonve-adguard.eu1.netbird.services
-        8523=nonve-anytype.eu1.netbird.services
-        5037=nonve-changedetection.eu1.netbird.services
-        9009=nonve-cobalt.eu1.netbird.services
-        8532=nonve-desempenho.eu1.netbird.services
-        8005=nonve-fizzy.eu1.netbird.services
-        2283=nonve-immich.eu1.netbird.services
-        3063=nonve-maybe.eu1.netbird.services
-        8479=nonve-netbird.eu1.netbird.services
-        3435=nonve-obsidian.eu1.netbird.services
-        3064=nonve-sure.eu1.netbird.services
-        8790=nonve-acesso.eu1.netbird.services
+        20128=9router.thainancaldeira.com.br
+        13119=ntfy.thainancaldeira.com.br
+        3001=llm.thainancaldeira.com.br
+        8233=links.thainancaldeira.com.br
+        5230=memos.thainancaldeira.com.br
+        8088=opengym.thainancaldeira.com.br
+        3100=yuvomi.thainancaldeira.com.br
+        8519=videokb.thainancaldeira.com.br
+        8502=notebook.thainancaldeira.com.br
+        8550=prospeccao.thainancaldeira.com.br
+        8765=selah.thainancaldeira.com.br
+        8560=radar.thainancaldeira.com.br
+        8095=adguard.thainancaldeira.com.br
+        8523=anytype.thainancaldeira.com.br
+        5037=changedetection.thainancaldeira.com.br
+        9009=cobalt.thainancaldeira.com.br
+        8532=desempenho.thainancaldeira.com.br
+        8005=fizzy.thainancaldeira.com.br
+        2283=immich.thainancaldeira.com.br
+        3063=maybe.thainancaldeira.com.br
+        8479=netbird.thainancaldeira.com.br
+        3435=obsidian.thainancaldeira.com.br
+        3064=sure.thainancaldeira.com.br
+        8790=acesso.thainancaldeira.com.br
+        4312=nod.thainancaldeira.com.br
         7318=nonve-herdr.eu1.netbird.services
     entrypoint: ["/bin/sh", "-c"]
     command:

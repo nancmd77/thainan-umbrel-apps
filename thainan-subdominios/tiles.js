@@ -1,4 +1,4 @@
-/* Painel do Nonve: tiles do Umbrel abrem o endereço público (NetBird) do app. */
+/* Painel do Nonve: tiles do Umbrel abrem o endereço público (Cloudflare Tunnel) do app. */
 (function () {
   var MAPA = __MAPA__;
   var LOCAL = "nonve.local";
