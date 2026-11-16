@@ -13,7 +13,7 @@ services:
       PROXY_AUTH_ADD: "false"
 
   server:
-    image: ghcr.io/nancmd77/thainan-nod:server-0a16aa4
+    image: ghcr.io/nancmd77/thainan-nod:server-0a16aa4@sha256:611f978441861bfc2a147a0acc63caacd9b23abc9cfc98b3384916ff152c5c27
     restart: unless-stopped
     init: true
     environment:
@@ -79,7 +79,7 @@ services:
     mem_limit: 128m
 
   browser:
-    image: ghcr.io/nancmd77/thainan-nod:browser-0a16aa4
+    image: ghcr.io/nancmd77/thainan-nod:browser-0a16aa4@sha256:9fddadadbbaaf80901bbc4b6b842a3903bca88f7700e16b1b12f09fba86db770
     container_name: nod-browser-thainan
     hostname: nod-browser
     restart: unless-stopped
@@ -98,7 +98,7 @@ services:
     networks: [browser]
 
   workspace:
-    image: ghcr.io/nancmd77/thainan-nod:workspace-0a16aa4
+    image: ghcr.io/nancmd77/thainan-nod:workspace-0a16aa4@sha256:bbdc53957872e14943ccca576f6762808fbf1232b7977889829d7b47faf2cf75
     container_name: nod-workspace-thainan
     restart: unless-stopped
     init: true
@@ -115,7 +115,7 @@ services:
     command: ["sleep", "infinity"]
 
   workspace-network:
-    image: ghcr.io/nancmd77/thainan-nod:workspace-0a16aa4
+    image: ghcr.io/nancmd77/thainan-nod:workspace-0a16aa4@sha256:bbdc53957872e14943ccca576f6762808fbf1232b7977889829d7b47faf2cf75
     dns: [1.1.1.1, 8.8.8.8]
     user: root
     restart: unless-stopped
