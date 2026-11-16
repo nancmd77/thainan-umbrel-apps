@@ -15,6 +15,12 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 
 ## thainan-videokb (Selah)
 
+### 0.10.2 — 2026-11-16
+
+- Tag: `selah-v0.10.2`.
+- O que mudou: desempenho. Regras CSS com `:has()` que forçavam recálculo da página inteira a cada mudança viraram classes (ranking dos comentários, filtro da busca, lightbox, editor, composer); regras mortas herdadas do mymind saíram. Fim do loop que reescrevia rótulos em letras estilizadas, observador de tema mais leve, emojis sem 404 e capas do Product Hunt pela CDN com reserva local. Medido na produção (1440 px): carga de 42 s para 10 s, tela parada de 1 para 26 quadros por segundo, rolagem de 1 para cerca de 10.
+- Como desfazer: voltar a `selah-v0.10.1`.
+
 ### 0.10.1 — 2026-11-13
 
 - Tag: `selah-v0.10.1`.
