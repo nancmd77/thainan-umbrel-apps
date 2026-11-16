@@ -15,6 +15,12 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 
 ## thainan-videokb (Selah)
 
+### 0.10.3 — 2026-11-16
+
+- Tag: `selah-v0.10.3`.
+- O que mudou: rolagem mais leve. O céu animado guarda medidas em vez de reler a página a cada quadro; regras da barra de busca e da cápsula ligadas à rolagem passaram para classes no próprio topo, sem recalcular a página inteira; mais seletores `:has()` trocados por classes; redimensionamento com espera curta. Visual igual ao 0.10.2. Medido no teste (1440 px): recálculo durante a rolagem de cerca de 3 s para 0,7 s; rolagem de 2 para 7 a 10 quadros por segundo nessa rodada (a rolagem varia muito entre rodadas).
+- Como desfazer: voltar a `selah-v0.10.2`.
+
 ### 0.10.2 — 2026-11-16
 
 - Tag: `selah-v0.10.2`.
