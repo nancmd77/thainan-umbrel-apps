@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-nod
+name: Nod
+tagline: Assistente pessoal da n8n, rodando no seu servidor
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-nod/icon.png
+category: AI
+version: "0.0.0-0a16aa4"
+port: 4312
+description: >-
+  Nod (n8n-io/nod) é um assistente pessoal com chat, tarefas, agendamentos, navegador próprio, workspace isolado, memória, cofre e canais Telegram e WhatsApp.
+
+  Abra por https://nonve-nod.eu1.netbird.services (o Nod confere o endereço e recusa nonve.local). O token de acesso é a senha deste app no Umbrel. Conecte um modelo no onboarding.
+developer: n8n
+website: https://nod.n8n.io
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/n8n-io/nod
+support: https://github.com/n8n-io/nod/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão: commit 0a16aa4 do upstream (2026-11-16).
+dependencies: []
+path: ""
+defaultUsername: ""
+deterministicPassword: true

@@ -1,0 +1,147 @@
+version: "3.7"
+
+# Nod (n8n-io/nod) no Nonve. Baseado em deployment/self-host/compose.yaml do upstream.
+# O Nod só aceita abrir pela origem HTTPS de NOD_PUBLIC_URL (confere o Host), então o acesso é
+# https://nonve-nod.eu1.netbird.services (serviço NetBird com pass_host_header -> nonve:4310).
+# O tile do Umbrel (porta 4312) cai no 403 do Nod por causa do Host; use o endereço NetBird.
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-nod_server_1
+      APP_PORT: 4310
+      PROXY_AUTH_ADD: "false"
+
+  server:
+    image: ghcr.io/nancmd77/thainan-nod:server-0a16aa4
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      NOD_ENVIRONMENT: production
+      NOD_HOST: 0.0.0.0
+      PORT: 4310
+      NOD_DATA_ROOT: /var/lib/nod
+      NOD_PUBLIC_URL: https://nonve-nod.eu1.netbird.services
+      NOD_AUTH_TOKEN: ${APP_PASSWORD}
+      NOD_VAULT_KEY: ${APP_THAINAN_NOD_VAULT_KEY}
+      NOD_ANALYTICS_ENABLED: "false"
+      DATABASE_URL: postgresql://nod:${APP_THAINAN_NOD_POSTGRES_PASSWORD}@postgres:5432/nod
+      DOCKER_HOST: tcp://runtime:2375
+      WORKSPACE_CONTAINER: nod-workspace-thainan
+      BROWSER_CONTAINER: nod-browser-thainan
+    ports:
+      - "4310:4310"
+    volumes:
+      - server-data:/var/lib/nod
+      - workspace-data:/var/lib/nod/workspaces
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777,size=256m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 512
+    mem_limit: 2g
+    networks: [default, backend, control, outbound]
+    depends_on:
+      - postgres
+      - runtime
+      - browser
+      - workspace
+
+  postgres:
+    image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nod
+      POSTGRES_PASSWORD: ${APP_THAINAN_NOD_POSTGRES_PASSWORD}
+      POSTGRES_DB: nod
+    volumes:
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    networks: [backend]
+
+  runtime:
+    image: node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
+    restart: unless-stopped
+    init: true
+    command: ["node", "/app/docker-proxy.mjs"]
+    environment:
+      WORKSPACE_CONTAINER: nod-workspace-thainan
+      BROWSER_CONTAINER: nod-browser-thainan
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${APP_DATA_DIR}/docker-proxy.mjs:/app/docker-proxy.mjs:ro
+    networks: [control]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+
+  browser:
+    image: ghcr.io/nancmd77/thainan-nod:browser-0a16aa4
+    container_name: nod-browser-thainan
+    hostname: nod-browser
+    restart: unless-stopped
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    pids_limit: 1024
+    mem_limit: 3g
+    shm_size: 512m
+    volumes:
+      - browser-data:/data
+    tmpfs:
+      - /tmp:size=512m
+      - /home/node:uid=1000,gid=1000,mode=700,size=256m
+    networks: [browser]
+
+  workspace:
+    image: ghcr.io/nancmd77/thainan-nod:workspace-0a16aa4
+    container_name: nod-workspace-thainan
+    restart: unless-stopped
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 512
+    mem_limit: 2g
+    volumes:
+      - workspace-data:/workspace
+      - workspace-tools:/home/node
+    network_mode: service:workspace-network
+    depends_on:
+      - workspace-network
+    command: ["sleep", "infinity"]
+
+  workspace-network:
+    image: ghcr.io/nancmd77/thainan-nod:workspace-0a16aa4
+    dns: [1.1.1.1, 8.8.8.8]
+    user: root
+    restart: unless-stopped
+    init: true
+    entrypoint: /usr/local/bin/nod-workspace-network
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m
+    pids_limit: 32
+    mem_limit: 64m
+    networks: [workspace]
+
+networks:
+  backend:
+    internal: true
+  control:
+    internal: true
+  outbound:
+  browser:
+  workspace:
+
+volumes:
+  server-data:
+  workspace-data:
+  workspace-tools:
+  browser-data:
