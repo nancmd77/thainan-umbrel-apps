@@ -26,8 +26,8 @@ services:
       NOD_AUTH_TOKEN: ${APP_PASSWORD}
       NOD_VAULT_KEY: ${APP_THAINAN_NOD_VAULT_KEY}
       NOD_ANALYTICS_ENABLED: "false"
-      DATABASE_URL: postgresql://nod:${APP_THAINAN_NOD_POSTGRES_PASSWORD}@postgres:5432/nod
-      DOCKER_HOST: tcp://runtime:2375
+      DATABASE_URL: postgresql://nod:${APP_THAINAN_NOD_POSTGRES_PASSWORD}@thainan-nod_postgres_1:5432/nod
+      DOCKER_HOST: tcp://thainan-nod_runtime_1:2375
       WORKSPACE_CONTAINER: nod-workspace-thainan
       BROWSER_CONTAINER: nod-browser-thainan
     ports:
