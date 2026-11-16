@@ -66,3 +66,6 @@ thainan-waha:
 thainan-omniroute:
   image: diegosouzapw/omniroute
   mode: tag
+thainan-cliproxyapi:
+  image: eceasy/cli-proxy-api
+  mode: tag

@@ -1,0 +1,55 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-cliproxyapi_web_1
+      APP_PORT: 8317
+      PROXY_AUTH_ADD: "false"
+  init:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    restart: "no"
+    environment:
+      MGMT_KEY: "${APP_PASSWORD}"
+      API_KEY: "${APP_THAINAN_CLIPROXYAPI_API_KEY}"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /data/auths /data/logs /data/plugins
+        if [ ! -s /data/config.yaml ]; then
+        cat > /data/config.yaml <<CFG
+        config-version: 8
+        server:
+          host: ""
+          port: 8317
+        management:
+          allow-remote: true
+          secret-key: "$$MGMT_KEY"
+        access:
+          api-keys:
+            - "$$API_KEY"
+        oauth:
+          auth-dir: "/root/.cli-proxy-api"
+        observability:
+          usage:
+            usage-statistics-enabled: true
+        CFG
+        fi
+  web:
+    image: eceasy/cli-proxy-api:v8.0.75@sha256:16bdaaf25b86cd1974ec9bfcc2253a44ac6510ea22f7a483b36f8dee13b003c2
+    restart: unless-stopped
+    stop_grace_period: 20s
+    mem_limit: 768m
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    command: ["./CLIProxyAPI", "-config", "/data/config.yaml"]
+    environment:
+      TZ: America/Sao_Paulo
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}/data/auths:/root/.cli-proxy-api
+      - ${APP_DATA_DIR}/data/logs:/CLIProxyAPI/logs
+      - ${APP_DATA_DIR}/data/plugins:/CLIProxyAPI/plugins

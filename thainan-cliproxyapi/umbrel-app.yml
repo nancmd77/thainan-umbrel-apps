@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-cliproxyapi
+name: CLIProxyAPI
+tagline: Suas assinaturas de IA como uma API compatível com OpenAI, Claude e Gemini
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-cliproxyapi/icon.png
+category: AI
+version: "8.0.75"
+port: 8317
+description: >-
+  CLIProxyAPI transforma logins OAuth de Claude Code, Codex, Antigravity/Gemini CLI, Grok e Kimi num endpoint compatível com OpenAI, Claude e Gemini, com várias contas em rodízio. É o projeto original que inspirou o 9Router e o OmniRoute.
+
+  Painel: abra /management.html e use a senha do app no Umbrel como chave de gerenciamento. A chave da API fica no próprio painel (Configuração).
+developer: router-for-me
+website: https://github.com/router-for-me/CLIProxyAPI
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/router-for-me/CLIProxyAPI
+support: https://github.com/router-for-me/CLIProxyAPI/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão na Thainan Appstore (CLIProxyAPI 8.0.75).
+dependencies: []
+path: "/management.html"
+deterministicPassword: true
+defaultUsername: ""
