@@ -2,8 +2,8 @@ version: "3.7"
 
 # Nod (n8n-io/nod) no Nonve. Baseado em deployment/self-host/compose.yaml do upstream.
 # O Nod só aceita abrir pela origem HTTPS de NOD_PUBLIC_URL (confere o Host), então o acesso é
-# https://nonve-nod.eu1.netbird.services (serviço NetBird com pass_host_header -> nonve:4310).
-# O tile do Umbrel (porta 4312) cai no 403 do Nod por causa do Host; use o endereço NetBird.
+# https://nod.thainancaldeira.com.br (Cloudflare Tunnel "nonve" -> 192.168.18.171:4310).
+# O tile do Umbrel (porta 4312) cai no 403 do Nod por causa do Host; use o endereço do túnel.
 
 services:
   app_proxy:
@@ -22,7 +22,7 @@ services:
       NOD_HOST: 0.0.0.0
       PORT: 4310
       NOD_DATA_ROOT: /var/lib/nod
-      NOD_PUBLIC_URL: https://nonve-nod.eu1.netbird.services
+      NOD_PUBLIC_URL: https://nod.thainancaldeira.com.br
       NOD_AUTH_TOKEN: ${APP_PASSWORD}
       NOD_VAULT_KEY: ${APP_THAINAN_NOD_VAULT_KEY}
       NOD_ANALYTICS_ENABLED: "false"
