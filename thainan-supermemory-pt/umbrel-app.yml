@@ -4,7 +4,7 @@ name: Supermemory_PTBR
 tagline: Motor de memória e continual learning para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-supermemory-pt/icon.png
 category: AI
-version: "1.0.2"
+version: "1.0.3"
 port: 8616
 description: >-
   Segunda instancia do Supermemory Local com embeddings multilingues (Gemini Embedding 2 via OpenRouter pelo LiteLLM, 1024 dimensoes) e LLM gemini-4-hydrogen-low pelo CLIProxyAPI. Roda ao lado da instancia original, com dados proprios, para testar e migrar a memoria em portugues.
@@ -16,7 +16,7 @@ repo: https://github.com/supermemoryai/supermemory
 support: https://github.com/supermemoryai/supermemory/issues
 gallery: []
 releaseNotes: >-
-  Primeira versao: embeddings Gemini Embedding 2 (1024d) e dados separados da instancia original.
+  Agente de memoria com gpt-6-luna-fast e 5 documentos em paralelo; embeddings Gemini Embedding 2 (1024d).
 dependencies: []
 path: ""
 defaultUsername: ""
