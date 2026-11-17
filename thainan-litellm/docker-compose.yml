@@ -31,10 +31,6 @@ services:
           store_model_in_db: true
         CFG
         fi
-        # Cache no Redis (r2): entra uma vez, mesmo em config já existente.
-        if ! grep -q "type: redis" /data/config.yaml; then
-        sed -i 's/^litellm_settings:$$/litellm_settings:\n  cache: true\n  cache_params:\n    type: redis\n    host: thainan-litellm_redis_1\n    port: 6379\n    password: os.environ\/REDIS_PASSWORD\n    ttl: 86400/' /data/config.yaml
-        fi
 
   web:
     image: litellm/litellm:v1.108.10
@@ -44,8 +40,6 @@ services:
         condition: service_completed_successfully
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
     command: ["--config", "/data/config.yaml", "--port", "4000"]
     environment:
       TZ: America/Sao_Paulo
@@ -63,7 +57,6 @@ services:
       LITELLM_TELEMETRY: "False"
       # Token do Headroom (mesmo identificador do app thainan-headroom), usado pelo guardrail headroom-compression.
       HEADROOM_API_KEY: ${APP_THAINAN_LITELLM_HEADROOM_TOKEN}
-      REDIS_PASSWORD: ${APP_THAINAN_LITELLM_REDIS_PASSWORD}
     volumes:
       - ${APP_DATA_DIR}/data:/data
 
@@ -81,10 +74,3 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
-  redis:
-    image: redis:8.2-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${APP_THAINAN_LITELLM_REDIS_PASSWORD}", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru", "--save", "300", "10", "--dir", "/data"]
-    volumes:
-      - ${APP_DATA_DIR}/data/redis:/data
