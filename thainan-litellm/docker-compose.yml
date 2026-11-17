@@ -170,7 +170,7 @@ services:
         MDEOF
 
   web:
-    image: litellm/litellm:v1.108.10
+    image: litellm/litellm:v1.109.1
     restart: unless-stopped
     depends_on:
       init:
@@ -204,7 +204,7 @@ services:
       - ${APP_DATA_DIR}/data:/data
 
   skills:
-    image: litellm/litellm:v1.108.10
+    image: litellm/litellm:v1.109.1
     restart: "no"
     depends_on:
       init:
