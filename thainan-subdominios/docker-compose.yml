@@ -27,6 +27,7 @@ services:
         3001=llm.thainancaldeira.com.br
         8613=langfuse.thainancaldeira.com.br
         8614=litellm.thainancaldeira.com.br
+        8615=headroom.thainancaldeira.com.br
         8233=links.thainancaldeira.com.br
         5230=memos.thainancaldeira.com.br
         8088=opengym.thainancaldeira.com.br

@@ -1,0 +1,23 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-headroom_web_1
+      APP_PORT: 8787
+
+  web:
+    image: ghcr.io/headroomlabs-ai/headroom:0.44.0
+    restart: unless-stopped
+    command: ["--host", "0.0.0.0", "--port", "8787"]
+    environment:
+      TZ: America/Sao_Paulo
+      HEADROOM_PROXY_TOKEN: ${APP_THAINAN_HEADROOM_TOKEN}
+      # O LiteLLM chama /v1/compress de outro container.
+      HEADROOM_COMPRESS_ALLOW_REMOTE: "1"
+      # Painel: o app_proxy do Umbrel (com login) chega pela rede interna dos apps.
+      HEADROOM_PROXY_TRUSTED_DASHBOARD_CLIENT_CIDRS: "10.21.0.0/16"
+      HEADROOM_BEACON: "off"
+      DO_NOT_TRACK: "1"
+    volumes:
+      - ${APP_DATA_DIR}/data:/root/.headroom
+    mem_limit: 2g

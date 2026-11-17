@@ -55,6 +55,8 @@ services:
       LANGFUSE_HOST: http://thainan-langfuse_web_1:3000
       LANGFUSE_OTEL_HOST: http://thainan-langfuse_web_1:3000
       LITELLM_TELEMETRY: "False"
+      # Token do Headroom (mesmo identificador do app thainan-headroom), usado pelo guardrail headroom-compression.
+      HEADROOM_API_KEY: ${APP_THAINAN_LITELLM_HEADROOM_TOKEN}
     volumes:
       - ${APP_DATA_DIR}/data:/data
 
