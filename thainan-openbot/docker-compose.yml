@@ -3693,7 +3693,7 @@ services:
         exec python3 -u /tmp/server.py
 
   openbot:
-    image: ghcr.io/nancmd77/thainan-openbot:0.70.0-r1@sha256:f81b8758aef2ebc3fd58abf6bed650f11bd4654ddabc91be506fd9474cadf981
+    image: ghcr.io/nancmd77/thainan-openbot:0.72.0-r1@sha256:6b5b763a0237bfb9f4eca32b1542ffd3f0a22db08c52bb7e8069d57598083c99
     restart: unless-stopped
     user: "1000:1000"
     depends_on:
@@ -3914,9 +3914,11 @@ services:
           done
           export DISPLAY=:1
           (
+            # 0.72.0-r1: o upstream sobe o próprio openbox no :1 (openbot-desktop); este só entra se não houver nenhum
+            sleep 5
             while true; do
-              openbox || true
-              sleep 1
+              pgrep -x openbox >/dev/null 2>&1 || openbox || true
+              sleep 2
             done
           ) &
           (
