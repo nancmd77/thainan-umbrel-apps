@@ -6,7 +6,7 @@ services:
       APP_PORT: 8787
 
   web:
-    image: ghcr.io/headroomlabs-ai/headroom:0.44.0
+    image: ghcr.io/headroomlabs-ai/headroom:0.44.0-code
     restart: unless-stopped
     command: ["--host", "0.0.0.0", "--port", "8787"]
     environment:
@@ -16,6 +16,8 @@ services:
       HEADROOM_COMPRESS_ALLOW_REMOTE: "1"
       # Painel: o app_proxy do Umbrel (com login) chega pela rede interna dos apps.
       HEADROOM_PROXY_TRUSTED_DASHBOARD_CLIENT_CIDRS: "10.21.0.0/16"
+      # Originais guardados 2 h para o modelo recuperar (padrão 30 min), pensando em sessões longas do Hermes.
+      HEADROOM_CCR_TTL_SECONDS: "7200"
       HEADROOM_BEACON: "off"
       DO_NOT_TRACK: "1"
     volumes:

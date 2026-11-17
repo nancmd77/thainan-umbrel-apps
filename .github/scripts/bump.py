@@ -68,7 +68,14 @@ def ver(t, patched=False):
     return (m[1], tuple(int(x) for x in m.groups()[1:4])) if m else None
 
 
-def newest(cur, all_tags):
+def newest(cur, all_tags, suffix=""):
+    # suffix: variante fixa da imagem (ex.: "-code" no Headroom); só tags X.Y.Z<suffix> concorrem.
+    if suffix:
+        if not cur.endswith(suffix):
+            return None
+        base = {t[: -len(suffix)]: t for t in all_tags if t.endswith(suffix)}
+        b = newest(cur[: -len(suffix)], list(base))
+        return base[b] if b else None
     c = ver(cur, patched=True)
     if not c:
         return None
@@ -110,10 +117,13 @@ def main():
         reg, repo, tag = split(ref)
         try:
             if c.get("mode", "tag") == "tag":
-                novo_tag = newest(tag, tags(reg, repo))
+                suf = c.get("suffix", "")
+                novo_tag = newest(tag, tags(reg, repo), suf)
                 if not novo_tag:
                     print(f"{app}: {tag} já é a mais nova"); continue
                 novo_ref, nova_ver = f"{image}:{novo_tag}", novo_tag.lstrip("v")
+                if suf:
+                    nova_ver = nova_ver[: -len(suf)]
                 nota = f"Atualizado automaticamente para {novo_tag}."
             else:
                 d = digest(reg, repo, tag)
