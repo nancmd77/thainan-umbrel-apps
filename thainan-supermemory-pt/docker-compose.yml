@@ -47,7 +47,7 @@ services:
       SUPERMEMORY_EMBEDDING_PROVIDER: "openai-compatible"
       SUPERMEMORY_EMBEDDING_BASE_URL: "http://thainan-litellm_web_1:4000/v1"
       SUPERMEMORY_EMBEDDING_API_KEY: ${APP_THAINAN_SUPERMEMORY_PT_LITELLM_KEY}
-      SUPERMEMORY_EMBEDDING_MODEL: "openrouter/google/gemini-embedding-2"
+      SUPERMEMORY_EMBEDDING_MODEL: "gemini-embedding-2-1024"
       SUPERMEMORY_EMBEDDING_DIMENSIONS: "1024"
     entrypoint: ["/bin/sh", "-c"]
     command:
