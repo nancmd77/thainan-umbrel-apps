@@ -11,6 +11,7 @@ services:
     restart: "no"
     volumes:
       - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}/../thainan-supermemory-pt/data:/smpt:ro
     command:
       - sh
       - -c
@@ -31,6 +32,142 @@ services:
           store_model_in_db: true
         CFG
         fi
+        # Supermemory_PTBR: MCP nativo (OpenAPI -> MCP) e skills. Desde 1.108.10-r3.
+        wget -q -T 20 -O /data/supermemory-openapi.json.tmp http://192.168.18.171:8616/openapi.json && mv /data/supermemory-openapi.json.tmp /data/supermemory-openapi.json || echo 'init: openapi do Supermemory indisponivel'
+        if [ -s /smpt/local_key ] && [ -s /data/supermemory-openapi.json ] && ! grep -q '^mcp_servers:' /data/config.yaml; then
+          K=$$(tr -d '\r\n' < /smpt/local_key)
+          {
+            echo ''
+            echo '# hark: Supermemory_PTBR como MCP (gerado pelo init; apague este bloco para refazer)'
+            echo 'mcp_servers:'
+            echo '  supermemory:'
+            echo '    url: "http://192.168.18.171:8616"'
+            echo '    spec_path: "/data/supermemory-openapi.json"'
+            echo '    description: "Memoria compartilhada do Nan (Supermemory_PTBR). Namespace padrao: sm_project_default"'
+            echo '    auth_type: "bearer_token"'
+            echo "    auth_value: \"$$K\""
+            echo '    allow_all_keys: true'
+            echo '    disallowed_tools: ["deleteNsByNamespaceDocument", "deleteNsByNamespaceMemories", "deleteNsByNamespaceMemoriesSemantic", "deleteNsByNamespace", "deleteNsByNamespaceProfileBuckets", "patchOrganization", "patchNsByNamespace", "putNsByNamespaceProfileBuckets", "supermemory-deleteNsByNamespaceDocument", "supermemory-deleteNsByNamespaceMemories", "supermemory-deleteNsByNamespaceMemoriesSemantic", "supermemory-deleteNsByNamespace", "supermemory-deleteNsByNamespaceProfileBuckets", "supermemory-patchOrganization", "supermemory-patchNsByNamespace", "supermemory-putNsByNamespaceProfileBuckets"]'
+          } >> /data/config.yaml
+          echo 'init: MCP supermemory adicionado'
+        fi
+        cat > /data/skills-sync.py <<'PYEOF'
+        # Sincroniza skills do Supermemory no LiteLLM (Skills API, custom_llm_provider=litellm_proxy).
+        # Fonte: github.com/supermemoryai/skills (main) + skill local do Nan. Roda a cada start do app.
+        import io, os, re, json, time, tarfile, zipfile, hashlib, urllib.request, uuid
+        BASE = "http://thainan-litellm_web_1:4000"
+        KEY = os.environ["LITELLM_MASTER_KEY"]
+        STATE = "/data/skills-sync.json"
+        H = {"Authorization": "Bearer " + KEY}
+
+        def req(method, path, data=None, headers=None, timeout=60):
+            h = dict(H); h.update(headers or {})
+            r = urllib.request.Request(BASE + path, data=data, headers=h, method=method)
+            with urllib.request.urlopen(r, timeout=timeout) as resp:
+                return json.loads(resp.read() or b"{}")
+
+        def wait_web():
+            for _ in range(120):
+                try:
+                    urllib.request.urlopen(BASE + "/health/liveliness", timeout=5); return True
+                except Exception:
+                    time.sleep(5)
+            return False
+
+        def github_skills():
+            out = {}
+            raw = urllib.request.urlopen("https://codeload.github.com/supermemoryai/skills/tar.gz/refs/heads/main", timeout=60).read()
+            tf = tarfile.open(fileobj=io.BytesIO(raw))
+            files = {}
+            for m in tf.getmembers():
+                if not m.isfile(): continue
+                parts = m.name.split("/")[1:]
+                if len(parts) < 2: continue
+                files.setdefault(parts[0], {})["/".join(parts[1:])] = tf.extractfile(m).read()
+            for d, fs in files.items():
+                if "SKILL.md" in fs: out[d] = fs
+            return out
+
+        LOCAL = {"supermemory-nan": {"SKILL.md": open("/data/supermemory-nan.md", "rb").read()}} if os.path.exists("/data/supermemory-nan.md") else {}
+
+        def skill_name(fs, d):
+            m = re.search(rb"^name:\s*['\"]?([a-z0-9-]+)", fs["SKILL.md"], re.M)
+            return m.group(1).decode() if m else d
+
+        def zip_of(name, fs):
+            b = io.BytesIO()
+            with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
+                for p, c in sorted(fs.items()):
+                    z.writestr(name + "/" + p, c)
+            return b.getvalue()
+
+        def multipart(fields, fname, blob):
+            bd = uuid.uuid4().hex
+            body = b""
+            for k, v in fields.items():
+                body += ("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n" % (bd, k, v)).encode()
+            body += ("--%s\r\nContent-Disposition: form-data; name=\"files[]\"; filename=\"%s\"\r\nContent-Type: application/zip\r\n\r\n" % (bd, fname)).encode() + blob + b"\r\n"
+            body += ("--%s--\r\n" % bd).encode()
+            return body, {"Content-Type": "multipart/form-data; boundary=" + bd}
+
+        def main():
+            if not wait_web():
+                print("skills: web nao respondeu"); return
+            try:
+                src = github_skills()
+            except Exception as e:
+                print("skills: GitHub falhou:", e); src = {}
+            src.update(LOCAL)
+            st = json.load(open(STATE)) if os.path.exists(STATE) else {}
+            q = "?custom_llm_provider=litellm_proxy&beta=true"
+            try:
+                have = {s.get("name") or s.get("display_title"): s["id"] for s in req("GET", "/v1/skills" + q + "&limit=100").get("data", [])}
+            except Exception as e:
+                print("skills: listar falhou:", e); have = {}
+            for d, fs in sorted(src.items()):
+                name = skill_name(fs, d)
+                blob = zip_of(name, fs)
+                h = hashlib.sha256(blob).hexdigest()
+                if name in have and st.get(name) == h:
+                    print("skills: igual", name); continue
+                try:
+                    if name in have:
+                        req("DELETE", "/v1/skills/" + have[name] + q)
+                    body, hh = multipart({"display_title": name, "custom_llm_provider": "litellm_proxy"}, name + ".zip", blob)
+                    r = req("POST", "/v1/skills" + q, data=body, headers=hh, timeout=120)
+                    st[name] = h
+                    print("skills: ok", name, r.get("id"))
+                except urllib.error.HTTPError as e:
+                    print("skills: erro", name, e.code, e.read()[:300])
+                except Exception as e:
+                    print("skills: erro", name, e)
+            json.dump(st, open(STATE, "w"))
+
+        main()
+        PYEOF
+        cat > /data/supermemory-nan.md <<'MDEOF'
+        ---
+        name: supermemory-nan
+        description: Use em toda conversa e toda tarefa do Nan. Memória compartilhada dele (Supermemory_PTBR no Nonve) pelo MCP supermemory do LiteLLM - buscar contexto antes de responder e gravar decisões, preferências e resultados no fim.
+        ---
+
+        # Memória do Nan (Supermemory_PTBR)
+
+        Servidor MCP `supermemory` no LiteLLM, ligado ao app thainan-supermemory-pt (porta 8616). Namespace padrão: `sm_project_default`.
+
+        ## Antes de responder
+        - Chame a ferramenta de busca (`postNsByNamespaceSearch`) com namespace `sm_project_default` e a pergunta em linguagem natural (2 ou 3 buscas curtas se o assunto for amplo).
+        - Opcional: `postNsByNamespaceProfile` para o perfil fixo do Nan.
+        - Use o que voltar sem citar a fonte. Se não voltar nada, siga normalmente.
+
+        ## No fim da tarefa
+        - Grave com `postNsByNamespaceDocument` (namespace `sm_project_default`) uma frase curta em português: decisão, preferência ou resultado, com a data (AAAA-MM-DD). Metadata: `{"source": "litellm", "tipo": "fato" | "decisao" | "desfecho"}`.
+
+        ## Nunca
+        - Gravar cartões, senhas, chaves, documentos de identidade.
+        - Apagar memórias ou namespaces (as ferramentas de apagar ficam bloqueadas).
+        - Imprimir ou pedir a chave do Supermemory.
+        MDEOF
 
   web:
     image: litellm/litellm:v1.108.10
@@ -63,6 +200,20 @@ services:
       REDIS_HOST: thainan-litellm_redis_1
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${APP_THAINAN_LITELLM_REDIS_PASSWORD}
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+
+  skills:
+    image: litellm/litellm:v1.108.10
+    restart: "no"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      web:
+        condition: service_started
+    entrypoint: ["sh", "-c", "exec python3 /data/skills-sync.py"]
+    environment:
+      LITELLM_MASTER_KEY: ${APP_THAINAN_LITELLM_MASTER_KEY}
     volumes:
       - ${APP_DATA_DIR}/data:/data
 
