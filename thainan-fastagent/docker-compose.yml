@@ -1,0 +1,97 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-fastagent_web_1
+      APP_PORT: 8620
+      PROXY_AUTH_ADD: "false"
+
+  init:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    restart: "no"
+    network_mode: none
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /data/agents /data/skills/codigo /data/workspace /data/home /data/.cache
+        # Arquivos de fábrica só nascem se não existirem: edições do Nan são preservadas.
+        if [ ! -s /data/fastagent.config.yaml ]; then
+        cat > /data/fastagent.config.yaml <<'CFG'
+        # Gerado na instalação. Pode editar: vale no próximo restart do app.
+        # Modelos: generic.<nome do modelo no LiteLLM>
+        default_model: generic.gemini-3.8-flash-high
+        generic:
+          base_url: "http://thainan-litellm_web_1:4000/v1"
+        logger:
+          level: warning
+          show_chat: false
+          show_tools: false
+        CFG
+        fi
+        if [ ! -s /data/agents/codigo.md ]; then
+        cat > /data/agents/codigo.md <<'CARD'
+        ---
+        name: codigo
+        description: Especialista em código. Recebe uma tarefa de programação (escrever, corrigir, revisar ou explicar código) e devolve a solução pronta.
+        model: generic.gemini-3.8-flash-high
+        skills:
+          - /data/skills/codigo
+        request_params:
+          max_iterations: 20
+        ---
+        Você é o especialista em código do Nan. Responda em português do Brasil, direto ao ponto.
+        Entregue código completo e testado quando possível. Trabalhe em /data/workspace.
+
+        {{agentSkills}}
+        CARD
+        fi
+        if [ ! -s /data/skills/codigo/revisao/SKILL.md ]; then
+        mkdir -p /data/skills/codigo/revisao
+        cat > /data/skills/codigo/revisao/SKILL.md <<'SK'
+        ---
+        name: revisao
+        description: Use ao revisar ou entregar código. Checklist curto antes de responder.
+        ---
+        Antes de entregar código:
+        1. Rode o código ou os testes se der (shell em /data/workspace).
+        2. Trate erros de entrada e casos vazios.
+        3. Diga em uma linha o que ficou de fora.
+        SK
+        fi
+        echo 'init: ok'
+
+  web:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+    restart: on-failure
+    stop_grace_period: 10s
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    working_dir: /data/workspace
+    environment:
+      GENERIC_API_KEY: ${APP_THAINAN_FASTAGENT_LITELLM_KEY}
+      UV_CACHE_DIR: /data/.cache/uv
+      UV_TOOL_DIR: /data/.tools
+      UV_TOOL_BIN_DIR: /data/.tools/bin
+      FAST_AGENT_VERSION: "0.10.56"
+      HOME: /data/home
+      PYTHONUNBUFFERED: "1"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if ! /data/.tools/bin/fast-agent --version 2>/dev/null | grep -q "v$$FAST_AGENT_VERSION"; then
+          uv tool install --force "fast-agent-mcp==$$FAST_AGENT_VERSION"
+        fi
+        exec /data/.tools/bin/fast-agent serve \
+          --agent-cards /data/agents \
+          --config-path /data/fastagent.config.yaml \
+          --home /data/home \
+          --workspace /data/workspace \
+          --transport http --host 0.0.0.0 --port 8620 \
+          --instance-scope request

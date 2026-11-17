@@ -1,0 +1,24 @@
+manifestVersion: 1
+id: thainan-fastagent
+name: Especialistas (fast-agent)
+tagline: Especialistas com modelo, instruções e skills próprios, servidos por MCP
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-fastagent/icon.png
+category: AI
+version: "0.10.56"
+port: 8620
+description: >-
+  fast-agent em modo servidor MCP. Cada especialista é um arquivo em /data/agents (modelo, instruções, MCPs, skills) e vira uma ferramenta MCP com o nome dele. Qualquer chat com MCP (OpenCode, Claude Code, Hermes, n8n) terceiriza chamando essa ferramenta, inclusive várias ao mesmo tempo.
+
+  Modelos vêm do LiteLLM do Umbrel (thainan-litellm). Endereço MCP: http://192.168.18.171:8620/mcp (interno: http://thainan-fastagent_web_1:8620/mcp). Pasta única: /Apps/thainan-fastagent/data (agents, skills, workspace).
+developer: llmindset (evalstate)
+website: https://fast-agent.ai
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/evalstate/fast-agent
+support: https://github.com/evalstate/fast-agent/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão: especialista "codigo" de exemplo, modo request (cada chamada isolada, roda em paralelo).
+dependencies:
+  - thainan-litellm
+path: "/mcp"
