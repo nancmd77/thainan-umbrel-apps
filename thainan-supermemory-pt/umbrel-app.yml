@@ -1,10 +1,10 @@
 manifestVersion: 1
 id: thainan-supermemory-pt
-name: Supermemory PT
+name: Supermemory_PTBR
 tagline: Motor de memória e continual learning para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-supermemory-pt/icon.png
 category: AI
-version: "1.0.0"
+version: "1.0.1"
 port: 8616
 description: >-
   Segunda instancia do Supermemory Local com embeddings multilingues (Gemini Embedding 2 via OpenRouter pelo LiteLLM, 1024 dimensoes) e LLM gemini-4-hydrogen-low pelo CLIProxyAPI. Roda ao lado da instancia original, com dados proprios, para testar e migrar a memoria em portugues.
