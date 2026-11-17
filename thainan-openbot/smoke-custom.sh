@@ -35,13 +35,13 @@ trap cleanup EXIT
 
 # Estrutura que o compose espera ao redor de APP_DATA_DIR ($WORK/app).
 mkdir -p "$WORK/app/data/OpenBot/Agents/smoke-agente" "$WORK/app/data/OpenBot/Agents/smoke-antigo" \
-  "$WORK/app/run" "$WORK/app/config" "$WORK/thainan-video-kb/data" "$WORK/thainan-supermemory/data"
+  "$WORK/app/run" "$WORK/app/config" "$WORK/thainan-video-kb/data" "$WORK/thainan-supermemory-pt/data"
 printf '# Agente de smoke\n' > "$WORK/app/data/OpenBot/Agents/smoke-agente/AGENTS.md"
 # Agente que já tem o bloco gerenciado de uma versão antiga: o init troca o bloco e não mexe no texto do dono.
 printf '# Agente antigo\nnota do dono\n<!-- jeito-hark:inicio (bloco antigo) -->\n- regra-antiga-do-bloco\n<!-- jeito-hark:fim -->\n' \
   > "$WORK/app/data/OpenBot/Agents/smoke-antigo/AGENTS.md"
 # Chave falsa só para testar o caminho de cópia; nunca é impressa.
-printf 'chave-falsa-de-smoke\n' > "$WORK/thainan-supermemory/data/local_key"
+printf 'chave-falsa-de-smoke\n' > "$WORK/thainan-supermemory-pt/data/local_key"
 printf 'APP_DATA_DIR=%s\n' "$WORK/app" > "$WORK/compose.env"
 # O app_proxy do compose commitado não tem image nem build (o Umbrel injeta o serviço), e o compose
 # recusa o projeto inteiro. O override, só do teste, dá uma imagem a ele; o arquivo real não muda.
@@ -141,6 +141,7 @@ check "/data/bin/conselho executável" test -x /data/bin/conselho
 check "CLI sm --help" sm_ok
 check "CLI conselho --help" conselho_ok
 check "chave copiada com modo 600" chave_ok
+check "node e npm" bins node npm npx
 
 echo "falhas: $fails"
 exit $fails
