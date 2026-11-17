@@ -4,7 +4,7 @@ name: Especialistas (fast-agent)
 tagline: Especialistas com modelo, instruções e skills próprios, servidos por MCP
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-fastagent/icon.png
 category: AI
-version: "0.10.56-r1"
+version: "0.10.56-r2"
 port: 8620
 description: >-
   fast-agent em modo servidor MCP. Cada especialista é um arquivo em /data/agents (modelo, instruções, MCPs, skills) e vira uma ferramenta MCP com o nome dele. Qualquer chat com MCP (OpenCode, Claude Code, Hermes, n8n) terceiriza chamando essa ferramenta, inclusive várias ao mesmo tempo.

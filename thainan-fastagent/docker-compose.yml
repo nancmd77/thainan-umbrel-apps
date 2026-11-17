@@ -90,10 +90,4 @@ services:
         if ! /data/.tools/bin/fast-agent --version 2>/dev/null | grep -q "v$$FAST_AGENT_VERSION"; then
           uv tool install --force "fast-agent-mcp==$$FAST_AGENT_VERSION"
         fi
-        exec /data/.tools/bin/fast-agent serve \
-          --agent-cards /data/agents \
-          --config-path /data/fastagent.config.yaml \
-          --home /data/home \
-          --workspace /data/workspace \
-          --transport http --host 0.0.0.0 --port 8620 \
-          --instance-scope request
+        exec /data/.tools/bin/fast-agent serve --agent-cards /data/agents --config-path /data/fastagent.config.yaml --home /data/home --workspace /data/workspace --transport http --host 0.0.0.0 --port 8620 --instance-scope request
