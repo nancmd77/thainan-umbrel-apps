@@ -40,6 +40,8 @@ services:
         condition: service_completed_successfully
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     command: ["--config", "/data/config.yaml", "--port", "4000"]
     environment:
       TZ: America/Sao_Paulo
@@ -57,6 +59,10 @@ services:
       LITELLM_TELEMETRY: "False"
       # Token do Headroom (mesmo identificador do app thainan-headroom), usado pelo guardrail headroom-compression.
       HEADROOM_API_KEY: ${APP_THAINAN_LITELLM_HEADROOM_TOKEN}
+      # Redis do app: o cache se liga pela tela Response Cache do LiteLLM, que lê estes REDIS_*.
+      REDIS_HOST: thainan-litellm_redis_1
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${APP_THAINAN_LITELLM_REDIS_PASSWORD}
     volumes:
       - ${APP_DATA_DIR}/data:/data
 
@@ -74,3 +80,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${APP_THAINAN_LITELLM_REDIS_PASSWORD}", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru", "--save", "300", "10", "--dir", "/data"]
+    volumes:
+      - ${APP_DATA_DIR}/data/redis:/data

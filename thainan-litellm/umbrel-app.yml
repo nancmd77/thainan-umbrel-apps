@@ -4,7 +4,7 @@ name: LiteLLM
 tagline: Um gateway só para todos os seus modelos, com chaves, limites e custos
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-litellm/icon.png
 category: AI
-version: "1.108.10-r1"
+version: "1.108.10-r2"
 port: 8614
 description: >-
   LiteLLM Proxy expõe mais de 100 provedores de LLM numa API compatível com OpenAI, com chaves virtuais, orçamentos, limites, fallbacks e painel de gastos.
@@ -18,7 +18,7 @@ repo: https://github.com/BerriAI/litellm
 support: https://github.com/BerriAI/litellm/issues
 gallery: []
 releaseNotes: >-
-  Passa o token do Headroom (app thainan-headroom) para o guardrail de compressão.
+  Redis próprio para o cache de respostas (64 MB). O cache se liga pela tela Response Cache do LiteLLM.
 dependencies: []
 path: "/ui"
 deterministicPassword: true
