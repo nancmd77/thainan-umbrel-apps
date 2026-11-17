@@ -19,6 +19,8 @@ services:
     volumes:
       - ${APP_DATA_DIR}/app:/app:ro
       - ${APP_DATA_DIR}/data:/data
+      # Copia a chave sm_ pro app tailscale (o Hark le por la), igual ao padrao da instancia original.
+      - ${APP_DATA_DIR}/../tailscale/data:/ts
     environment:
       REF: thainan-supermemory-v1.0.7
       DATA_DIR: /data
@@ -83,6 +85,8 @@ services:
                 elif not os.path.exists(dst):
                     print(f'[boot] Aviso: nao foi possivel baixar {f} e nao ha versao em cache.')
         " || true
+
+        ( for i in $$(seq 1 900); do if [ -s /data/local_key ]; then cp /data/local_key /ts/smpt_local_key.tmp && chmod 600 /ts/smpt_local_key.tmp && mv /ts/smpt_local_key.tmp /ts/smpt_local_key; break; fi; sleep 2; done ) &
 
         if [ -x "$$D/entrypoint.sh" ]; then
             exec bash "$$D/entrypoint.sh"
