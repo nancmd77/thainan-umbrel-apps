@@ -60,4 +60,19 @@ COPY omp /usr/local/bin/omp
 COPY omp-defaults/ /usr/local/share/omp/
 RUN chmod 0755 /usr/local/bin/omp && chmod 0644 /usr/local/share/omp/*
 
+# Node.js LTS + npm: o Registro ACP do OpenBot instala agentes via npm (ex.: dirac). Tarball oficial, conferido por sha256.
+# Globais do npm vão pra /data/.npm-global (persistente, dono 1000), sem precisar de root.
+ARG NODE_VERSION=26.13.1
+ARG NODE_SHA256=518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778
+RUN set -eu; f=node-v${NODE_VERSION}-linux-x64.tar.gz; \
+    curl -fsSL -o /tmp/$f https://nodejs.org/dist/v${NODE_VERSION}/$f; \
+    echo "${NODE_SHA256}  /tmp/$f" | sha256sum -c -; \
+    tar -xzf /tmp/$f -C /usr/local --strip-components=1 --no-same-owner \
+        --exclude=CHANGELOG.md --exclude=LICENSE --exclude=README.md; \
+    rm -f /tmp/$f; node --version; npm --version; npx --version
+ENV NPM_CONFIG_PREFIX=/data/.npm-global \
+    PATH=/data/.npm-global/bin:$PATH
+RUN printf '%s\n' 'export NPM_CONFIG_PREFIX=/data/.npm-global' 'case ":$PATH:" in *:/data/.npm-global/bin:*) ;; *) export PATH=/data/.npm-global/bin:$PATH;; esac' > /etc/profile.d/npm-global.sh \
+    && chmod 0644 /etc/profile.d/npm-global.sh
+
 USER 1000
