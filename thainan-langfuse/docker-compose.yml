@@ -43,9 +43,9 @@ services:
       postgres:
         condition: service_healthy
       clickhouse:
-        condition: service_healthy
+        condition: service_started
       redis:
-        condition: service_healthy
+        condition: service_started
       minio:
         condition: service_started
     environment:
@@ -71,9 +71,9 @@ services:
       postgres:
         condition: service_healthy
       clickhouse:
-        condition: service_healthy
+        condition: service_started
       redis:
-        condition: service_healthy
+        condition: service_started
       minio:
         condition: service_started
     environment:
@@ -97,7 +97,7 @@ services:
       retries: 20
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.3-alpine
+    image: clickhouse/clickhouse-server:26.3
     restart: unless-stopped
     mem_limit: 3g
     ulimits:
@@ -116,6 +116,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+      start_period: 60s
 
   minio:
     image: cgr.dev/chainguard/minio:latest
