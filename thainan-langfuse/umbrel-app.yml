@@ -4,7 +4,7 @@ name: Langfuse
 tagline: Rastreio, custos e latência de cada chamada dos seus agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-langfuse/icon.png
 category: AI
-version: "4.81.0-r1"
+version: "4.81.0-r2"
 port: 8613
 description: >-
   Langfuse é a plataforma open source de observabilidade para LLMs: traces, tempo de cada passo, tokens, custos, prompts e avaliações.

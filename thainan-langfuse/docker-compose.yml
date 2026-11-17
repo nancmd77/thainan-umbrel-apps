@@ -14,14 +14,14 @@ x-langfuse-env: &lfenv
   LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
   LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
   LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${APP_THAINAN_LANGFUSE_MINIO_PASSWORD}
-  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://thainan-langfuse_minio_1:9000
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://thainan-langfuse-minio:9000
   LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
   LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
   LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
   LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
   LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${APP_THAINAN_LANGFUSE_MINIO_PASSWORD}
-  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://thainan-langfuse_minio_1:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://thainan-langfuse-minio:9000
   LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
   REDIS_HOST: thainan-langfuse_redis_1
@@ -53,7 +53,7 @@ services:
       HOSTNAME: 0.0.0.0
       NEXTAUTH_SECRET: ${APP_THAINAN_LANGFUSE_NEXTAUTH_SECRET}
       AUTH_DISABLE_SIGNUP: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://thainan-langfuse_minio_1:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://thainan-langfuse-minio:9000
       LANGFUSE_INIT_ORG_ID: thainan
       LANGFUSE_INIT_ORG_NAME: Thainan
       LANGFUSE_INIT_PROJECT_ID: hermes
@@ -129,6 +129,11 @@ services:
       MINIO_ROOT_PASSWORD: ${APP_THAINAN_LANGFUSE_MINIO_PASSWORD}
     volumes:
       - ${APP_DATA_DIR}/data/minio:/data
+    # MinIO recusa hostname com "_" (Invalid Request: invalid hostname); o alias sem "_" resolve.
+    networks:
+      default:
+        aliases:
+          - thainan-langfuse-minio
 
   redis:
     image: redis:7-alpine
