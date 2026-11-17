@@ -7,3 +7,4 @@ export APP_THAINAN_LITELLM_CLIPROXY_KEY="$(derive_entropy "env-thainan-cliproxya
 export APP_THAINAN_LITELLM_LANGFUSE_PK="pk-lf-$(printf '%s' "$(derive_entropy "env-thainan-langfuse-public_key")" | cut -c1-32)"
 export APP_THAINAN_LITELLM_LANGFUSE_SK="sk-lf-$(printf '%s' "$(derive_entropy "env-thainan-langfuse-secret_key")" | cut -c1-32)"
 export APP_THAINAN_LITELLM_HEADROOM_TOKEN="$(derive_entropy "env-thainan-headroom-proxy_token")"
+export APP_THAINAN_LITELLM_REDIS_PASSWORD="$(printf '%s' "$(derive_entropy "env-thainan-litellm-redis_password")" | cut -c1-32)"
