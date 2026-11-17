@@ -72,3 +72,10 @@ thainan-cliproxyapi:
 thainan-cliproxyapi:
   image: eceasy/cli-proxy-api
   mode: tag
+thainan-langfuse:
+  image: langfuse/langfuse
+  mode: tag
+  also: langfuse/langfuse-worker
+thainan-litellm:
+  image: litellm/litellm
+  mode: tag

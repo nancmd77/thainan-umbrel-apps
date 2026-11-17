@@ -4,7 +4,7 @@ name: Acesso Remoto
 tagline: Dashboard do Umbrel por fora, com os tiles abrindo os endereços públicos
 icon: https://github.com/caddyserver.png
 category: Networking
-version: "2.0.7"
+version: "2.0.8"
 port: 8790
 description: >-
   Fica na frente do dashboard do Umbrel (porta 8791, publicada no Cloudflare Tunnel como
@@ -21,9 +21,7 @@ repo: https://github.com/caddyserver/caddy
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  2.0.7: tiles passam a abrir <app>.thainancaldeira.com.br (Cloudflare Tunnel, mais rápido que o NetBird da Europa); herdr segue no NetBird. (2026-11-16)
-  2.0.1: todos os tiles abrem por fora de casa (13 apps novos, protegidos pelo login do NetBird).
-  então agora ele serve o dashboard pelo NetBird e conserta o link dos tiles. (2026-10-27)
+  Tiles do Langfuse e do LiteLLM. (2026-11-17)
 dependencies: []
 path: ""
 defaultUsername: ""

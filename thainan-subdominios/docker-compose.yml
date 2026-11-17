@@ -25,6 +25,8 @@ services:
         20128=9router.thainancaldeira.com.br
         13119=ntfy.thainancaldeira.com.br
         3001=llm.thainancaldeira.com.br
+        8613=langfuse.thainancaldeira.com.br
+        8614=litellm.thainancaldeira.com.br
         8233=links.thainancaldeira.com.br
         5230=memos.thainancaldeira.com.br
         8088=opengym.thainancaldeira.com.br

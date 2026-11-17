@@ -1,0 +1,142 @@
+version: "3.7"
+x-langfuse-env: &lfenv
+  NEXTAUTH_URL: https://langfuse.thainancaldeira.com.br
+  DATABASE_URL: postgresql://langfuse:${APP_THAINAN_LANGFUSE_PG_PASSWORD}@thainan-langfuse_postgres_1:5432/langfuse
+  SALT: ${APP_THAINAN_LANGFUSE_SALT}
+  ENCRYPTION_KEY: ${APP_THAINAN_LANGFUSE_ENCRYPTION_KEY}
+  TELEMETRY_ENABLED: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://thainan-langfuse_clickhouse_1:9000
+  CLICKHOUSE_URL: http://thainan-langfuse_clickhouse_1:8123
+  CLICKHOUSE_USER: langfuse
+  CLICKHOUSE_PASSWORD: ${APP_THAINAN_LANGFUSE_CH_PASSWORD}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${APP_THAINAN_LANGFUSE_MINIO_PASSWORD}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://thainan-langfuse_minio_1:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${APP_THAINAN_LANGFUSE_MINIO_PASSWORD}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://thainan-langfuse_minio_1:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  REDIS_HOST: thainan-langfuse_redis_1
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${APP_THAINAN_LANGFUSE_REDIS_PASSWORD}
+  TZ: UTC
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-langfuse_web_1
+      APP_PORT: 3000
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    image: langfuse/langfuse:4.81.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      <<: *lfenv
+      HOSTNAME: 0.0.0.0
+      NEXTAUTH_SECRET: ${APP_THAINAN_LANGFUSE_NEXTAUTH_SECRET}
+      AUTH_DISABLE_SIGNUP: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://thainan-langfuse_minio_1:9000
+      LANGFUSE_INIT_ORG_ID: thainan
+      LANGFUSE_INIT_ORG_NAME: Thainan
+      LANGFUSE_INIT_PROJECT_ID: hermes
+      LANGFUSE_INIT_PROJECT_NAME: Hermes
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${APP_THAINAN_LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${APP_THAINAN_LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: thainancaldeira75@gmail.com
+      LANGFUSE_INIT_USER_NAME: Thainan
+      LANGFUSE_INIT_USER_PASSWORD: ${APP_PASSWORD}
+
+  worker:
+    image: langfuse/langfuse-worker:4.81.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      <<: *lfenv
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${APP_THAINAN_LANGFUSE_PG_PASSWORD}
+      POSTGRES_DB: langfuse
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3-alpine
+    restart: unless-stopped
+    mem_limit: 3g
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${APP_THAINAN_LANGFUSE_CH_PASSWORD}
+    volumes:
+      - ${APP_DATA_DIR}/data/clickhouse:/var/lib/clickhouse
+      - ${APP_DATA_DIR}/data/clickhouse-logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${APP_THAINAN_LANGFUSE_MINIO_PASSWORD}
+    volumes:
+      - ${APP_DATA_DIR}/data/minio:/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${APP_THAINAN_LANGFUSE_REDIS_PASSWORD}", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - ${APP_DATA_DIR}/data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${APP_THAINAN_LANGFUSE_REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

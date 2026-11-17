@@ -126,6 +126,10 @@ def main():
         except Exception as e:
             print(f"{app}: erro {e}"); continue
         comp = comp.replace(ref, novo_ref)
+        if c.get("mode", "tag") == "tag":
+            # also: outras imagens do mesmo app que seguem a mesma tag (ex.: langfuse-worker).
+            for extra in filter(None, (x.strip() for x in c.get("also", "").split(","))):
+                comp = comp.replace(f"{extra}:{tag}", f"{extra}:{novo_tag}")
         meta = re.sub(r'^version:.*$', f'version: "{nova_ver}"', meta, count=1, flags=re.M)
         nota += f" ({datetime.date.today().isoformat()})"
         if re.search(r"^releaseNotes:", meta, re.M):

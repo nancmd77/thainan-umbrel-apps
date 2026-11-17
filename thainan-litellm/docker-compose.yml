@@ -1,0 +1,74 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-litellm_web_1
+      APP_PORT: 4000
+      PROXY_AUTH_ADD: "false"
+
+  init:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    restart: "no"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -s /data/config.yaml ]; then
+        cat > /data/config.yaml <<'CFG'
+        # Gerado na instalação. Pode editar: vale no próximo restart do app.
+        model_list:
+          - model_name: "*"
+            litellm_params:
+              model: "openai/*"
+              api_base: http://thainan-cliproxyapi_web_1:8317/v1
+              api_key: os.environ/CLIPROXY_API_KEY
+        litellm_settings:
+          callbacks: ["langfuse_otel"]
+          drop_params: true
+        general_settings:
+          store_model_in_db: true
+        CFG
+        fi
+
+  web:
+    image: litellm/litellm:v1.108.10
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    command: ["--config", "/data/config.yaml", "--port", "4000"]
+    environment:
+      TZ: America/Sao_Paulo
+      DATABASE_URL: postgresql://litellm:${APP_THAINAN_LITELLM_PG_PASSWORD}@thainan-litellm_db_1:5432/litellm
+      LITELLM_MASTER_KEY: ${APP_THAINAN_LITELLM_MASTER_KEY}
+      LITELLM_SALT_KEY: ${APP_THAINAN_LITELLM_SALT_KEY}
+      UI_USERNAME: admin
+      UI_PASSWORD: ${APP_PASSWORD}
+      STORE_MODEL_IN_DB: "True"
+      CLIPROXY_API_KEY: ${APP_THAINAN_LITELLM_CLIPROXY_KEY}
+      LANGFUSE_PUBLIC_KEY: ${APP_THAINAN_LITELLM_LANGFUSE_PK}
+      LANGFUSE_SECRET_KEY: ${APP_THAINAN_LITELLM_LANGFUSE_SK}
+      LANGFUSE_HOST: http://thainan-langfuse_web_1:3000
+      LANGFUSE_OTEL_HOST: http://thainan-langfuse_web_1:3000
+      LITELLM_TELEMETRY: "False"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${APP_THAINAN_LITELLM_PG_PASSWORD}
+      POSTGRES_DB: litellm
+    volumes:
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

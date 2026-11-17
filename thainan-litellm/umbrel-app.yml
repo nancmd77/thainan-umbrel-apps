@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-litellm
+name: LiteLLM
+tagline: Um gateway só para todos os seus modelos, com chaves, limites e custos
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-litellm/icon.png
+category: AI
+version: "1.108.10"
+port: 8614
+description: >-
+  LiteLLM Proxy expõe mais de 100 provedores de LLM numa API compatível com OpenAI, com chaves virtuais, orçamentos, limites, fallbacks e painel de gastos.
+
+  Já vem apontado para o CLIProxyAPI do Umbrel (todos os modelos dele, por curinga) e manda cada chamada para o Langfuse, se ele estiver instalado. Painel em /ui: usuário admin e a senha do app no Umbrel. Endereço interno para outros apps: http://thainan-litellm_web_1:4000/v1.
+developer: BerriAI
+website: https://www.litellm.ai
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/BerriAI/litellm
+support: https://github.com/BerriAI/litellm/issues
+gallery: []
+releaseNotes: >-
+  App novo (2026-11-17).
+dependencies: []
+path: "/ui"
+deterministicPassword: true
+defaultUsername: "admin"

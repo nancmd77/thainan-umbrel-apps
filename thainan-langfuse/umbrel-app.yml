@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-langfuse
+name: Langfuse
+tagline: Rastreio, custos e latência de cada chamada dos seus agentes de IA
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-langfuse/icon.png
+category: AI
+version: "4.81.0"
+port: 8613
+description: >-
+  Langfuse é a plataforma open source de observabilidade para LLMs: traces, tempo de cada passo, tokens, custos, prompts e avaliações.
+
+  Login: seu e-mail e a senha do app no Umbrel. O projeto "Hermes" já nasce com chaves de API (pk-lf/sk-lf), usadas pelo LiteLLM e pelo Hermes na rede interna (http://thainan-langfuse_web_1:3000). Cadastro público desligado.
+
+  Pesado: Postgres, ClickHouse, Redis e MinIO sobem junto.
+developer: Langfuse
+website: https://langfuse.com
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/langfuse/langfuse
+support: https://github.com/langfuse/langfuse/issues
+gallery: []
+releaseNotes: >-
+  App novo (2026-11-17).
+dependencies: []
+path: ""
+deterministicPassword: true
+defaultUsername: "thainancaldeira75@gmail.com"
