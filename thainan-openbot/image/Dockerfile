@@ -1,4 +1,4 @@
-FROM ghcr.io/nightly-labs/openbot:v0.70.0@sha256:1a1687ca5d16a003def143cc8059467abd3d9fbb4cc57768a03b33f6f3f4a936
+FROM ghcr.io/nightly-labs/openbot:v0.72.0@sha256:516e7cf80e606c8437b6f363c1eb7c399ca20a8cae157237cc0c941246c61db7
 
 USER root
 
@@ -45,5 +45,19 @@ RUN chmod 0755 /usr/local/bin/md
 COPY decide /usr/local/bin/decide
 RUN chmod 0755 /usr/local/bin/decide
 
+
+# omp (can1357/oh-my-pi): agente ACP do OpenBot (comando "omp acp"); binário oficial da release, conferido por sha256.
+# O LiteLLM do Nonve é o provedor padrão: /usr/local/share/omp/models.yml e config.yml são copiados para
+# ~/.omp/agent (HOME=/data) no primeiro uso, sem sobrescrever o que já existir. A chave (app-omp do LiteLLM)
+# vem de /config/litellm-omp.key (600); nunca fica na imagem.
+ARG OMP_VERSION=18.22.0
+ARG OMP_SHA256=f706b27ba845834d8f8360705a2e9ba1534f3593fa24411d41358272de33642b
+RUN set -eu; mkdir -p /usr/local/lib/omp; \
+    curl -fsSL -o /usr/local/lib/omp/omp https://github.com/can1357/oh-my-pi/releases/download/v${OMP_VERSION}/omp-linux-x64; \
+    echo "${OMP_SHA256}  /usr/local/lib/omp/omp" | sha256sum -c -; \
+    chmod 0755 /usr/local/lib/omp/omp
+COPY omp /usr/local/bin/omp
+COPY omp-defaults/ /usr/local/share/omp/
+RUN chmod 0755 /usr/local/bin/omp && chmod 0644 /usr/local/share/omp/*
 
 USER 1000

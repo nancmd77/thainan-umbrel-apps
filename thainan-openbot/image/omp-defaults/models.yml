@@ -1,0 +1,9 @@
+# Provedor padrão do omp no OpenBot: LiteLLM do Nonve (rede interna do Umbrel).
+# Chave: "app-omp" do LiteLLM, no arquivo /config/litellm-omp.key (600).
+providers:
+   litellm:
+      baseUrl: http://thainan-litellm_web_1:4000/v1
+      apiKey: "!cat /config/litellm-omp.key"
+      api: openai-completions
+      discovery:
+         type: litellm

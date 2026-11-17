@@ -116,6 +116,7 @@ check "openbot-container" test -x /opt/OpenBot/app/resources/hosting/openbot-con
 check "tini" test -x /usr/bin/tini
 check "md" test -x /usr/local/bin/md
 check "decide" test -x /usr/local/bin/decide
+check "omp" sh -c '/usr/local/lib/omp/omp --version >/dev/null && test -s /usr/local/share/omp/models.yml && test -x /usr/local/bin/omp'
 check "openbox/xdotool/scrot" bins openbox xdotool scrot
 check "sudo sem senha" sudo -n true
 check "agent-desktop version" ad_versao
