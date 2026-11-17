@@ -17,7 +17,7 @@ services:
       - ${APP_DATA_DIR}/run:/run/openbot
       - ${APP_DATA_DIR}/config:/config
       - ${APP_DATA_DIR}/../thainan-video-kb/data:/vkb:ro
-      - ${APP_DATA_DIR}/../thainan-supermemory/data:/sm:ro
+      - ${APP_DATA_DIR}/../thainan-supermemory-pt/data:/sm:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -468,7 +468,7 @@ services:
         while :; do sleep 20; inject; done
         FIM_HARK
         chmod 755 /data/bin/regras-hark.sh
-        # Supermemory (r4): CLI sm, skill e chave local do app thainan-supermemory
+        # Supermemory (r4): CLI sm, skill e chave local do app thainan-supermemory-pt (PTBR, desde 17/11)
         mkdir -p /data/.agents/skills/supermemory
         cat <<'FIM_HARK' > /data/.agents/skills/supermemory/SKILL.md
         ---
@@ -506,7 +506,7 @@ services:
         """
         import datetime, json, os, sys, urllib.request
 
-        BASE = os.environ.get("SM_BASE", "http://192.168.18.171:8567").rstrip("/")
+        BASE = os.environ.get("SM_BASE", "http://192.168.18.171:8616").rstrip("/")
         NS = os.environ.get("SM_NS", "sm_project_default")
         TIPOS = {"decisao", "ideia", "sugestao", "lembrete", "preferencia", "fato", "estado", "desfecho", "dump", "documento"}
 
