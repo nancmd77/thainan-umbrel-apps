@@ -69,3 +69,6 @@ thainan-omniroute:
 thainan-cliproxyapi:
   image: eceasy/cli-proxy-api
   mode: tag
+thainan-cliproxyapi:
+  image: eceasy/cli-proxy-api
+  mode: tag
