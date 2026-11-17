@@ -82,9 +82,11 @@ services:
       FAST_AGENT_VERSION: "0.10.56"
       HOME: /data/home
       PYTHONUNBUFFERED: "1"
+      FAST_AGENT_MODEL: generic.gemini-3.8-flash-high
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        set -x
         if ! /data/.tools/bin/fast-agent --version 2>/dev/null | grep -q "v$$FAST_AGENT_VERSION"; then
           uv tool install --force "fast-agent-mcp==$$FAST_AGENT_VERSION"
         fi
