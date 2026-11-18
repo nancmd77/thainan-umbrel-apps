@@ -1,0 +1,80 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-cua-spaces_info_1
+      APP_PORT: 8626
+
+  init:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    restart: "no"
+    network_mode: none
+    environment:
+      TOKEN: "${APP_PASSWORD}"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /data/www
+        # Sessão só de navegador: substitui o startxfce4 da imagem (sem painel, sem área de trabalho, sem terminal).
+        # Fica o xfwm4 (foco e maximizar) e o Chromium maximizado, que reabre se fechar.
+        cat > /data/sessao.sh <<'SH'
+        #!/bin/sh
+        xset s off -dpms 2>/dev/null
+        xsetroot -solid black 2>/dev/null
+        ( while :; do xfwm4 --compositor=off --sm-client-disable; sleep 1; done ) &
+        sleep 1
+        while :; do
+          /usr/bin/chromium --start-maximized --no-first-run --no-default-browser-check --lang=pt-BR about:blank
+          sleep 1
+        done
+        SH
+        chmod 755 /data/sessao.sh
+        cat > /data/www/index.html <<HTML
+        <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Cua Spaces</title>
+        <style>body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;line-height:1.5}code{background:#eee;padding:2px 6px;user-select:all;word-break:break-all}</style></head><body>
+        <h1>Cua Spaces no Nonve</h1>
+        <p>No app Cua Spaces (Windows ou Mac): New Space, depois Connect by address.</p>
+        <p>Endereço: <code>192.168.18.171:3211</code></p>
+        <p>Token: <code>$$TOKEN</code></p>
+        <p>Só funciona dentro da rede de casa. Pelo terminal: <code>cua spaces add 192.168.18.171:3211 --token SEU_TOKEN --name nonve</code></p>
+        </body></html>
+        HTML
+        chmod 644 /data/www/index.html
+        echo 'init: ok'
+
+  space:
+    image: ghcr.io/trycua/linux:24.04-slim@sha256:d21a48ebbfe03914fdfc109c21780a8bd75cb1ec15cc83ad956fa2ecafb4b8aa
+    restart: on-failure
+    stop_grace_period: 15s
+    shm_size: 1g
+    mem_limit: 3g
+    hostname: nonve-space
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      CUA_ENV_TOKEN: "${APP_PASSWORD}"
+      CUA_RESOLUTION: "1920x1080"
+      TZ: America/Sao_Paulo
+      DO_NOT_TRACK: "1"
+      CUA_TELEMETRY: "0"
+    ports:
+      - "192.168.18.171:3211:3211/tcp"
+      - "192.168.18.171:3212:3212/udp"
+    volumes:
+      - ${APP_DATA_DIR}/data/sessao.sh:/usr/bin/startxfce4:ro
+
+  info:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    restart: on-failure
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - ${APP_DATA_DIR}/data/www:/www:ro
+    command: ["httpd", "-f", "-p", "8626", "-h", "/www"]

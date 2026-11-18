@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-cua-spaces
+name: Cua Spaces
+tagline: Um Space Linux do Cua só com o navegador, acessível só pela rede de casa
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-cua-spaces/icon.png
+category: AI
+version: "0.16.3-r1"
+port: 8626
+description: >-
+  Um Space Linux (Ubuntu 24.04 enxuto, imagem oficial do Cua) pra abrir no app Cua Spaces do Windows ou do Mac, sem conta da cua.ai e sem relay: conexão direta pela rede local.
+
+  No Cua Spaces: New Space, Connect by address, endereço 192.168.18.171:3211 e, como token, a senha deste app no Umbrel (também aparece na página do app). A porta 3211 (TCP) e a 3212 (UDP, vídeo) ficam presas ao IP da rede de casa 192.168.18.171: não abrem no Tailscale, no NetBird nem fora de casa.
+
+  A tela tem só o Chromium maximizado (sem painel, área de trabalho ou terminal); se ele for fechado, abre de novo.
+developer: Cua AI
+website: https://cua.ai
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/trycua/cua
+support: https://github.com/trycua/cua/issues
+gallery: []
+releaseNotes: >-
+  r1: primeira versão. Imagem ghcr.io/trycua/linux:24.04-slim (cua-spacesd 0.16.3), conexão direta só pela rede local, tela só com o Chromium.
+dependencies: []
+path: ""
+deterministicPassword: true
+defaultUsername: ""
