@@ -112,8 +112,23 @@ services:
         ThreadingHTTPServer(('0.0.0.0', 8623), H).serve_forever()
         PY
         cat > /data/cdpfwd.py <<'PY'
-        # Cua r5: expõe o CDP do Chromium (127.0.0.1:9222) na porta 9223 só pro Fast Agent (thainan-fastagent_web_1).
-        import socket,threading
+        # Cua r6: abre o Chromium se não estiver aberto; expõe o CDP do Chromium (127.0.0.1:9222) na porta 9223 só pro Fast Agent (thainan-fastagent_web_1).
+        import socket,threading,subprocess,time
+        ENV={'DISPLAY':':1','XDG_RUNTIME_DIR':'/run/cua-desktop','DBUS_SESSION_BUS_ADDRESS':'unix:path=/run/cua-desktop/bus','HOME':'/home/cua','PATH':'/usr/local/bin:/usr/bin:/bin'}
+        trava=threading.Lock()
+        def cdp():
+            try: return socket.create_connection(('127.0.0.1',9222),3)
+            except Exception: return None
+        def garante():
+            with trava:
+                u=cdp()
+                if u: return u
+                subprocess.Popen(['runuser','-u','cua','--','/usr/bin/chromium','about:blank'],env=ENV,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+                for _ in range(40):
+                    time.sleep(0.5)
+                    u=cdp()
+                    if u: return u
+                return None
         PERMITIDOS=['thainan-fastagent_web_1']
         def ips():
             s=set()
@@ -132,13 +147,15 @@ services:
                 for x in (a,b):
                     try: x.shutdown(socket.SHUT_RDWR)
                     except Exception: pass
+        def liga(c):
+            u=garante()
+            if not u: c.close(); return
+            threading.Thread(target=pipe,args=(c,u),daemon=True).start(); pipe(u,c)
         srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('0.0.0.0',9223)); srv.listen(64)
         while True:
             c,(ip,_)=srv.accept()
             if ip not in ips(): c.close(); continue
-            try: u=socket.create_connection(('127.0.0.1',9222),5)
-            except Exception: c.close(); continue
-            threading.Thread(target=pipe,args=(c,u),daemon=True).start(); threading.Thread(target=pipe,args=(u,c),daemon=True).start()
+            threading.Thread(target=liga,args=(c,),daemon=True).start()
         PY
         echo 'init: ok'
 
@@ -156,7 +173,7 @@ services:
       - ${APP_DATA_DIR}/data/cdpfwd.py:/opt/hark/cdpfwd.py:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
-      # r5: Chromium sempre com CDP (9222, só local) e encaminhador 9223 que só aceita o Fast Agent (agent-browser).
+      # r5/r6: Chromium sempre com CDP (abre sozinho quando o agent-browser chama) (9222, só local) e encaminhador 9223 que só aceita o Fast Agent (agent-browser).
       - 'echo "export CHROMIUM_FLAGS=\"\$$CHROMIUM_FLAGS --remote-debugging-port=9222 --user-data-dir=/home/cua/.config/chromium\"" > /etc/chromium.d/zz-hark-cdp; (python3 /opt/hark/cdpfwd.py >/dev/null 2>&1 &); export CUA_ENV_TOKEN="$$(cat /segredo/env-token)"; exec /opt/cua/desktop/entrypoint.sh'
 
   ticket:
