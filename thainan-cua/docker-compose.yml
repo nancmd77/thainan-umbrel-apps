@@ -198,6 +198,26 @@ services:
             if ip not in ips(): c.close(); continue
             threading.Thread(target=atende,args=(c,),daemon=True).start()
         PY
+        cat > /data/cuafoco.sh <<'SH'
+        #!/bin/sh
+        # r9: Cua é desktop só de navegador. Mantém toda janela normal do Chromium maximizada e o foco nele.
+        # Pausa (manutenção): criar /tmp/hark-foco-pausa dentro do desktop.
+        export DISPLAY=:1
+        while :; do
+          sleep 1
+          [ -e /tmp/hark-foco-pausa ] && continue
+          ult=""
+          for w in $$(xdotool search --onlyvisible --class chromium 2>/dev/null); do
+            xprop -id "$$w" WM_TRANSIENT_FOR 2>/dev/null | grep -q 'window id' && continue
+            xprop -id "$$w" _NET_WM_WINDOW_TYPE 2>/dev/null | grep -q '_NET_WM_WINDOW_TYPE_NORMAL' || continue
+            xprop -id "$$w" _NET_WM_STATE 2>/dev/null | grep -q 'MAXIMIZED_HORZ' || wmctrl -i -r "$$w" -b add,maximized_vert,maximized_horz 2>/dev/null
+            ult="$$w"
+          done
+          [ -z "$$ult" ] && continue
+          at=$$(xdotool getactivewindow 2>/dev/null)
+          xprop -id "$${at:-0}" WM_CLASS 2>/dev/null | grep -qi chromium || wmctrl -i -a "$$ult" 2>/dev/null
+        done
+        SH
         echo 'init: ok'
 
   desktop:
@@ -213,12 +233,14 @@ services:
       - ${APP_DATA_DIR}/data/segredo:/segredo:ro
       - ${APP_DATA_DIR}/data/cdpfwd.py:/opt/hark/cdpfwd.py:ro
       - ${APP_DATA_DIR}/data/bskmcp.py:/opt/hark/bskmcp.py:ro
+      - ${APP_DATA_DIR}/data/cuafoco.sh:/opt/hark/cuafoco.sh:ro
       - ${APP_DATA_DIR}/data/bsk:/opt/hark/bsk:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
+      # r9: desktop só de navegador: Chromium abre maximizado e o vigia cuafoco.sh mantém ele maximizado e em foco.
       # r8: extensão BrowserSkill (Tencent) carregada no Chromium + ponte 9224 do `bsk mcp` só pro Fast Agent.
       # r5/r6: Chromium sempre com CDP (abre sozinho quando o agent-browser chama) (9222, só local) e encaminhador 9223 que só aceita o Fast Agent (agent-browser).
-      - 'echo "export CHROMIUM_FLAGS=\"\$$CHROMIUM_FLAGS --remote-debugging-port=9222 --user-data-dir=/home/cua/.config/chromium --load-extension=/opt/hark/bsk/ext\"" > /etc/chromium.d/zz-hark-cdp; (python3 /opt/hark/cdpfwd.py >/dev/null 2>&1 &); (python3 /opt/hark/bskmcp.py >/dev/null 2>&1 &); export CUA_ENV_TOKEN="$$(cat /segredo/env-token)"; exec /opt/cua/desktop/entrypoint.sh'
+      - 'echo "export CHROMIUM_FLAGS=\"\$$CHROMIUM_FLAGS --remote-debugging-port=9222 --user-data-dir=/home/cua/.config/chromium --load-extension=/opt/hark/bsk/ext --start-maximized\"" > /etc/chromium.d/zz-hark-cdp; (python3 /opt/hark/cdpfwd.py >/dev/null 2>&1 &); (python3 /opt/hark/bskmcp.py >/dev/null 2>&1 &); (sh /opt/hark/cuafoco.sh >/dev/null 2>&1 &); export CUA_ENV_TOKEN="$$(cat /segredo/env-token)"; exec /opt/cua/desktop/entrypoint.sh'
 
   ticket:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
