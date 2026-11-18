@@ -26,6 +26,17 @@ services:
     volumes:
       - ${APP_DATA_DIR}/data/webdav:/data
 
+  juntar:
+    # junta os pedaços (rclone chunker, 90 MB) que o notebook manda pelo Cloudflare, para o seguidor ler o arquivo inteiro
+    image: rclone/rclone:1.76.0@sha256:7cbeec24a44f206067597c0368be4de90ae19a64d5113c7d1938bd737a81e466
+    restart: unless-stopped
+    user: "1000:1000"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - mkdir -p /data/screenpipe-c && exec rclone serve webdav ":chunker,remote=/data/screenpipe-c,chunk_size=90M:" --addr :8080 --read-only --dir-cache-time 1s --log-level NOTICE
+    volumes:
+      - ${APP_DATA_DIR}/data/webdav:/data
+
   seguidor:
     image: litestream/litestream:0.5.18@sha256:513bff62a88fc0c86c73d27333c41c54c89fe890a7c32a551600adff9309b11b
     restart: unless-stopped
@@ -40,7 +51,7 @@ services:
           - path: /replica/db.sqlite
             replica:
               type: webdav
-              webdav-url: http://thainan-screenpipe-espelho_webdav_1:8080
+              webdav-url: http://thainan-screenpipe-espelho_juntar_1:8080
               webdav-username: notebook
               webdav-password: $${SP_WEBDAV_PASS}
               path: screenpipe
@@ -56,6 +67,7 @@ services:
       - ${APP_DATA_DIR}/data/replica:/replica
     depends_on:
       - webdav
+      - juntar
 
   linha:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
