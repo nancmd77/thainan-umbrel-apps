@@ -33,7 +33,12 @@ services:
     user: "1000:1000"
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - mkdir -p /data/screenpipe-c && exec rclone serve webdav ":chunker,remote=/data/screenpipe-c,chunk_size=90M:" --addr :8080 --read-only --dir-cache-time 1s --log-level NOTICE
+      - |
+        mkdir -p /data/screenpipe-c /data/screenpipe-j
+        while true; do
+          rclone sync ":chunker,remote=/data/screenpipe-c,chunk_size=90M:" /data/screenpipe-j --exclude "*.tmp" --log-level ERROR
+          sleep 2
+        done
     volumes:
       - ${APP_DATA_DIR}/data/webdav:/data
 
@@ -50,11 +55,8 @@ services:
         dbs:
           - path: /replica/db.sqlite
             replica:
-              type: webdav
-              webdav-url: http://thainan-screenpipe-espelho_juntar_1:8080
-              webdav-username: notebook
-              webdav-password: $${SP_WEBDAV_PASS}
-              path: screenpipe
+              type: file
+              path: /webdav/screenpipe-j/screenpipe
         YML
         while true; do
           rm -f /replica/db.sqlite /replica/db.sqlite-wal /replica/db.sqlite-shm
@@ -65,6 +67,7 @@ services:
         done
     volumes:
       - ${APP_DATA_DIR}/data/replica:/replica
+      - ${APP_DATA_DIR}/data/webdav:/webdav:ro
     depends_on:
       - webdav
       - juntar
