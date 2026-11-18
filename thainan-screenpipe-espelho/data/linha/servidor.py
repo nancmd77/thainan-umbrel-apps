@@ -4,7 +4,7 @@
 Lê a réplica Litestream (/replica/db.sqlite) e a mídia enviada pelo notebook (/midia).
 Nunca escreve na réplica: abre sempre com mode=ro&immutable=1, uma conexão por pedido.
 """
-import calendar, json, os, re, sqlite3, subprocess, threading, time, urllib.parse
+import base64, calendar, json, os, re, sqlite3, subprocess, threading, time, urllib.parse, urllib.request
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 DB = os.environ.get("SP_DB", "/replica/db.sqlite")
@@ -153,6 +153,28 @@ def estado():
         return {"ok": False, "erro": str(e)}
 
 
+MD_URL = os.environ.get("SP_MOONDREAM_URL", "http://thainan-litellm_web_1:4000/moondream").rstrip("/")
+MD_KEY = os.environ.get("SP_MOONDREAM_KEY", "")
+
+
+def moondream(fid, pergunta=None):
+    """Moondream (nuvem) pelo pass-through interno do LiteLLM. Sem pergunta = legenda."""
+    p = imagem(fid)
+    if not p:
+        raise RuntimeError("imagem deste momento ainda não chegou")
+    tipo = "image/png" if p.lower().endswith(".png") else "image/jpeg"
+    url_img = f"data:{tipo};base64," + base64.b64encode(open(p, "rb").read()).decode()
+    if pergunta:
+        rota, corpo = "/v1/query", {"image_url": url_img, "question": pergunta}
+    else:
+        rota, corpo = "/v1/caption", {"image_url": url_img, "length": "normal"}
+    r = urllib.request.Request(MD_URL + rota, data=json.dumps(corpo).encode(), method="POST",
+                               headers={"Content-Type": "application/json", "Authorization": f"Bearer {MD_KEY}", "User-Agent": "screenpipe-espelho/0.2"})
+    with urllib.request.urlopen(r, timeout=90) as resp:
+        d = json.load(resp)
+    return {"resposta": d.get("answer") or d.get("caption") or ""}
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -167,6 +189,16 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store" if "json" in tipo else "max-age=86400")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            d = json.loads(self.rfile.read(n) or b"{}")
+            if self.path.rstrip("/").endswith("/api/perguntar"):
+                return self.env(200, moondream(int(d["id"]), (d.get("pergunta") or "").strip() or None))
+            return self.env(404, {"erro": "não encontrado"})
+        except Exception as e:
+            return self.env(500, {"erro": str(e)})
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)

@@ -20,7 +20,7 @@ repo: https://github.com/benbjohnson/litestream
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  0.2.0: linha do tempo (tela, texto, áudio e busca), lê a réplica e a pasta midia sem escrever.
+  0.2.0: linha do tempo (tela, texto, áudio e busca), perguntar e descrever a tela com Moondream (nuvem, pelo LiteLLM interno; chave em SP_MOONDREAM_KEY), lê a réplica e a pasta midia sem escrever.
 
   0.1.0: entrada WebDAV (rclone 1.76.0) e seguidor Litestream 0.5.18 (restore -f, 1 s).
 dependencies: []

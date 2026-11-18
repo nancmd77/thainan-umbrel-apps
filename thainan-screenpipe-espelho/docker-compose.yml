@@ -65,6 +65,7 @@ services:
       SP_MIDIA: /midia
       SP_CACHE: /cache
       PORT: "8090"
+      SP_MOONDREAM_URL: http://thainan-litellm_web_1:4000/moondream
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |

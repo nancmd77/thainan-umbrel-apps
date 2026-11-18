@@ -29,6 +29,7 @@ nav{display:flex;border-bottom:1px solid var(--linha)}
 nav button{flex:1;border:0;border-bottom:2px solid transparent;padding:10px 6px;white-space:nowrap;font-size:14px}
 nav button.ativo{border-bottom-color:var(--acento);font-weight:600}
 .aba{flex:1;overflow:auto;padding:12px 14px;display:none}.aba.ativo{display:block}
+#pergunta{display:flex;gap:6px;margin-bottom:10px}#q{flex:1;min-width:0}#resposta{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--acento2);padding:0;margin-bottom:10px}#resposta:not(:empty){padding:10px}
 #texto{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
 .item{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--linha);padding:9px 4px;background:none}
 .item:hover{background:var(--acento2)}
@@ -56,7 +57,10 @@ mark{background:var(--acento2);color:inherit;font-weight:600}
   </section>
   <aside>
     <nav><button data-aba="t" class="ativo">Texto da tela</button><button data-aba="b">Busca</button><button data-aba="a">Áudio do dia</button></nav>
-    <div class="aba ativo" id="aba-t"><div id="texto">Nada selecionado.</div></div>
+    <div class="aba ativo" id="aba-t">
+      <form id="pergunta"><input id="q" placeholder="Perguntar à tela, por exemplo: qual contrato está aberto?"><button>Perguntar</button><button type="button" id="leg">Descrever</button></form>
+      <div id="resposta"></div>
+      <div id="texto">Nada selecionado.</div></div>
     <div class="aba" id="aba-b"><div id="resultados">Digite pelo menos duas letras.</div></div>
     <div class="aba" id="aba-a"><div id="audio">Sem áudio neste dia.</div></div>
   </aside>
@@ -79,8 +83,9 @@ async function carregarDia(d){
   if(!frames.length){$("#tela").innerHTML="<p>Nenhuma tela registrada neste dia.</p>";$("#meta").innerHTML="";$("#texto").textContent="";return}
   ir(frames.length-1);
 }
+let atual=null;
 async function mostrar(id){
-  const n=++pedido;
+  const n=++pedido;atual=id;$("#resposta").textContent="";
   const img=new Image();img.alt="Tela capturada";
   img.onload=()=>{if(n==pedido){$("#tela").innerHTML="";$("#tela").append(img)}};
   img.onerror=()=>{if(n==pedido)$("#tela").innerHTML="<p>A imagem deste momento ainda não chegou do notebook. O texto já está ao lado.</p>"};
@@ -89,6 +94,9 @@ async function mostrar(id){
     $("#meta").innerHTML=`<b>${hora(f.timestamp)}</b><span>${esc(f.app_name||"")}</span>${f.window_name&&f.window_name!=f.app_name?`<span>${esc(f.window_name)}</span>`:""}${f.browser_url?`<span>${esc(f.browser_url)}</span>`:""}`;
     $("#texto").textContent=f.texto||"Sem texto lido nesta tela.";}catch(e){$("#texto").textContent="Não consegui ler este momento: "+e.message}
 }
+async function perguntar(p){if(!frames.length&&!atual)return;$("#resposta").textContent="Moondream olhando a tela";
+  try{const r=await fetch("api/perguntar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:atual,pergunta:p})});const d=await r.json();$("#resposta").textContent=r.ok?d.resposta:"Não deu: "+d.erro}catch(e){$("#resposta").textContent="Não deu: "+e.message}}
+$("#pergunta").onsubmit=e=>{e.preventDefault();perguntar($("#q").value.trim())};$("#leg").onclick=()=>perguntar("");
 function ir(i){if(!frames.length)return;pos=Math.max(0,Math.min(frames.length-1,i));$("#regua").value=pos;mostrar(frames[pos].id)}
 $("#regua").oninput=e=>ir(+e.target.value);
 $("#ant").onclick=()=>ir(pos-1);$("#prox").onclick=()=>ir(pos+1);
