@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linha do tempo · Screenpipe Espelho</title>
+<style>
+:root{--fundo:#f4f3ef;--papel:#fff;--tinta:#1d2321;--suave:#5d6763;--linha:#d9dad4;--acento:#0f5c57;--acento2:#e3efed}
+@media (prefers-color-scheme:dark){:root{--fundo:#121615;--papel:#1a201e;--tinta:#e7ebe9;--suave:#9aa5a1;--linha:#2c3431;--acento:#5fb3a9;--acento2:#1f2f2c}}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--fundo);color:var(--tinta);height:100vh;display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--linha);background:var(--papel)}
+h1{font-size:18px;margin:0 12px 0 0;font-weight:600}
+input,button{font:inherit;color:inherit;background:var(--papel);border:1px solid var(--linha);padding:7px 10px}
+button{cursor:pointer}button:hover{border-color:var(--acento)}
+#busca{flex:1;min-width:220px}
+#estado{color:var(--suave);font-size:13px}
+main{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 380px;min-height:0}
+#palco{display:flex;flex-direction:column;min-height:0;padding:14px 18px;gap:10px}
+#tela{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--papel);border:1px solid var(--linha);overflow:hidden}
+#tela img{max-width:100%;max-height:100%;object-fit:contain}
+#tela p{color:var(--suave);padding:20px;text-align:center}
+#controles{display:flex;gap:10px;align-items:center}
+#regua{flex:1;accent-color:var(--acento)}
+#meta{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:14px}
+#meta b{font-weight:600}#meta span{color:var(--suave);overflow-wrap:anywhere}
+aside{border-left:1px solid var(--linha);background:var(--papel);display:flex;flex-direction:column;min-height:0}
+nav{display:flex;border-bottom:1px solid var(--linha)}
+nav button{flex:1;border:0;border-bottom:2px solid transparent;padding:10px 6px;white-space:nowrap;font-size:14px}
+nav button.ativo{border-bottom-color:var(--acento);font-weight:600}
+.aba{flex:1;overflow:auto;padding:12px 14px;display:none}.aba.ativo{display:block}
+#texto{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
+.item{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--linha);padding:9px 4px;background:none}
+.item:hover{background:var(--acento2)}
+.item .h{font-weight:600;font-size:13px}.item .d{color:var(--suave);font-size:13px;overflow-wrap:anywhere}
+mark{background:var(--acento2);color:inherit;font-weight:600}
+@media (max-width:900px){main{grid-template-columns:1fr;grid-template-rows:1fr 40vh}aside{border-left:0;border-top:1px solid var(--linha)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Linha do tempo</h1>
+  <input type="date" id="dia" aria-label="Dia">
+  <input type="search" id="busca" placeholder="Buscar no que apareceu na tela ou foi falado">
+  <span id="estado">Conectando à cópia</span>
+</header>
+<main>
+  <section id="palco">
+    <div id="tela"><p>Escolha um dia ou faça uma busca.</p></div>
+    <div id="controles">
+      <button id="ant" title="Anterior (seta esquerda)">Anterior</button>
+      <input type="range" id="regua" min="0" max="0" value="0" aria-label="Momento do dia">
+      <button id="prox" title="Próximo (seta direita)">Próximo</button>
+    </div>
+    <div id="meta"></div>
+  </section>
+  <aside>
+    <nav><button data-aba="t" class="ativo">Texto da tela</button><button data-aba="b">Busca</button><button data-aba="a">Áudio do dia</button></nav>
+    <div class="aba ativo" id="aba-t"><div id="texto">Nada selecionado.</div></div>
+    <div class="aba" id="aba-b"><div id="resultados">Digite pelo menos duas letras.</div></div>
+    <div class="aba" id="aba-a"><div id="audio">Sem áudio neste dia.</div></div>
+  </aside>
+</main>
+<script>
+const $=s=>document.querySelector(s), tz=new Date().getTimezoneOffset();
+let frames=[], pos=0, pedido=0;
+const quando=t=>{let s=String(t).trim().replace(" ","T").replace(/(\.\d{3})\d+/,"$1");if(!/(Z|[+-]\d\d:?\d\d)$/.test(s))s+="Z";return new Date(s)};
+const hora=t=>t?quando(t).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"medium"}):"";
+const esc=s=>(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function aba(n){document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("ativo",b.dataset.aba==n));document.querySelectorAll(".aba").forEach(a=>a.classList.toggle("ativo",a.id=="aba-"+n))}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>aba(b.dataset.aba));
+async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).erro||r.status);return r.json()}
+async function estado(){try{const e=await j("api/estado");$("#estado").textContent=e.ok?`Último registro ${hora(e.ultimo_frame)} · ${e.midia_arquivos} arquivos de mídia`:`Cópia indisponível: ${e.erro}`}catch(e){$("#estado").textContent="Cópia indisponível"}}
+async function carregarDia(d){
+  $("#tela").innerHTML="<p>Carregando o dia</p>";
+  const r=await j(`api/dia?dia=${d}&tz=${tz}`);frames=r.frames;
+  $("#regua").max=Math.max(0,frames.length-1);
+  $("#audio").innerHTML=r.audio.length?r.audio.map(a=>`<div class="item"><div class="h">${hora(a.timestamp)}</div><div class="d">${esc(a.texto)}</div></div>`).join(""):"Sem áudio neste dia.";
+  if(!frames.length){$("#tela").innerHTML="<p>Nenhuma tela registrada neste dia.</p>";$("#meta").innerHTML="";$("#texto").textContent="";return}
+  ir(frames.length-1);
+}
+async function mostrar(id){
+  const n=++pedido;
+  const img=new Image();img.alt="Tela capturada";
+  img.onload=()=>{if(n==pedido){$("#tela").innerHTML="";$("#tela").append(img)}};
+  img.onerror=()=>{if(n==pedido)$("#tela").innerHTML="<p>A imagem deste momento ainda não chegou do notebook. O texto já está ao lado.</p>"};
+  img.src=`img/${id}.jpg`;
+  try{const f=await j(`api/frame/${id}`);if(n!=pedido)return;
+    $("#meta").innerHTML=`<b>${hora(f.timestamp)}</b><span>${esc(f.app_name||"")}</span>${f.window_name&&f.window_name!=f.app_name?`<span>${esc(f.window_name)}</span>`:""}${f.browser_url?`<span>${esc(f.browser_url)}</span>`:""}`;
+    $("#texto").textContent=f.texto||"Sem texto lido nesta tela.";}catch(e){$("#texto").textContent="Não consegui ler este momento: "+e.message}
+}
+function ir(i){if(!frames.length)return;pos=Math.max(0,Math.min(frames.length-1,i));$("#regua").value=pos;mostrar(frames[pos].id)}
+$("#regua").oninput=e=>ir(+e.target.value);
+$("#ant").onclick=()=>ir(pos-1);$("#prox").onclick=()=>ir(pos+1);
+addEventListener("keydown",e=>{if(e.target.tagName=="INPUT"&&e.target.type!="range")return;if(e.key=="ArrowLeft")ir(pos-1);if(e.key=="ArrowRight")ir(pos+1)});
+$("#dia").onchange=e=>carregarDia(e.target.value);
+let tb;$("#busca").oninput=e=>{clearTimeout(tb);tb=setTimeout(()=>buscar(e.target.value.trim()),350)};
+async function buscar(q){aba("b");if(q.length<2){$("#resultados").textContent="Digite pelo menos duas letras.";return}
+  $("#resultados").textContent="Buscando";
+  const rs=await j(`api/busca?q=${encodeURIComponent(q)}`);
+  const re=new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi");
+  $("#resultados").innerHTML=rs.length?"":"Nada encontrado.";
+  rs.forEach(r=>{const b=document.createElement("button");b.className="item";
+    b.innerHTML=`<div class="h">${hora(r.timestamp)} · ${r.tipo=="audio"?"Áudio":esc(r.app||"Tela")}</div><div class="d">${esc(r.trecho).replace(re,m=>`<mark>${m}</mark>`)}</div>`;
+    b.onclick=async()=>{if(!r.id)return;const ds=quando(r.timestamp).toLocaleDateString("sv-SE");if($("#dia").value!=ds){$("#dia").value=ds;await carregarDia(ds)}
+      const i=frames.findIndex(f=>f.id==r.id);if(i>=0)ir(i);else mostrar(r.id);aba("t")};
+    $("#resultados").append(b)})}
+$("#dia").value=new Date().toLocaleDateString("sv-SE");
+estado();setInterval(estado,15000);carregarDia($("#dia").value).catch(e=>$("#tela").innerHTML=`<p>Cópia indisponível: ${esc(e.message)}</p>`);
+</script>
+</body>
+</html>
