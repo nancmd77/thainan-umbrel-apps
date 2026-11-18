@@ -18,7 +18,12 @@ services:
       - sh
       - -c
       - |
-        mkdir -p /data/www
+        mkdir -p /data/www /data/chromium
+        # Perfil do Chromium persistente (r2): dono = usuário cua da imagem (uid/gid 1000).
+        chown 1000:1000 /data/chromium
+        chmod 700 /data/chromium
+        # Travas de uma execução anterior impedem o Chromium de abrir depois de um reinício.
+        rm -f /data/chromium/SingletonLock /data/chromium/SingletonSocket /data/chromium/SingletonCookie
         # Sessão só de navegador: substitui o startxfce4 da imagem (sem painel, sem área de trabalho, sem terminal).
         # Fica o xfwm4 (foco e maximizar) e o Chromium maximizado, que reabre se fechar.
         cat > /data/sessao.sh <<'SH'
@@ -27,8 +32,14 @@ services:
         xsetroot -solid black 2>/dev/null
         ( while :; do xfwm4 --compositor=off --sm-client-disable; sleep 1; done ) &
         sleep 1
+        P="$$HOME/.config/chromium"
         while :; do
-          /usr/bin/chromium --start-maximized --no-first-run --no-default-browser-check --lang=pt-BR about:blank
+          # Só limpa as travas e o aviso de "fechou inesperadamente" se nenhum Chromium estiver rodando.
+          if ! pgrep -u "$$(id -u)" -x chromium >/dev/null 2>&1; then
+            rm -f "$$P/SingletonLock" "$$P/SingletonSocket" "$$P/SingletonCookie"
+            [ -f "$$P/Default/Preferences" ] && sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/; s/"exited_cleanly":false/"exited_cleanly":true/' "$$P/Default/Preferences"
+          fi
+          /usr/bin/chromium --start-maximized --no-first-run --no-default-browser-check --lang=pt-BR --restore-last-session
           sleep 1
         done
         SH
@@ -68,6 +79,7 @@ services:
       - "192.168.18.171:3212:3212/udp"
     volumes:
       - ${APP_DATA_DIR}/data/sessao.sh:/usr/bin/startxfce4:ro
+      - ${APP_DATA_DIR}/data/chromium:/home/cua/.config/chromium
 
   info:
     image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
