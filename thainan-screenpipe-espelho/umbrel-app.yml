@@ -4,7 +4,7 @@ name: Screenpipe Espelho
 tagline: Cópia viva, só leitura, do Screenpipe do notebook de trabalho
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-screenpipe-espelho/icon.png
 category: Files
-version: "0.2.1"
+version: "0.2.2"
 port: 8632
 description: >-
   Recebe a replicação contínua (Litestream, WebDAV) do banco do Screenpipe do notebook de trabalho e mantém uma cópia viva só leitura em data/replica/db.sqlite.
@@ -20,6 +20,8 @@ repo: https://github.com/benbjohnson/litestream
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
+  0.2.2: Moondream removido a pedido do nan; nenhuma tela sai do Nonve.
+
   0.2.1: código da linha do tempo baixado por tag na partida (corrige atualização sem os arquivos).
 
   0.2.0: linha do tempo (tela, texto, áudio e busca), perguntar e descrever a tela com Moondream (nuvem, pelo LiteLLM interno; chave em SP_MOONDREAM_KEY), lê a réplica e a pasta midia sem escrever.
