@@ -4,7 +4,7 @@ name: OpenBot
 tagline: Servidor headless do OpenBot para agentes de IA
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 category: AI
-version: "0.72.0-r3"
+version: "0.73.0-r1"
 port: 8592
 description: >-
   OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
@@ -22,7 +22,7 @@ repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
 gallery: []
 releaseNotes: >-
-  Versão 0.72.0-r3: Node.js 26 LTS e npm na imagem, para instalar agentes do Registro ACP (como o Dirac); pacotes globais ficam em /data/.npm-global. Versão 0.72.0-r2: memória passa a usar o Supermemory_PTBR (thainan-supermemory-pt, porta 8616). Versão 0.72.0-r1: base OpenBot atualizada para v0.72.0 (upstream nightly-labs), com o omp 18.22.0 instalado para usar como agente ACP (comando omp, argumento acp), ligado ao LiteLLM do Nonve. Notas completas da release: https://github.com/nightly-labs/openbot/releases/tag/v0.72.0.
+  Versão 0.73.0-r1: base OpenBot atualizada para v0.73.0 (upstream nightly-labs). Notas completas da release: https://github.com/nightly-labs/openbot/releases/tag/v0.73.0.
 dependencies: []
 path: ""
 defaultUsername: ""
