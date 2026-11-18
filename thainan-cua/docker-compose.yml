@@ -112,7 +112,7 @@ services:
         ThreadingHTTPServer(('0.0.0.0', 8623), H).serve_forever()
         PY
         cat > /data/cdpfwd.py <<'PY'
-        # Cua r6: abre o Chromium se não estiver aberto; expõe o CDP do Chromium (127.0.0.1:9222) na porta 9223 só pro Fast Agent (thainan-fastagent_web_1).
+        # Cua r7: abre o Chromium se não estiver aberto; expõe o CDP do Chromium (127.0.0.1:9222) na porta 9223 só pro Fast Agent (thainan-fastagent_web_1).
         import socket,threading,subprocess,time
         ENV={'DISPLAY':':1','XDG_RUNTIME_DIR':'/run/cua-desktop','DBUS_SESSION_BUS_ADDRESS':'unix:path=/run/cua-desktop/bus','HOME':'/home/cua','PATH':'/usr/local/bin:/usr/bin:/bin'}
         trava=threading.Lock()
@@ -123,7 +123,8 @@ services:
             with trava:
                 u=cdp()
                 if u: return u
-                subprocess.Popen(['runuser','-u','cua','--','/usr/bin/chromium','about:blank'],env=ENV,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+                log=open('/tmp/hark-chromium.log','ab')
+                subprocess.Popen(['/usr/bin/chromium','about:blank'],env=ENV,user='cua',group='cua',extra_groups=[],cwd='/home/cua',stdout=log,stderr=log,start_new_session=True)
                 for _ in range(40):
                     time.sleep(0.5)
                     u=cdp()
