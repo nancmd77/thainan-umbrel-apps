@@ -11,7 +11,7 @@ services:
   # entram pelo env custom do app no Umbrel (Configuracoes do app). Sem eles o
   # Chatwoot nem sobe (fica esperando).
   rails:
-    image: chatwoot/chatwoot:v4.19.1
+    image: chatwoot/chatwoot:v4.20.0
     restart: on-failure
     depends_on:
       - postgres
@@ -46,7 +46,7 @@ services:
       - ${APP_DATA_DIR}/data/storage:/app/storage
 
   sidekiq:
-    image: chatwoot/chatwoot:v4.19.1
+    image: chatwoot/chatwoot:v4.20.0
     restart: on-failure
     depends_on:
       - postgres
