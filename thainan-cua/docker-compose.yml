@@ -111,6 +111,35 @@ services:
             def log_message(self, *a): pass
         ThreadingHTTPServer(('0.0.0.0', 8623), H).serve_forever()
         PY
+        cat > /data/cdpfwd.py <<'PY'
+        # Cua r5: expõe o CDP do Chromium (127.0.0.1:9222) na porta 9223 só pro Fast Agent (thainan-fastagent_web_1).
+        import socket,threading
+        PERMITIDOS=['thainan-fastagent_web_1']
+        def ips():
+            s=set()
+            for n in PERMITIDOS:
+                try: s.update(a[4][0] for a in socket.getaddrinfo(n,None,socket.AF_INET))
+                except Exception: pass
+            return s
+        def pipe(a,b):
+            try:
+                while True:
+                    d=a.recv(65536)
+                    if not d: break
+                    b.sendall(d)
+            except Exception: pass
+            finally:
+                for x in (a,b):
+                    try: x.shutdown(socket.SHUT_RDWR)
+                    except Exception: pass
+        srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('0.0.0.0',9223)); srv.listen(64)
+        while True:
+            c,(ip,_)=srv.accept()
+            if ip not in ips(): c.close(); continue
+            try: u=socket.create_connection(('127.0.0.1',9222),5)
+            except Exception: c.close(); continue
+            threading.Thread(target=pipe,args=(c,u),daemon=True).start(); threading.Thread(target=pipe,args=(u,c),daemon=True).start()
+        PY
         echo 'init: ok'
 
   desktop:
@@ -124,9 +153,11 @@ services:
         condition: service_completed_successfully
     volumes:
       - ${APP_DATA_DIR}/data/segredo:/segredo:ro
+      - ${APP_DATA_DIR}/data/cdpfwd.py:/opt/hark/cdpfwd.py:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - 'export CUA_ENV_TOKEN="$$(cat /segredo/env-token)"; exec /opt/cua/desktop/entrypoint.sh'
+      # r5: Chromium sempre com CDP (9222, só local) e encaminhador 9223 que só aceita o Fast Agent (agent-browser).
+      - 'echo "export CHROMIUM_FLAGS=\"\$$CHROMIUM_FLAGS --remote-debugging-port=9222 --user-data-dir=/home/cua/.config/chromium\"" > /etc/chromium.d/zz-hark-cdp; (python3 /opt/hark/cdpfwd.py >/dev/null 2>&1 &); export CUA_ENV_TOKEN="$$(cat /segredo/env-token)"; exec /opt/cua/desktop/entrypoint.sh'
 
   ticket:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
