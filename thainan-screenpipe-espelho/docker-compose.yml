@@ -62,19 +62,27 @@ services:
     restart: unless-stopped
     environment:
       SP_DB: /replica/db.sqlite
-      SP_MIDIA: /midia
+      SP_MIDIA: /webdav/midia
       SP_CACHE: /cache
       PORT: "8090"
       SP_MOONDREAM_URL: http://thainan-litellm_web_1:4000/moondream
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        mkdir -p /webdav/midia && chown 1000:1000 /webdav/midia
         apk add --no-cache ffmpeg >/dev/null 2>&1 || echo "linha: sem ffmpeg (só imagens jpg)"
-        exec python3 -u /linha/servidor.py
+        # código versionado por tag (o Umbrel não recopia data/ nas atualizações)
+        BASE=https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/thainan-screenpipe-espelho-linha-v1/thainan-screenpipe-espelho/data/linha
+        mkdir -p /app && for f in servidor.py index.html; do
+          wget -qO /app/$$f.novo $$BASE/$$f && mv /app/$$f.novo /app/$$f || cp /linha/$$f /app/$$f 2>/dev/null || true
+          [ -s /app/$$f ] && cp /app/$$f /linha-copia/$$f 2>/dev/null || true
+        done
+        [ -s /app/servidor.py ] || cp /linha-copia/servidor.py /linha-copia/index.html /app/ 2>/dev/null
+        exec python3 -u /app/servidor.py
     volumes:
-      - ${APP_DATA_DIR}/data/linha:/linha:ro
+      - ${APP_DATA_DIR}/data/linha:/linha-copia
       - ${APP_DATA_DIR}/data/replica:/replica:ro
-      - ${APP_DATA_DIR}/data/webdav/midia:/midia:ro
+      - ${APP_DATA_DIR}/data/webdav:/webdav
       - ${APP_DATA_DIR}/data/cache:/cache
     depends_on:
       - seguidor
