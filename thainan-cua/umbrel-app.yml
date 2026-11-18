@@ -4,12 +4,12 @@ name: Cua
 tagline: Um computador Linux leve pra IA navegar, com a tela ao vivo só pra assistir
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-cua/icon.png
 category: AI
-version: "24.04-slim-1-r9"
+version: "24.04-slim-1-r10"
 port: 8622
 description: >-
   Desktop Ubuntu 24.04 enxuto (XFCE + Chromium) feito pra agentes de IA, do projeto Cua. Os agentes controlam pelo MCP do Cua Driver (navegador por referências de elementos, janelas, teclado e mouse) e você acompanha a tela ao vivo ao abrir o app: o link gerado é só de assistir (sem mouse, sem teclado, sem área de transferência, sem arquivos) e vale 24 horas.
 
-  MCP para o LiteLLM: http://IP-do-Nonve:8624/mcp (só o /mcp, com o token Bearer em /Apps/thainan-cua/data/segredo/env-token). Pela página o /mcp fica bloqueado. Gasta cerca de 250 MB parado; o navegador soma conforme o uso (limite de 3 GB).
+  MCP para o LiteLLM: http://IP-do-Nonve:8624/mcp (só o /mcp, com o token Bearer em /Apps/thainan-cua/data/segredo/env-token). Pela página o /mcp fica bloqueado. Gasta cerca de 250 MB parado; o navegador soma conforme o uso (limite de 4 GB).
 developer: Cua AI
 website: https://cua.ai
 submitter: Thainan Caldeira
@@ -18,6 +18,7 @@ repo: https://github.com/trycua/cua
 support: https://github.com/trycua/cua/issues
 gallery: []
 releaseNotes: >-
+  r10: BrowserOS neo (navegador pra agentes, com MCP próprio) instalado no desktop, com ponte só pro Fast Agent; o neo ganha o foco enquanto está em uso e depois o Chromium volta. Limite de memória sobe pra 4 GB.
   r9: Chromium sempre maximizado e em foco (desktop só de navegador).
   r8: extensão BrowserSkill (Tencent) no Chromium e ponte do bsk mcp pro Fast Agent (teste).
   r7: o Chromium agora abre de verdade quando o agent-browser chama (a r6 tentava e falhava).
