@@ -47,17 +47,6 @@ services:
           location = / { proxy_pass http://$$tick:8623; }
           # O MCP não sai pela página; o LiteLLM fala direto com o desktop.
           location /mcp { return 404; }
-          # Visualizador atrás do NetBird (SSO): o viewer.js manda fetch com credentials "omit",
-          # então o cookie do login não vai e o proxy devolve 302. Troca pra "include" (mesma origem).
-          location = /viewer/viewer.js {
-            proxy_pass http://$$desk:3211;
-            proxy_http_version 1.1;
-            proxy_set_header Host $$host;
-            proxy_set_header Accept-Encoding "";
-            sub_filter_types text/javascript application/javascript;
-            sub_filter_once off;
-            sub_filter 'credentials:"omit"' 'credentials:"include"';
-          }
           location / {
             proxy_pass http://$$desk:3211;
             proxy_http_version 1.1;
@@ -111,205 +100,22 @@ services:
             def log_message(self, *a): pass
         ThreadingHTTPServer(('0.0.0.0', 8623), H).serve_forever()
         PY
-        cat > /data/cdpfwd.py <<'PY'
-        # Cua r7: abre o Chromium se não estiver aberto; expõe o CDP do Chromium (127.0.0.1:9222) na porta 9223 só pro Fast Agent (thainan-fastagent_web_1).
-        import socket,threading,subprocess,time
-        ENV={'DISPLAY':':1','XDG_RUNTIME_DIR':'/run/cua-desktop','DBUS_SESSION_BUS_ADDRESS':'unix:path=/run/cua-desktop/bus','HOME':'/home/cua','PATH':'/usr/local/bin:/usr/bin:/bin'}
-        trava=threading.Lock()
-        def cdp():
-            try: return socket.create_connection(('127.0.0.1',9222),3)
-            except Exception: return None
-        def garante():
-            with trava:
-                u=cdp()
-                if u: return u
-                log=open('/tmp/hark-chromium.log','ab')
-                subprocess.Popen(['/usr/bin/chromium','about:blank'],env=ENV,user='cua',group='cua',extra_groups=[],cwd='/home/cua',stdout=log,stderr=log,start_new_session=True)
-                for _ in range(40):
-                    time.sleep(0.5)
-                    u=cdp()
-                    if u: return u
-                return None
-        PERMITIDOS=['thainan-fastagent_web_1']
-        def ips():
-            s=set()
-            for n in PERMITIDOS:
-                try: s.update(a[4][0] for a in socket.getaddrinfo(n,None,socket.AF_INET))
-                except Exception: pass
-            return s
-        def pipe(a,b):
-            try:
-                while True:
-                    d=a.recv(65536)
-                    if not d: break
-                    b.sendall(d)
-            except Exception: pass
-            finally:
-                for x in (a,b):
-                    try: x.shutdown(socket.SHUT_RDWR)
-                    except Exception: pass
-        def liga(c):
-            u=garante()
-            if not u: c.close(); return
-            threading.Thread(target=pipe,args=(c,u),daemon=True).start(); pipe(u,c)
-        srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('0.0.0.0',9223)); srv.listen(64)
-        while True:
-            c,(ip,_)=srv.accept()
-            if ip not in ips(): c.close(); continue
-            threading.Thread(target=liga,args=(c,),daemon=True).start()
-        PY
-        cat > /data/bskmcp.py <<'PY'
-        # Cua r8: ponte MCP do BrowserSkill. Cada conexão TCP na 9224 (só do Fast Agent) vira um `bsk mcp` (stdio) rodando como cua.
-        import socket,threading,subprocess,os
-        ENV={'HOME':'/home/cua','BSK_HOME':'/home/cua/.bsk','PATH':'/opt/hark/bsk:/usr/local/bin:/usr/bin:/bin','DISPLAY':':1','XDG_RUNTIME_DIR':'/run/cua-desktop','DBUS_SESSION_BUS_ADDRESS':'unix:path=/run/cua-desktop/bus'}
-        PERMITIDOS=['thainan-fastagent_web_1']
-        def ips():
-            s=set()
-            for n in PERMITIDOS:
-                try: s.update(a[4][0] for a in socket.getaddrinfo(n,None,socket.AF_INET))
-                except Exception: pass
-            return s
-        def atende(c):
-            try:
-                p=subprocess.Popen(['/opt/hark/bsk/bsk','mcp'],env=ENV,user='cua',group='cua',extra_groups=[],cwd='/home/cua',stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=open('/tmp/hark-bskmcp.log','ab'))
-            except Exception: c.close(); return
-            def entra():
-                try:
-                    while True:
-                        d=c.recv(65536)
-                        if not d: break
-                        p.stdin.write(d); p.stdin.flush()
-                except Exception: pass
-                try: p.stdin.close()
-                except Exception: pass
-            threading.Thread(target=entra,daemon=True).start()
-            try:
-                while True:
-                    d=os.read(p.stdout.fileno(),65536)
-                    if not d: break
-                    c.sendall(d)
-            except Exception: pass
-            try: p.kill()
-            except Exception: pass
-            c.close()
-        srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('0.0.0.0',9224)); srv.listen(16)
-        while True:
-            c,(ip,_)=srv.accept()
-            if ip not in ips(): c.close(); continue
-            threading.Thread(target=atende,args=(c,),daemon=True).start()
-        PY
-        cat > /data/cuafoco.sh <<'SH'
+        # r11: limpeza das peças de teste (agent-browser/CDP, BrowserSkill, BrowserOS neo, vigia de foco).
+        rm -rf /data/cdpfwd.py /data/bskmcp.py /data/cuafoco.sh /data/neofwd.py /data/neo.sh /data/neo /data/bsk
+        # r11: sessão só de navegador. Substitui o startxfce4 da imagem: sem painel, sem área de trabalho, sem terminal.
+        # Fica só o gerenciador de janelas (xfwm4, pro Cua conseguir focar/maximizar) e o Chromium maximizado, que reabre se fechar.
+        cat > /data/sessao.sh <<'SH'
         #!/bin/sh
-        # r9: Cua é desktop só de navegador. Mantém toda janela normal do Chromium maximizada e o foco nele.
-        # r10: o BrowserOS neo (classe Chromium-browser) também fica maximizado; ganha o foco só enquanto está em uso
-        # (a ponte 9225 marca /tmp/hark-neo-ativo); 60 s depois do último uso o foco volta pro Chromium.
-        # Pausa (manutenção): criar /tmp/hark-foco-pausa dentro do desktop.
-        export DISPLAY=:1
+        xset s off -dpms 2>/dev/null
+        xsetroot -solid black 2>/dev/null
+        ( while :; do xfwm4 --compositor=off --sm-client-disable; sleep 1; done ) &
+        sleep 1
         while :; do
+          /usr/bin/chromium --start-maximized --no-first-run --no-default-browser-check about:blank
           sleep 1
-          [ -e /tmp/hark-foco-pausa ] && continue
-          neo=0
-          if [ -e /tmp/hark-neo-ativo ]; then
-            idade=$$(( $$(date +%s) - $$(stat -c %Y /tmp/hark-neo-ativo) ))
-            [ "$$idade" -lt 60 ] && neo=1
-          fi
-          ult=""; ultneo=""
-          for w in $$(xdotool search --onlyvisible --class chromium 2>/dev/null); do
-            xprop -id "$$w" WM_TRANSIENT_FOR 2>/dev/null | grep -q 'window id' && continue
-            xprop -id "$$w" _NET_WM_WINDOW_TYPE 2>/dev/null | grep -q '_NET_WM_WINDOW_TYPE_NORMAL' || continue
-            xprop -id "$$w" _NET_WM_STATE 2>/dev/null | grep -q 'MAXIMIZED_HORZ' || wmctrl -i -r "$$w" -b add,maximized_vert,maximized_horz 2>/dev/null
-            if xprop -id "$$w" WM_CLASS 2>/dev/null | grep -q '"Chromium-browser"'; then ultneo="$$w"; else ult="$$w"; fi
-          done
-          alvo="$$ult"; quer='"Chromium"'
-          if [ "$$neo" = 1 ] && [ -n "$$ultneo" ]; then alvo="$$ultneo"; quer='"Chromium-browser"'; fi
-          [ -z "$$alvo" ] && continue
-          at=$$(xdotool getactivewindow 2>/dev/null)
-          xprop -id "$${at:-0}" WM_CLASS 2>/dev/null | grep -q "$$quer" || wmctrl -i -a "$$alvo" 2>/dev/null
         done
         SH
-        cat > /data/neofwd.py <<'PY'
-        # Cua r10: ponte do MCP do BrowserOS neo. O neo escuta o MCP em 127.0.0.1:9010 (recusa IP de fora e Host diferente).
-        # Esta ponte abre a 9225 só pro Fast Agent (thainan-fastagent_web_1), troca o Host pra 127.0.0.1:9010 e liga o neo se ele não estiver aberto.
-        # Cada uso marca /tmp/hark-neo-ativo: o vigia cuafoco.sh põe o neo em foco enquanto ele está em uso e volta o Chromium depois.
-        import socket,threading,subprocess,time,os,re
-        ENV={'DISPLAY':':1','XDG_RUNTIME_DIR':'/run/cua-desktop','DBUS_SESSION_BUS_ADDRESS':'unix:path=/run/cua-desktop/bus','HOME':'/home/cua','PATH':'/usr/local/bin:/usr/bin:/bin','LD_LIBRARY_PATH':'/opt/hark/neo/x/usr/lib/browserclaw'}
-        BIN='/opt/hark/neo/x/usr/lib/browserclaw/browserclaw'
-        ARGS=[BIN,'--no-sandbox','--user-data-dir=/home/cua/.config/neo','--browseros-proxy-port=9010','--no-first-run','--no-default-browser-check','--start-maximized','about:blank']
-        trava=threading.Lock()
-        def mcp():
-            try: return socket.create_connection(('127.0.0.1',9010),3)
-            except Exception: return None
-        def garante():
-            with trava:
-                u=mcp()
-                if u: return u
-                if not os.path.exists(BIN): return None
-                log=open('/tmp/hark-neo.log','ab')
-                subprocess.Popen(ARGS,env=ENV,user='cua',group='cua',extra_groups=[],cwd='/home/cua',stdout=log,stderr=log,start_new_session=True)
-                for _ in range(60):
-                    time.sleep(0.5)
-                    u=mcp()
-                    if u: return u
-                return None
-        PERMITIDOS=['thainan-fastagent_web_1']
-        def ips():
-            s=set()
-            for n in PERMITIDOS:
-                try: s.update(a[4][0] for a in socket.getaddrinfo(n,None,socket.AF_INET))
-                except Exception: pass
-            return s
-        def marca():
-            try: open('/tmp/hark-neo-ativo','a').close(); os.utime('/tmp/hark-neo-ativo')
-            except Exception: pass
-        HOST=re.compile(rb'\r\nHost:[^\r\n]*\r\n',re.I)
-        def pipe(a,b,troca):
-            try:
-                while True:
-                    d=a.recv(65536)
-                    if not d: break
-                    if troca:
-                        d=HOST.sub(b'\r\nHost: 127.0.0.1:9010\r\n',d); marca()
-                    b.sendall(d)
-            except Exception: pass
-            finally:
-                for x in (a,b):
-                    try: x.shutdown(socket.SHUT_RDWR)
-                    except Exception: pass
-        def liga(c):
-            marca()
-            u=garante()
-            if not u: c.close(); return
-            threading.Thread(target=pipe,args=(c,u,True),daemon=True).start(); pipe(u,c,False)
-        def inicio():
-            # liga o neo assim que o pacote estiver instalado (o neo.sh baixa na primeira vez)
-            for _ in range(600):
-                if os.path.exists(BIN): break
-                time.sleep(2)
-            time.sleep(8)
-            u=garante()
-            if u: u.close()
-        threading.Thread(target=inicio,daemon=True).start()
-        srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('0.0.0.0',9225)); srv.listen(32)
-        while True:
-            c,(ip,_)=srv.accept()
-            if ip not in ips(): c.close(); continue
-            threading.Thread(target=liga,args=(c,),daemon=True).start()
-        PY
-        cat > /data/neo.sh <<'SH'
-        #!/bin/sh
-        # r10: instala o BrowserOS neo (pacote .deb oficial, só extraído) em /opt/hark/neo na primeira vez. Fica salvo em /data/neo.
-        D=/opt/hark/neo
-        [ -x $$D/x/usr/lib/browserclaw/browserclaw ] && exit 0
-        rm -rf $$D/x.tmp $$D/neo.deb.tmp
-        for i in 1 2 3; do
-          curl -fsSL --retry 3 -o $$D/neo.deb.tmp https://cdn.browseros.com/download/BrowserOS_neo.deb && break
-          sleep 20
-        done
-        dpkg-deb -f $$D/neo.deb.tmp Version > $$D/versao.txt 2>/dev/null
-        mkdir -p $$D/x.tmp && dpkg-deb -x $$D/neo.deb.tmp $$D/x.tmp && mv $$D/x.tmp $$D/x
-        rm -f $$D/neo.deb.tmp
-        SH
-        mkdir -p /data/neo
+        chmod 755 /data/sessao.sh
         echo 'init: ok'
 
   desktop:
@@ -317,26 +123,17 @@ services:
     restart: on-failure
     stop_grace_period: 15s
     shm_size: 512m
-    mem_limit: 4g
+    mem_limit: 3g
     depends_on:
       init:
         condition: service_completed_successfully
     volumes:
       - ${APP_DATA_DIR}/data/segredo:/segredo:ro
-      - ${APP_DATA_DIR}/data/cdpfwd.py:/opt/hark/cdpfwd.py:ro
-      - ${APP_DATA_DIR}/data/bskmcp.py:/opt/hark/bskmcp.py:ro
-      - ${APP_DATA_DIR}/data/cuafoco.sh:/opt/hark/cuafoco.sh:ro
-      - ${APP_DATA_DIR}/data/bsk:/opt/hark/bsk:ro
-      - ${APP_DATA_DIR}/data/neofwd.py:/opt/hark/neofwd.py:ro
-      - ${APP_DATA_DIR}/data/neo.sh:/opt/hark/neo.sh:ro
-      - ${APP_DATA_DIR}/data/neo:/opt/hark/neo
+      - ${APP_DATA_DIR}/data/sessao.sh:/usr/bin/startxfce4:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
-      # r10: BrowserOS neo (navegador pra agentes) instalado em /data/neo, MCP 127.0.0.1:9010 e ponte 9225 só pro Fast Agent; vigia dá foco ao neo só enquanto ele está em uso.
-      # r9: desktop só de navegador: Chromium abre maximizado e o vigia cuafoco.sh mantém ele maximizado e em foco.
-      # r8: extensão BrowserSkill (Tencent) carregada no Chromium + ponte 9224 do `bsk mcp` só pro Fast Agent.
-      # r5/r6: Chromium sempre com CDP (abre sozinho quando o agent-browser chama) (9222, só local) e encaminhador 9223 que só aceita o Fast Agent (agent-browser).
-      - 'echo "export CHROMIUM_FLAGS=\"\$$CHROMIUM_FLAGS --remote-debugging-port=9222 --user-data-dir=/home/cua/.config/chromium --load-extension=/opt/hark/bsk/ext --start-maximized\"" > /etc/chromium.d/zz-hark-cdp; (python3 /opt/hark/cdpfwd.py >/dev/null 2>&1 &); (python3 /opt/hark/bskmcp.py >/dev/null 2>&1 &); (sh /opt/hark/cuafoco.sh >/dev/null 2>&1 &); (sh /opt/hark/neo.sh >/tmp/hark-neo-install.log 2>&1 &); (python3 /opt/hark/neofwd.py >/dev/null 2>&1 &); export CUA_ENV_TOKEN="$$(cat /segredo/env-token)"; exec /opt/cua/desktop/entrypoint.sh'
+      # r11: desktop só com o Chromium (sessao.sh no lugar do startxfce4).
+      - 'export CUA_ENV_TOKEN="$$(cat /segredo/env-token)"; exec /opt/cua/desktop/entrypoint.sh'
 
   ticket:
     image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
@@ -357,6 +154,5 @@ services:
         condition: service_completed_successfully
     ports:
       - "8624:8624"
-      - "8625:8622"
     volumes:
       - ${APP_DATA_DIR}/data/nginx.conf:/etc/nginx/conf.d/default.conf:ro
