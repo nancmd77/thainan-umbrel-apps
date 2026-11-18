@@ -1,0 +1,57 @@
+version: "3.7"
+
+# Espelho do Screenpipe do notebook de trabalho.
+# notebook: litestream replicate (db.sqlite do Screenpipe) -> webdavs://<host>/screenpipe (Cloudflare Tunnel -> 192.168.18.171:8631)
+# Nonve: webdav guarda as réplicas em data/webdav; seguidor faz litestream restore -f para data/replica/db.sqlite (só leitura).
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-screenpipe-espelho_webdav_1
+      APP_PORT: 8080
+      PROXY_AUTH_ADD: "true"
+
+  webdav:
+    image: rclone/rclone:1.76.0@sha256:7cbeec24a44f206067597c0368be4de90ae19a64d5113c7d1938bd737a81e466
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      SP_WEBDAV_PASS: ${APP_THAINAN_SP_ESPELHO_PASS}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - exec rclone serve webdav /data --addr :8080 --user notebook --pass "$$SP_WEBDAV_PASS" --dir-cache-time 1s --log-level NOTICE
+    ports:
+      - "8631:8080"
+    volumes:
+      - ${APP_DATA_DIR}/data/webdav:/data
+
+  seguidor:
+    image: litestream/litestream:0.5.18@sha256:513bff62a88fc0c86c73d27333c41c54c89fe890a7c32a551600adff9309b11b
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      SP_WEBDAV_PASS: ${APP_THAINAN_SP_ESPELHO_PASS}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/ls.yml <<'YML'
+        dbs:
+          - path: /replica/db.sqlite
+            replica:
+              type: webdav
+              webdav-url: http://thainan-screenpipe-espelho_webdav_1:8080
+              webdav-username: notebook
+              webdav-password: $${SP_WEBDAV_PASS}
+              path: screenpipe
+        YML
+        while true; do
+          rm -f /replica/db.sqlite /replica/db.sqlite-wal /replica/db.sqlite-shm
+          echo "seguidor: tentando restore -f $$(date)"
+          litestream restore -f -follow-interval 1s -config /tmp/ls.yml /replica/db.sqlite
+          echo "seguidor: saiu ($$?), nova tentativa em 20 s"
+          sleep 20
+        done
+    volumes:
+      - ${APP_DATA_DIR}/data/replica:/replica
+    depends_on:
+      - webdav

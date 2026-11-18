@@ -1,0 +1,25 @@
+manifestVersion: 1
+id: thainan-screenpipe-espelho
+name: Screenpipe Espelho
+tagline: Cópia viva, só leitura, do Screenpipe do notebook de trabalho
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-screenpipe-espelho/icon.png
+category: Files
+version: "0.1.0"
+port: 8632
+description: >-
+  Recebe a replicação contínua (Litestream, WebDAV) do banco do Screenpipe do notebook de trabalho e mantém uma cópia viva só leitura em data/replica/db.sqlite.
+
+  Entrada WebDAV com usuário e senha na porta 8631 (publicada pelo Cloudflare Tunnel). O notebook manda só as páginas que mudaram, sem mídia. A senha vem do env SP_WEBDAV_PASS (definida nas configurações do app; padrão derivado do APP_SEED).
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/benbjohnson/litestream
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: >-
+  0.1.0: entrada WebDAV (rclone 1.76.0) e seguidor Litestream 0.5.18 (restore -f, 1 s).
+dependencies: []
+path: ""
+defaultUsername: ""
+deterministicPassword: true
