@@ -47,6 +47,17 @@ services:
           location = / { proxy_pass http://$$tick:8623; }
           # O MCP não sai pela página; o LiteLLM fala direto com o desktop.
           location /mcp { return 404; }
+          # Visualizador atrás do NetBird (SSO): o viewer.js manda fetch com credentials "omit",
+          # então o cookie do login não vai e o proxy devolve 302. Troca pra "include" (mesma origem).
+          location = /viewer/viewer.js {
+            proxy_pass http://$$desk:3211;
+            proxy_http_version 1.1;
+            proxy_set_header Host $$host;
+            proxy_set_header Accept-Encoding "";
+            sub_filter_types text/javascript application/javascript;
+            sub_filter_once off;
+            sub_filter 'credentials:"omit"' 'credentials:"include"';
+          }
           location / {
             proxy_pass http://$$desk:3211;
             proxy_http_version 1.1;
