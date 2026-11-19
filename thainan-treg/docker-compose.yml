@@ -1,0 +1,56 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-treg_web_1
+      APP_PORT: 18790
+      # O treg tem login próprio (token ou código fixo); clientes da LAN chamam a API direto.
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    image: python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+    restart: unless-stopped
+    stop_grace_period: 20s
+    mem_limit: 1g
+    working_dir: /data
+    environment:
+      TZ: America/Sao_Paulo
+      PORT: "18790"
+      TREG_VERSION: "0.31.0"
+      TREG_DATABASE_URL: "sqlite+aiosqlite:////data/treg.db"
+      TREG_PUBLIC_URL: "http://nonve.local:8640"
+      TREG_EMAIL_DEV_MODE: "false"
+      TREG_TRUSTED_PROXY_HOPS: "1"
+      # Rotas públicas grátis do catálogo (na 0.31.0 só financialdatasets; sem chave de plataforma nada pago é possível).
+      TREG_PLATFORM_PROVIDERS: "financialdatasets"
+      TREG_TELEMETRY: "0"
+      DO_NOT_TRACK: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      SEED_FERNET: ${APP_THAINAN_TREG_FERNET_SEED}
+      SEED_SESSION: ${APP_THAINAN_TREG_SESSION_SECRET}
+      LOGIN_EMAIL: "thainancaldeira75@gmail.com"
+      LOGIN_CODE: ${APP_PASSWORD}
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        umask 077
+        mkdir -p /data/secrets
+        V=/data/venv
+        if [ ! -x $$V/bin/python ] || [ "$$(cat $$V/.versao 2>/dev/null)" != "$$TREG_VERSION" ]; then
+          rm -rf $$V
+          python -m venv $$V
+          $$V/bin/pip install -q "tools-registry[server]==$$TREG_VERSION"
+          echo "$$TREG_VERSION" > $$V/.versao
+        fi
+        if [ ! -s /data/secrets/fernet.key ]; then
+          $$V/bin/python -c 'import base64,binascii,sys;print(base64.urlsafe_b64encode(binascii.unhexlify(sys.argv[1][:64])).decode())' "$$SEED_FERNET" > /data/secrets/fernet.key
+        fi
+        export TREG_SECRET_KEY="$$(cat /data/secrets/fernet.key)"
+        export TREG_SESSION_SECRET="$$SEED_SESSION"
+        export TREG_FIXED_LOGIN_CODES="$$LOGIN_EMAIL=$$(printf %s "$$LOGIN_CODE" | sha256sum | cut -d' ' -f1)"
+        unset SEED_FERNET SEED_SESSION LOGIN_CODE
+        exec $$V/bin/python -m treg

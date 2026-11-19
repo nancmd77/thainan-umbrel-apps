@@ -1,0 +1,27 @@
+manifestVersion: 1
+id: thainan-treg
+name: treg
+tagline: Cofre de chaves e catálogo de ferramentas para agentes (OpenRouter das ferramentas)
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-treg/icon.png
+category: AI
+version: "0.31.0"
+port: 8640
+description: >-
+  treg (tools-registry, Superdesign) guarda as chaves de API cifradas no servidor e repassa as chamadas dos agentes injetando a credencial: o agente só tem um token do treg e nunca vê a chave.
+
+  Uso local no Nonve: o Langflow chama http://thainan-treg_web_1:18790 pela rede interna; na LAN o painel fica em http://nonve.local:8640/app. Sem chaves de plataforma do treg.to, então nenhuma chamada do catálogo é paga: só passam as suas chaves e as rotas públicas grátis.
+
+  Entrar no painel: e-mail do nan (thainancaldeira75@gmail.com) e, no campo do código, a senha deste app no Umbrel (código fixo; nenhum e-mail é enviado).
+developer: Superdesign
+website: https://treg.to
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/superdesigndev/treg
+support: https://github.com/superdesigndev/treg/issues
+gallery: []
+releaseNotes: >-
+  Primeira versão: tools-registry 0.31.0 com SQLite em volume, chave Fernet persistente, telemetria desligada e login por código fixo. (2026-11-19)
+dependencies: []
+path: "/app"
+deterministicPassword: true
+defaultUsername: "thainancaldeira75@gmail.com"

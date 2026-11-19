@@ -2,6 +2,14 @@
 
 Organizado por app. Cada entrada informa versão, data da tag anotada, o que mudou e como desfazer: voltar à tag anterior. As descrições abaixo vêm exclusivamente das mensagens das tags anotadas existentes, sem completar detalhes a partir de commits ou suposições. Reverter a versão não restaura dados; veja [como reverter](docs/REVERTER.md).
 
+## thainan-treg
+
+### 0.31.0 — 2026-11-19
+
+- Tag: `thainan-treg-v0.31.0`.
+- O que mudou: app novo. treg (tools-registry 0.31.0, Superdesign) instalado do PyPI num venv em app-data na 1ª partida; SQLite em `data/treg.db`; chave Fernet derivada do APP_SEED e gravada em `data/secrets/fernet.key`; telemetria desligada (`TREG_TELEMETRY=0`, `DO_NOT_TRACK=1`); sem chaves de plataforma do treg.to, então nenhuma chamada paga do catálogo é possível; rota pública grátis `financialdatasets` liberada. Login no painel com o e-mail do nan e a senha do app como código fixo (`TREG_FIXED_LOGIN_CODES`). Porta 8640 na LAN; rede interna `thainan-treg_web_1:18790`.
+- Como desfazer: desinstalar o app (apaga banco e chave; faça backup de `data/` antes).
+
 ## thainan-video-kb
 
 ### 1.16.0 — 2026-11-09
