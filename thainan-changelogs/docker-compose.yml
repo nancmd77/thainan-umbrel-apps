@@ -19,6 +19,7 @@ services:
       PUSHR_URL: http://192.168.18.171:3291
       PIP_CACHE_DIR: /data/pip
       PYTHONUNBUFFERED: "1"
+      TZ: "<-03>3"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
