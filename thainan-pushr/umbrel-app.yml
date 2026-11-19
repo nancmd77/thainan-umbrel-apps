@@ -4,7 +4,7 @@ name: pushr (self-hosted)
 tagline: Avisos no iPhone pelo app pushr, com backend próprio no Nonve
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-pushr/icon.png
 category: developer
-version: "1.0.0"
+version: "1.0.1"
 port: 8598
 description: >-
   Backend open source do pushr (cpreston321/pushr-backend) rodando num Convex self-hosted. Sem cota de avisos.
@@ -17,7 +17,7 @@ submission: https://github.com/nancmd77/thainan-umbrel-apps
 repo: https://github.com/cpreston321/pushr-backend
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
-releaseNotes: "Primeira versão."
+releaseNotes: "Corrige versões do better-auth pro deploy."
 dependencies: []
 path: ""
 defaultUsername: ""
