@@ -4,7 +4,7 @@ name: Cua Spaces
 tagline: Um Space Linux do Cua só com o navegador, acessível só pela rede de casa
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-cua-spaces/icon.png
 category: AI
-version: "0.16.3-r3"
+version: "0.16.3-r4"
 port: 8626
 description: >-
   Um Space Linux (Ubuntu 24.04 enxuto, imagem oficial do Cua) pra abrir no app Cua Spaces do Windows ou do Mac, sem conta da cua.ai e sem relay: conexão direta pela rede local.
@@ -22,6 +22,8 @@ repo: https://github.com/trycua/cua
 support: https://github.com/trycua/cua/issues
 gallery: []
 releaseNotes: >-
+  r4: o script da ponte MCP passa a ser escrito pelo init (o Umbrel não copia arquivos extras da pasta do app).
+
   r3: ponte MCP pro Langflow: o MCP oficial do cua (só as 35 ferramentas computer_*) em http://thainan-cua-spaces_mcp_1:8627/mcp, só na rede interna do Docker, sem porta publicada.
 
   r2: perfil do Chromium persistente (logins, cookies e abas sobrevivem a reinícios do app); travas do Chromium limpas ao iniciar.
