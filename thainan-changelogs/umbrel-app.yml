@@ -1,0 +1,22 @@
+manifestVersion: 1
+id: thainan-changelogs
+name: Changelogs pro pushr
+tagline: Scrapling organiza changelogs e o changedetection avisa no pushr
+icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-changelogs/icon.png
+category: developer
+version: "1.0.0"
+port: 8603
+description: >-
+  Lê changelogs com Scrapling e junta as novidades sem repetição (um aviso por modelo, com as notas de cada variante e o artigo do dia). O changedetection vigia a lista organizada e chama o app, que manda pro pushr só o que é novo. Começa pelo Artificial Analysis.
+developer: Thainan Caldeira
+website: https://github.com/nancmd77/thainan-umbrel-apps
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps
+repo: https://github.com/nancmd77/thainan-umbrel-apps
+support: https://github.com/nancmd77/thainan-umbrel-apps/issues
+gallery: []
+releaseNotes: "Primeira versão: Artificial Analysis."
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
