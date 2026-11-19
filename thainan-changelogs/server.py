@@ -141,7 +141,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if self._externo() and not path.endswith(".txt") and path != "/healthz":
+        if self._externo() and not path.endswith(".txt") and path not in ("/healthz", "/hook/form"):
             return self._out(404, "nada aqui\n")
         if path in ("/", "/index.html"):
             tk = token()
@@ -158,6 +158,11 @@ class H(BaseHTTPRequestHandler):
                 return self._out(200, "\n".join(i["linha"] for i in itens) + "\n")
             except Exception as e:
                 return self._out(502, f"erro: {e}\n")
+        if path == "/hook/form":
+            if token():
+                return self._out(200, "Token ja salvo.\n")
+            html = '<!doctype html><meta name=viewport content="width=device-width"><form method=post action="/hook/form"><input id=t name=t type=password placeholder="token pshr_"> <button id=b>Salvar</button></form>'
+            b = html.encode(); self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b); return
         if path == "/healthz":
             return self._out(200, "ok\n")
         self._out(404, "nada aqui\n")
@@ -168,8 +173,9 @@ class H(BaseHTTPRequestHandler):
             return self._out(404, "nada aqui\n")
         n = int(self.headers.get("Content-Length") or 0)
         corpo = self.rfile.read(n).decode(errors="replace") if n else ""
-        if path == "/hook/token":
-            t = (self.headers.get("X-Pushr-Token") or "").strip()
+        if path in ("/hook/token", "/hook/form"):
+            from urllib.parse import parse_qs
+            t = (self.headers.get("X-Pushr-Token") or (parse_qs(corpo).get("t") or [""])[0]).strip()
             if token() or not t.startswith("pshr_"):
                 return self._out(409, "nao\n")
             with open(_p("pushr_token"), "w") as f:
@@ -180,7 +186,7 @@ class H(BaseHTTPRequestHandler):
                 enviar({"title": "Changelogs conectado", "body": "A partir de agora os changelogs do Artificial Analysis chegam aqui.",
                         "replaceKey": "changelogs:teste"})
                 log("teste enviado ao pushr")
-                return self._out(200, "ok\n")
+                return self._out(200, "Token salvo e aviso de teste enviado.\n")
             except Exception as e:
                 log(f"teste falhou: {e}")
                 return self._out(502, f"teste falhou: {e}\n")
