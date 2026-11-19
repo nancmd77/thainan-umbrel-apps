@@ -4,7 +4,7 @@ name: Changelogs pro pushr
 tagline: Scrapling organiza changelogs e o changedetection avisa no pushr
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-changelogs/icon.png
 category: developer
-version: "1.0.0"
+version: "1.0.1"
 port: 8603
 description: >-
   Lê changelogs com Scrapling e junta as novidades sem repetição (um aviso por modelo, com as notas de cada variante e o artigo do dia). O changedetection vigia a lista organizada e chama o app, que manda pro pushr só o que é novo. Começa pelo Artificial Analysis.
