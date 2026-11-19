@@ -4,7 +4,7 @@ name: Ponte da API de agentes
 tagline: Usa a API de agentes do Langflow como modelo OpenAI-compatible (Nod e outros)
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-agentes-ponte/icon.png
 category: AI
-version: "1.0.0"
+version: "1.0.1"
 port: 8644
 description: >-
   Traduz POST /v1/chat/completions (formato OpenAI) para a Responses API do Langflow, chamando o flow Frente da pasta "API de agentes". Cada conversa do cliente vira uma sessão da Frente. Pedidos sem ferramentas (tarefas auxiliares do Nod, como checagens e memória) vão para um modelo comum do LiteLLM.

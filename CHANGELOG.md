@@ -4,6 +4,12 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 
 ## thainan-agentes-ponte
 
+### 1.0.1 — 2026-11-19
+
+- Tag: `thainan-agentes-ponte-v1.0.1`.
+- O que mudou: a ponte tira do embrulho do Nod só o pedido do dono (`currentInstruction`) antes de mandar à Frente; turno do Nod sem pedido (trabalho de fundo) vai ao modelo auxiliar em vez de acionar os agentes; repasse auxiliar ignora quando o Nod fecha a conexão antes do fim.
+- Como desfazer: voltar `server.py` à tag `thainan-agentes-ponte-v1.0.0` e reiniciar o app.
+
 ### 1.0.0 — 2026-11-19
 
 - Tag: `thainan-agentes-ponte-v1.0.0`.

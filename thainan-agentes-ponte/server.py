@@ -59,6 +59,22 @@ def text_of(content):
     return str(content)
 
 
+def nod_instruction(text):
+    """O Nod embrulha o pedido: preâmbulo + JSON com "currentInstruction" (o texto do dono),
+    "mode", "recentConversation" etc. Devolve (pedido, modo) ou (None, None) se não achar."""
+    i = text.find('{"mode":')
+    if i < 0:
+        return None, None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text, i)
+    except Exception:
+        return None, None
+    if not isinstance(obj, dict):
+        return None, None
+    ci = obj.get("currentInstruction")
+    return (ci if isinstance(ci, str) else None), obj.get("mode")
+
+
 def conn_for(url, timeout):
     u = urllib.parse.urlparse(url)
     cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
@@ -150,6 +166,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         first = text_of(users[0].get("content"))
         last = text_of(users[-1].get("content"))
+        pedido, modo = nod_instruction(last)
+        if pedido is not None:
+            if not pedido.strip():
+                # turno sem pedido do dono (trabalho de fundo do Nod): não aciona os agentes
+                log("frente", "turno sem pedido (modo %s): vai para o modelo auxiliar" % modo)
+                self.aux(body)
+                return
+            last = pedido
         session = "nod-" + hashlib.sha256(first.encode()).hexdigest()[:24]
         stream = bool(body.get("stream"))
         cid = "chatcmpl-" + uuid.uuid4().hex[:24]
@@ -259,6 +283,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(502, {"error": {"message": f"LiteLLM fora do ar: {e}"}})
             return
         try:
+          try:
             if body.get("stream") and r.status == 200:
                 self.start_sse()
                 while True:
@@ -274,6 +299,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(b)))
                 self.end_headers()
                 self.wfile.write(b)
+          except (BrokenPipeError, ConnectionResetError):
+            log("aux", "cliente fechou a conexão antes do fim")
         finally:
             c.close()
             log("aux", AUX_MODEL, r.status, "%.1fs" % (time.time() - t0))
