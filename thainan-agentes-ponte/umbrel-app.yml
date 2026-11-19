@@ -4,7 +4,7 @@ name: Ponte da API de agentes
 tagline: Usa a API de agentes do Langflow como modelo OpenAI-compatible (Nod e outros)
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-agentes-ponte/icon.png
 category: AI
-version: "1.0.1"
+version: "1.1.0"
 port: 8644
 description: >-
   Traduz POST /v1/chat/completions (formato OpenAI) para a Responses API do Langflow, chamando o flow Frente da pasta "API de agentes". Cada conversa do cliente vira uma sessão da Frente. Pedidos sem ferramentas (tarefas auxiliares do Nod, como checagens e memória) vão para um modelo comum do LiteLLM.
@@ -19,7 +19,7 @@ submission: https://github.com/nancmd77/thainan-umbrel-apps
 repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
-releaseNotes: "Primeira versão: ponte chat/completions para a Frente do Langflow, com repasse das tarefas auxiliares ao LiteLLM. (2026-11-19)"
+releaseNotes: "1.1.0: registro de clientes (uma linha JSON por pedido em /data/registro/clientes.jsonl, sem chaves nem texto das mensagens; leitura em GET /v1/registro com a chave). A resposta não muda. perfil_cliente.py é só um esboço, não ligado. (2026-11-19)"
 dependencies: []
 path: ""
 deterministicPassword: true

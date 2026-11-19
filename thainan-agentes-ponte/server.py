@@ -37,6 +37,16 @@ LITELLM_KEY = os.environ.get("LITELLM_KEY", "")
 AUX_MODEL = os.environ.get("AUX_MODEL", "gemini-3.8-flash-high")
 DEBUG = os.environ.get("DEBUG", "") == "1"
 KEEPALIVE = 15
+VERSAO = "1.1.0"
+# Registro de clientes (1.1.0): uma linha JSON por requisição, no volume do app. Só observa:
+# não muda a resposta. Nunca grava Authorization, cookies nem chaves (mascarados), nem o texto
+# das mensagens do usuário (só contagens, tipos de parte e o começo do prompt de sistema).
+REGISTRO = os.environ.get("REGISTRO", "1") != "0"
+REGISTRO_ARQ = os.environ.get("REGISTRO_ARQ", "/data/registro/clientes.jsonl")
+REGISTRO_MAX = int(os.environ.get("REGISTRO_MAX_BYTES", str(20 * 1024 * 1024)))
+_reg_lock = threading.Lock()
+SENSIVEIS = ("authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key")
+PALAVRAS_SENSIVEIS = ("key", "token", "secret", "auth", "cookie", "password", "senha", "session")
 
 
 def log(*a):
@@ -75,6 +85,113 @@ def nod_instruction(text):
     return (ci if isinstance(ci, str) else None), obj.get("mode")
 
 
+def mascarar(texto):
+    """Troca por *** qualquer trecho com cara de chave (sk-..., Bearer ..., longos alfanuméricos)."""
+    import re
+    texto = re.sub(r"(?i)bearer\s+\S+", "Bearer ***", texto)
+    texto = re.sub(r"\b(sk|pk|rk|lf|ghp|gho|xox[abp])[-_][A-Za-z0-9_\-]{8,}", "***", texto)
+    texto = re.sub(r"\b[A-Za-z0-9_\-]{32,}\b", "***", texto)
+    return texto
+
+
+def cabecalhos_seguros(headers):
+    out = {}
+    for k, v in headers.items():
+        kl = k.lower()
+        if kl in SENSIVEIS or any(w in kl for w in PALAVRAS_SENSIVEIS):
+            out[k] = "*** (%d caracteres)" % len(v or "")
+        else:
+            out[k] = mascarar(v or "")[:300]
+    return out
+
+
+def resumo_corpo(body):
+    """Só a forma do pedido: nada do conteúdo do dono."""
+    msgs = body.get("messages") or []
+    papeis, partes = {}, {}
+    tool_calls = 0
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        papeis[m.get("role")] = papeis.get(m.get("role"), 0) + 1
+        c = m.get("content")
+        if isinstance(c, list):
+            for p in c:
+                t = p.get("type") if isinstance(p, dict) else type(p).__name__
+                partes[t] = partes.get(t, 0) + 1
+        elif isinstance(c, str):
+            partes["string"] = partes.get("string", 0) + 1
+        tool_calls += len(m.get("tool_calls") or [])
+    sistema = next((text_of(m.get("content")) for m in msgs
+                    if isinstance(m, dict) and m.get("role") in ("system", "developer")), "")
+    ultimo_user = next((text_of(m.get("content")) for m in reversed(msgs)
+                        if isinstance(m, dict) and m.get("role") == "user"), "")
+    _, modo = nod_instruction(ultimo_user) if ultimo_user else (None, None)
+    tools = body.get("tools") or []
+    nomes = []
+    for t in tools:
+        if isinstance(t, dict):
+            f = t.get("function") if isinstance(t.get("function"), dict) else t
+            nomes.append(str(f.get("name") or t.get("type") or "?")[:80])
+    imagens = partes.get("image_url", 0) + partes.get("input_image", 0)
+    rf = body.get("response_format")
+    return {
+        "modelo": body.get("model"),
+        "stream": bool(body.get("stream")),
+        "stream_options": body.get("stream_options"),
+        "tools": {"presente": bool(tools), "qtd": len(tools), "nomes": nomes},
+        "tool_choice": body.get("tool_choice") if isinstance(body.get("tool_choice"), str) else (
+            "objeto" if body.get("tool_choice") else None),
+        "parallel_tool_calls": body.get("parallel_tool_calls"),
+        "imagem": {"presente": imagens > 0, "partes": imagens},
+        "partes": partes,
+        "mensagens": {"total": len(msgs), "papeis": papeis, "tool_calls_assistente": tool_calls},
+        "sistema_inicio": mascarar(sistema[:160]).replace("\n", " | "),
+        "sistema_chars": len(sistema),
+        "embrulho_nod": {"presente": modo is not None, "modo": modo},
+        "chaves_corpo": sorted(body.keys()),
+        "max_tokens": body.get("max_tokens") or body.get("max_completion_tokens"),
+        "reasoning_effort": body.get("reasoning_effort"),
+        "response_format": rf.get("type") if isinstance(rf, dict) else rf,
+    }
+
+
+def registrar(entrada):
+    if not REGISTRO:
+        return
+    try:
+        linha = json.dumps(entrada, ensure_ascii=False, default=str) + "\n"
+        with _reg_lock:
+            os.makedirs(os.path.dirname(REGISTRO_ARQ), exist_ok=True)
+            try:
+                if os.path.getsize(REGISTRO_ARQ) > REGISTRO_MAX:
+                    os.replace(REGISTRO_ARQ, REGISTRO_ARQ + ".1")
+            except FileNotFoundError:
+                pass
+            with open(REGISTRO_ARQ, "a", encoding="utf-8") as f:
+                f.write(linha)
+    except Exception as e:  # o registro nunca derruba a resposta
+        log("registro falhou:", e)
+
+
+def ultimas_linhas(n):
+    try:
+        with open(REGISTRO_ARQ, "rb") as f:
+            f.seek(0, 2)
+            tam = f.tell()
+            f.seek(max(0, tam - 2 * 1024 * 1024))
+            linhas = f.read().decode(errors="replace").splitlines()
+    except FileNotFoundError:
+        return []
+    out = []
+    for l in linhas[-n:]:
+        try:
+            out.append(json.loads(l))
+        except Exception:
+            pass
+    return out
+
+
 def conn_for(url, timeout):
     u = urllib.parse.urlparse(url)
     cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
@@ -83,7 +200,7 @@ def conn_for(url, timeout):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "ponte-agentes/1.0"
+    server_version = "ponte-agentes/1.1"
 
     def log_message(self, fmt, *args):
         if DEBUG:
@@ -119,11 +236,29 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"0\r\n\r\n")
         self.wfile.flush()
 
+    def entrada_base(self, path):
+        return {"ts": time.strftime("%Y-%m-%dT%H:%M:%S-03:00", time.gmtime(time.time() - 3 * 3600)), "versao": VERSAO,
+                "metodo": self.command, "rota": path, "origem": self.client_address[0],
+                "user_agent": self.headers.get("User-Agent"),
+                "cabecalhos": cabecalhos_seguros(self.headers),
+                "chave_ok": self.authorized()}
+
     # rotas
     def do_GET(self):
         path = self.path.split("?")[0].rstrip("/")
+        if path in ("/v1/registro", "/registro"):
+            if not self.authorized():
+                self.send_json(401, {"error": {"message": "chave inválida"}})
+                return
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            n = max(1, min(500, int((q.get("n") or ["50"])[0])))
+            self.send_json(200, {"arquivo": REGISTRO_ARQ, "linhas": ultimas_linhas(n)})
+            return
+        if path not in ("", "/health"):
+            registrar(self.entrada_base(path))
         if path in ("", "/health"):
-            self.send_json(200, {"ok": True, "modelo": MODEL_ID, "flow": FLOW_ID, "aux": AUX_MODEL})
+            self.send_json(200, {"ok": True, "versao": VERSAO, "modelo": MODEL_ID, "flow": FLOW_ID,
+                                 "aux": AUX_MODEL, "registro": REGISTRO_ARQ if REGISTRO else None})
             return
         if path in ("/v1/models", "/models"):
             if not self.authorized():
@@ -138,6 +273,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0].rstrip("/")
         if path not in ("/v1/chat/completions", "/chat/completions"):
+            registrar(self.entrada_base(path))
             self.send_json(404, {"error": {"message": "não encontrado"}})
             return
         if not self.authorized():
@@ -150,6 +286,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": {"message": "JSON inválido"}})
             return
         msgs = body.get("messages") or []
+        try:
+            e = self.entrada_base(path)
+            e["corpo"] = resumo_corpo(body)
+            ult = next((text_of(m.get("content")) for m in reversed(msgs)
+                        if isinstance(m, dict) and m.get("role") == "user"), "")
+            ped, _ = nod_instruction(ult) if ult else (None, None)
+            # rota que a ponte vai seguir (a decisão abaixo continua igual à 1.0.1)
+            e["rota_ponte"] = ("frente" if (body.get("tools") and not (ped is not None and not ped.strip()))
+                               else "auxiliar")
+            registrar(e)
+        except Exception as ex:
+            log("registro falhou:", ex)
         if DEBUG:
             log("pedido", "tools=%d" % len(body.get("tools") or []), "stream=%s" % body.get("stream"),
                 [(m.get("role"), len(text_of(m.get("content")))) for m in msgs][-8:])
@@ -311,5 +459,6 @@ if __name__ == "__main__":
         log("aviso: LANGFLOW_API_KEY vazio (pôr no ambiente personalizado do app no Umbrel)")
     if not LITELLM_KEY:
         log("aviso: LITELLM_KEY vazio (tarefas auxiliares do Nod vão falhar)")
+    log("registro de clientes:", REGISTRO_ARQ if REGISTRO else "desligado")
     log("ponte ouvindo na porta", PORT, "modelo", MODEL_ID, "flow", FLOW_ID)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
