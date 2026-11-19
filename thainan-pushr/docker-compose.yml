@@ -20,7 +20,7 @@ services:
       CONVEX_SITE_ORIGIN: "https://pushr.thainancaldeira.com.br"
       DISABLE_BEACON: "true"
       DOCUMENT_RETENTION_DELAY: "172800"
-      RUST_LOG: "info"
+      RUST_LOG: "warn"
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -61,7 +61,9 @@ services:
         bunx convex env set BETTER_AUTH_SECRET "$$(cat /convex/data/auth_secret)" >/dev/null
         bunx convex env set SITE_URL "$$SITE_URL"
         echo "versao: $$(bun -e 'const r=await fetch("http://backend:3211/healthz");console.log(await r.text())')"
-        echo "CODIGO DE CONEXAO (vale 15 min):"
-        bunx convex run pairing:createCode
-        echo "pronto, dormindo"
+        for i in 1 2 3 4 5 6; do
+          echo "CODIGO DE CONEXAO $$i/6 (vale 15 min): $$(bunx convex run pairing:createCode | tr -d '\n ')"
+          sleep 600
+        done
+        echo "pronto, dormindo (reinicie o app pra gerar novos codigos)"
         exec sleep infinity
