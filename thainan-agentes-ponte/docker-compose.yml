@@ -1,0 +1,49 @@
+version: "3.7"
+
+# Ponte OpenAI chat/completions -> API de agentes do Langflow (flow Frente), para o Nod e outros
+# clientes "OpenAI-compatible". Código em server.py (só biblioteca padrão do Python).
+# Segredos NÃO ficam aqui: LANGFLOW_API_KEY e LITELLM_KEY entram pelo ambiente personalizado
+# do app no Umbrel (serviço web). A chave que o cliente usa é a senha deste app (APP_PASSWORD).
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-agentes-ponte_web_1
+      APP_PORT: 8645
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    image: python:3.12-slim
+    restart: unless-stopped
+    init: true
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      REF: main
+      PORT: "8645"
+      PYTHONUNBUFFERED: "1"
+      BRIDGE_KEY: ${APP_PASSWORD}
+      LANGFLOW_URL: http://langflow_app_1:7860
+      FLOW_ID: ae20424f-6b22-4df3-9c63-ba911804c2da
+      MODEL_ID: agentes-nonve
+      CONTEXT_LENGTH: "200000"
+      LITELLM_URL: http://thainan-litellm_web_1:4000/v1
+      AUX_MODEL: gemini-3.8-flash-high
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /app /data/cache
+        cd /app
+        python - <<'PY'
+        import os, urllib.request, shutil
+        B = "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/" + os.environ.get("REF", "main") + "/thainan-agentes-ponte/"
+        for f in ["server.py"]:
+            try:
+                b = urllib.request.urlopen(B + f, timeout=30).read()
+                open(f, "wb").write(b); open("/data/cache/" + f, "wb").write(b); print("baixado", f, len(b))
+            except Exception as e:
+                print("falhou", f, e, "usando cache"); shutil.copy("/data/cache/" + f, f)
+        PY
+        exec python server.py
+    mem_limit: 256m

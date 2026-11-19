@@ -2,6 +2,14 @@
 
 Organizado por app. Cada entrada informa versão, data da tag anotada, o que mudou e como desfazer: voltar à tag anterior. As descrições abaixo vêm exclusivamente das mensagens das tags anotadas existentes, sem completar detalhes a partir de commits ou suposições. Reverter a versão não restaura dados; veja [como reverter](docs/REVERTER.md).
 
+## thainan-agentes-ponte
+
+### 1.0.0 — 2026-11-19
+
+- Tag: `thainan-agentes-ponte-v1.0.0`.
+- O que mudou: app novo. Ponte OpenAI `/v1/chat/completions` → Responses API do Langflow (flow Frente da "API de agentes"), modelo `agentes-nonve`, para usar no Nod como conexão OpenAI-compatible. Pedidos sem ferramentas (tarefas auxiliares do Nod) vão ao LiteLLM (`gemini-3.8-flash-high`). Só biblioteca padrão do Python; `server.py` baixado do repo na partida, com cache em `data/cache`. Chave do cliente = senha do app; `LANGFLOW_API_KEY` e `LITELLM_KEY` só no ambiente personalizado do Umbrel. Porta 8644 na LAN (status); rede interna `thainan-agentes-ponte_web_1:8645`.
+- Como desfazer: desinstalar o app e remover a conexão no Nod (Settings > Models > Manage).
+
 ## thainan-treg
 
 ### 0.31.0 — 2026-11-19
