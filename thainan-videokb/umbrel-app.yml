@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.10.5"
+version: "0.10.6"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,9 +18,8 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Céu novo: foto de céu em filme, com grão, que segue a hora e as nuvens de casa, sempre parado. Depois do pôr do sol o Selah fica escuro sozinho e volta de manhã.
-  Mais leve: sem parallax e sem vidro fosco, a rolagem ficou bem mais fluida.
-  A busca perdeu a linha de baixo, o selo da rede foi pro card do título e o vídeo horizontal ocupa menos espaço.
+  A barra de busca não desce mais pro rodapé: fica só no topo do Tudo. O Maná saiu do menu.
+  Papiro: a roda do mouse rola a lista em qualquer ponto da tela, as fotos aparecem inteiras, sem corte, e as fotos do Product Hunt vão aparecendo sozinhas, mesmo com o Papiro fechado.
 dependencies: []
 path: ""
 defaultUsername: ""
