@@ -1,0 +1,65 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-pushr_backend_1
+      APP_PORT: 3211
+      PROXY_AUTH_ADD: "false"
+  backend:
+    image: ghcr.io/convex/convex-backend:latest
+    restart: unless-stopped
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "3290:3210"
+      - "3291:3211"
+    volumes:
+      - ${APP_DATA_DIR}/data:/convex/data
+    environment:
+      CONVEX_CLOUD_ORIGIN: "https://pushr-api.thainancaldeira.com.br"
+      CONVEX_SITE_ORIGIN: "https://pushr.thainancaldeira.com.br"
+      DISABLE_BEACON: "true"
+      DOCUMENT_RETENTION_DELAY: "172800"
+      RUST_LOG: "info"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        cd /convex && ./generate_admin_key.sh > /convex/data/admin_key.tmp && mv /convex/data/admin_key.tmp /convex/data/admin_key && chmod 600 /convex/data/admin_key
+        exec ./run_backend.sh
+    healthcheck:
+      test: curl -f http://localhost:3210/version
+      interval: 5s
+      start_period: 15s
+  deploy:
+    image: oven/bun:1
+    restart: on-failure
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ${APP_DATA_DIR}/data:/convex/data
+      - ${APP_DATA_DIR}/deploy:/work
+    environment:
+      REF: main
+      SITE_URL: "https://pushr.thainancaldeira.com.br"
+      CONVEX_SELF_HOSTED_URL: "http://backend:3210"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        export CONVEX_SELF_HOSTED_ADMIN_KEY="$$(cat /convex/data/admin_key)"
+        cd /work
+        echo "baixando pushr-backend ($$REF)"
+        bun -e 'const r=await fetch("https://codeload.github.com/cpreston321/pushr-backend/tar.gz/refs/heads/"+process.env.REF);await Bun.write("/work/src.tgz",await r.arrayBuffer())'
+        rm -rf src && mkdir src && tar -xzf src.tgz -C src --strip-components=1
+        cd src
+        bun install
+        [ -s /convex/data/auth_secret ] || (bun -e 'console.log(require("crypto").randomBytes(32).toString("hex"))' > /convex/data/auth_secret && chmod 600 /convex/data/auth_secret)
+        bunx convex deploy --yes
+        bunx convex env set BETTER_AUTH_SECRET "$$(cat /convex/data/auth_secret)" >/dev/null
+        bunx convex env set SITE_URL "$$SITE_URL"
+        echo "versao: $$(bun -e 'const r=await fetch("http://backend:3211/healthz");console.log(await r.text())')"
+        echo "CODIGO DE CONEXAO (vale 15 min):"
+        bunx convex run pairing:createCode
+        echo "pronto, dormindo"
+        exec sleep infinity
