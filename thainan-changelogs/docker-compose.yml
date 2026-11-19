@@ -1,0 +1,39 @@
+version: "3.7"
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-changelogs_web_1
+      APP_PORT: 8604
+      PROXY_AUTH_ADD: "false"
+  web:
+    image: python:3.12-slim
+    restart: unless-stopped
+    ports:
+      - "8604:8604"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      REF: main
+      PORT: "8604"
+      DATA_DIR: /data
+      PUSHR_URL: http://192.168.18.171:3291
+      PIP_CACHE_DIR: /data/pip
+      PYTHONUNBUFFERED: "1"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /app /data/cache
+        cd /app
+        python - <<'PY'
+        import os, urllib.request, shutil
+        B = "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/" + os.environ.get("REF", "main") + "/thainan-changelogs/"
+        for f in ["server.py", "aa.py"]:
+            try:
+                b = urllib.request.urlopen(B + f, timeout=30).read()
+                open(f, "wb").write(b); open("/data/cache/" + f, "wb").write(b); print("baixado", f, len(b))
+            except Exception as e:
+                print("falhou", f, e, "usando cache"); shutil.copy("/data/cache/" + f, f)
+        PY
+        pip install -q --disable-pip-version-check "scrapling[fetchers]==0.5.*" || pip install -q --disable-pip-version-check "scrapling[fetchers]"
+        exec python server.py
