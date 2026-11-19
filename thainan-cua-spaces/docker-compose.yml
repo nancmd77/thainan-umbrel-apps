@@ -18,7 +18,8 @@ services:
       - sh
       - -c
       - |
-        mkdir -p /data/www /data/chromium
+        mkdir -p /data/www /data/chromium /data/mcp
+        chown 1000:1000 /data/mcp
         # Perfil do Chromium persistente (r2): dono = usuário cua da imagem (uid/gid 1000).
         chown 1000:1000 /data/chromium
         chmod 700 /data/chromium
@@ -80,6 +81,37 @@ services:
     volumes:
       - ${APP_DATA_DIR}/data/sessao.sh:/usr/bin/startxfce4:ro
       - ${APP_DATA_DIR}/data/chromium:/home/cua/.config/chromium
+
+  # Ponte MCP (r3): MCP oficial do cua (`cua mcp`, stdio, modo direto no Space com o token)
+  # exposto como Streamable HTTP em http://thainan-cua-spaces_mcp_1:8627/mcp.
+  # Sem porta publicada: só a rede interna do Docker do Umbrel (ex. o Langflow) alcança. Sem bearer.
+  mcp:
+    image: ghcr.io/trycua/linux:24.04-slim@sha256:d21a48ebbfe03914fdfc109c21780a8bd75cb1ec15cc83ad956fa2ecafb4b8aa
+    restart: on-failure
+    user: "1000:1000"
+    mem_limit: 512m
+    depends_on:
+      space:
+        condition: service_started
+    entrypoint: ["python3", "-u", "/opt/ponte/ponte-mcp.py"]
+    command: []
+    environment:
+      HOME: /data/mcp
+      CUA_ENV_TOKEN: "${APP_PASSWORD}"
+      PONTE_SPACE_URL: "http://thainan-cua-spaces_space_1:3211"
+      PONTE_PORT: "8627"
+      PONTE_PERMISSIONS: "computer:all"
+      DO_NOT_TRACK: "1"
+      CUA_TELEMETRY: "0"
+      TZ: America/Sao_Paulo
+    volumes:
+      - ${APP_DATA_DIR}/data/mcp:/data/mcp
+      - ${APP_DATA_DIR}/ponte-mcp.py:/opt/ponte/ponte-mcp.py:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8627/healthz',timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   info:
     image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
