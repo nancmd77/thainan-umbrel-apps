@@ -132,7 +132,7 @@ services:
         for f in (tmp, tmp + '-wal', tmp + '-shm'):
             if os.path.exists(f): os.remove(f)
         dst = sqlite3.connect(tmp)
-        t = time.time(); src.backup(dst)  # passo único numa leitura fixa: o seguidor grava sem parar e o backup em partes recomeçava sempre; src.close()
+        t = time.time(); src.backup(dst); src.close()  # passo único: em partes recomeçava a cada gravação do seguidor
         ok = dst.execute('PRAGMA quick_check').fetchone()[0]
         dst.close()
         print('consulta: snapshot', round(time.time() - t), 's, quick_check', ok, flush=True)
