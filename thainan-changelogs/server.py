@@ -168,6 +168,22 @@ class H(BaseHTTPRequestHandler):
             return self._out(404, "nada aqui\n")
         n = int(self.headers.get("Content-Length") or 0)
         corpo = self.rfile.read(n).decode(errors="replace") if n else ""
+        if path == "/hook/token":
+            t = (self.headers.get("X-Pushr-Token") or "").strip()
+            if token() or not t.startswith("pshr_"):
+                return self._out(409, "nao\n")
+            with open(_p("pushr_token"), "w") as f:
+                f.write(t)
+            os.chmod(_p("pushr_token"), 0o600)
+            log("token do pushr salvo pelo Hark")
+            try:
+                enviar({"title": "Changelogs conectado", "body": "A partir de agora os changelogs do Artificial Analysis chegam aqui.",
+                        "replaceKey": "changelogs:teste"})
+                log("teste enviado ao pushr")
+                return self._out(200, "ok\n")
+            except Exception as e:
+                log(f"teste falhou: {e}")
+                return self._out(502, f"teste falhou: {e}\n")
         if path == "/token":
             from urllib.parse import parse_qs
             t = (parse_qs(corpo).get("t") or [""])[0].strip()
