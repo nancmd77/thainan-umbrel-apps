@@ -135,8 +135,14 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _externo(self):
+        # via túnel Cloudflare: só a lista e o gancho ficam abertos
+        return bool(self.headers.get("Cf-Connecting-Ip"))
+
     def do_GET(self):
         path = self.path.split("?")[0]
+        if self._externo() and not path.endswith(".txt") and path != "/healthz":
+            return self._out(404, "nada aqui\n")
         if path in ("/", "/index.html"):
             tk = token()
             st = '<span class="ok">salvo</span>' if tk else '<span class="falta">falta colar</span>'
@@ -158,6 +164,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0]
+        if self._externo() and not path.startswith("/hook/"):
+            return self._out(404, "nada aqui\n")
         n = int(self.headers.get("Content-Length") or 0)
         corpo = self.rfile.read(n).decode(errors="replace") if n else ""
         if path == "/token":
