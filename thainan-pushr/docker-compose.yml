@@ -53,6 +53,8 @@ services:
         bun -e 'const r=await fetch("https://codeload.github.com/cpreston321/pushr-backend/tar.gz/refs/heads/"+process.env.REF);await Bun.write("/work/src.tgz",await r.arrayBuffer())'
         rm -rf src && mkdir src && tar -xzf src.tgz -C src --strip-components=1
         cd src
+        sed -i 's/"better-auth": "1.6.11"/"better-auth": "~1.7.26"/; s#"@convex-dev/better-auth": "^0.12.5"#"@convex-dev/better-auth": "^0.13.0"#' package.json
+        mkdir -p /work/tmp && export CONVEX_TMPDIR=/work/tmp
         bun install
         [ -s /convex/data/auth_secret ] || (bun -e 'console.log(require("crypto").randomBytes(32).toString("hex"))' > /convex/data/auth_secret && chmod 600 /convex/data/auth_secret)
         bunx convex deploy --yes
