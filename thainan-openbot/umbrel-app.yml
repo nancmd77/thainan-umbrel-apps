@@ -4,7 +4,7 @@ storage:
   dataRoot: data
 category: ai
 name: OpenBot
-version: "0.74.0"
+version: "0.75.0"
 tagline: A server for your AI agents
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 description: >-
@@ -15,9 +15,7 @@ description: >-
   Única diferença do original: apparmor=unconfined, porque o AppArmor do host bloqueia os user
   namespaces do sandbox do Electron.
 releaseNotes: >-
-  Versão 0.74.0: volta ao OpenBot original, sem patches (sem camada própria, painel 8592, omp, decide,
-  md e conselho). Página de login oficial do OpenBot. Notas da release:
-  https://github.com/nightly-labs/openbot/releases/tag/v0.74.0.
+  Atualizado automaticamente para 0.75.0. (2026-11-20)
 developer: Synthetify Labs
 website: https://openbot.run
 dependencies: []
