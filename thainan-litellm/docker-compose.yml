@@ -51,6 +51,20 @@ services:
           } >> /data/config.yaml
           echo 'init: MCP supermemory adicionado'
         fi
+        # Open Notebook: MCP open-notebook-mcp (sidecar do app thainan-opennotebook). Desde 1.110.1-r1.
+        if [ "$$(awk '/^[A-Za-z_]+:/{k=$$0} END{print k}' /data/config.yaml)" = 'mcp_servers:' ] && ! grep -q '^  opennotebook:' /data/config.yaml; then
+          {
+            echo ''
+            echo '  opennotebook:'
+            echo '    url: "http://thainan-opennotebook_mcp_1:8000/mcp"'
+            echo '    transport: "http"'
+            echo '    description: "Open Notebook do Nan (cadernos, fontes, notas, busca e chat). Comece por search_capabilities."'
+            echo '    allow_all_keys: true'
+            echo '    disallowed_tools: ["delete_notebook", "delete_source", "delete_note", "delete_model", "delete_chat_session", "update_settings", "create_model", "opennotebook-delete_notebook", "opennotebook-delete_source", "opennotebook-delete_note", "opennotebook-delete_model", "opennotebook-delete_chat_session", "opennotebook-update_settings", "opennotebook-create_model"]'
+          } >> /data/config.yaml
+          echo 'init: MCP opennotebook adicionado'
+        elif ! grep -q '^  opennotebook:' /data/config.yaml; then echo 'init: mcp_servers nao e o ultimo bloco do config.yaml, opennotebook nao adicionado'
+        fi
         cat > /data/skills-sync.py <<'PYEOF'
         # Sincroniza skills do Supermemory no LiteLLM (Skills API, custom_llm_provider=litellm_proxy).
         # Fonte: github.com/supermemoryai/skills (main) + skill local do Nan. Roda a cada start do app.
@@ -86,6 +100,17 @@ services:
                 files.setdefault(parts[0], {})["/".join(parts[1:])] = tf.extractfile(m).read()
             for d, fs in files.items():
                 if "SKILL.md" in fs: out[d] = fs
+            # Skill do Open Notebook pelo MCP (github.com/sergeesteves/open-notebook-mcp-skill, pasta skill/)
+            try:
+                raw = urllib.request.urlopen("https://codeload.github.com/sergeesteves/open-notebook-mcp-skill/tar.gz/refs/heads/main", timeout=60).read()
+                tf = tarfile.open(fileobj=io.BytesIO(raw)); fs = {}
+                for m in tf.getmembers():
+                    parts = m.name.split("/")[1:]
+                    if m.isfile() and len(parts) >= 2 and parts[0] == "skill":
+                        fs["/".join(parts[1:])] = tf.extractfile(m).read().replace(b"{{OPEN_NOTEBOOK_URL}}", b"http://thainan-opennotebook_web_1:5055 (ja ligado no MCP opennotebook do LiteLLM)")
+                if "SKILL.md" in fs: out["open-notebook"] = fs
+            except Exception as e:
+                print("skills: open-notebook falhou:", e)
             return out
 
         LOCAL = {"supermemory-nan": {"SKILL.md": open("/data/supermemory-nan.md", "rb").read()}} if os.path.exists("/data/supermemory-nan.md") else {}
