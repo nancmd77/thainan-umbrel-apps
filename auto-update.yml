@@ -80,3 +80,6 @@ thainan-headroom:
   image: ghcr.io/headroomlabs-ai/headroom
   mode: tag
   suffix: -code   # variante com compressão de código (tree-sitter)
+thainan-openbot:
+  image: ghcr.io/nightly-labs/openbot
+  mode: tag

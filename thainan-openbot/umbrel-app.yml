@@ -1,29 +1,32 @@
 manifestVersion: 1
 id: thainan-openbot
+storage:
+  dataRoot: data
+category: ai
 name: OpenBot
-tagline: Servidor headless do OpenBot para agentes de IA
+version: "0.74.0"
+tagline: A server for your AI agents
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
-category: AI
-version: "0.73.0-r1"
-port: 8592
 description: >-
-  OpenBot (nightly-labs/openbot) rodando como servidor headless no hardware do Nonve.
+  OpenBot (nightly-labs/openbot) do jeito original, igual ao app oficial da loja comunitária
+  nightly-labs/openbot-umbrel-store. Abra o app e entre com sua conta OpenBot; depois use o servidor
+  pelo app desktop, pelo app do celular ou em openbot.run/app.
 
-  Inclui interface web na porta 8592 para verificação de status, envio de código de login por e-mail, confirmação de código e pareamento móvel por código QR (Mobile Connect). O servidor conecta-se à sua conta OpenBot para uso pelo app desktop ou navegador em https://openbot.run/app.
-
-  Pré-configurado para consumir modelos do 9Router local (http://192.168.18.171:20128/v1) através do OpenCode com importação automática da chave do 9Router a partir do Video KB.
-
-  Integração do modelo de decisão por passo para computer use via CLI 'decide' (Liquid AI d1-ultra e fallback Jev via API oficial TypeSafe), ferramenta de mira visual Moondream Cloud ('md') com cursor estilo Hark no display :1, e página de configuração unificada na porta 8592.
-developer: nightly-labs
+  Única diferença do original: apparmor=unconfined, porque o AppArmor do host bloqueia os user
+  namespaces do sandbox do Electron.
+releaseNotes: >-
+  Versão 0.74.0: volta ao OpenBot original, sem patches (sem camada própria, painel 8592, omp, decide,
+  md e conselho). Página de login oficial do OpenBot. Notas da release:
+  https://github.com/nightly-labs/openbot/releases/tag/v0.74.0.
+developer: Synthetify Labs
 website: https://openbot.run
-submitter: Thainan Caldeira
-submission: https://github.com/nancmd77/thainan-umbrel-apps
+dependencies: []
 repo: https://github.com/nightly-labs/openbot
 support: https://github.com/nightly-labs/openbot/issues
+port: 8592
 gallery: []
-releaseNotes: >-
-  Versão 0.73.0-r1: base OpenBot atualizada para v0.73.0 (upstream nightly-labs). Notas completas da release: https://github.com/nightly-labs/openbot/releases/tag/v0.73.0.
-dependencies: []
 path: ""
 defaultUsername: ""
 defaultPassword: ""
+submitter: Thainan Caldeira
+submission: https://github.com/nancmd77/thainan-umbrel-apps

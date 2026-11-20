@@ -1,8 +1,0 @@
-#!/bin/sh
-# Wrapper do omp no thainan-openbot: semeia a config do LiteLLM na primeira execução e chama o binário.
-d="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}"
-mkdir -p "$d" 2>/dev/null || true
-for f in models.yml config.yml; do
-  [ -e "$d/$f" ] || cp /usr/local/share/omp/$f "$d/$f" 2>/dev/null || true
-done
-exec /usr/local/lib/omp/omp "$@"
