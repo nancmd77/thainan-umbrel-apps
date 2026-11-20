@@ -33,3 +33,18 @@ services:
       - ${APP_DATA_DIR}/data/notebook:/app/data
     depends_on:
       - surrealdb
+  # MCP do Open Notebook (open-notebook-mcp, Epochal-dev), só na rede interna do Umbrel.
+  # O LiteLLM liga em http://thainan-opennotebook_mcp_1:8000/mcp. mcp<2 porque o 2.x quebra o servidor.
+  mcp:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    restart: unless-stopped
+    # O main() do 0.3.0 quebra no HTTP com mcp 1.x (run() sem host/port); este lançador ajusta via settings.
+    command: ["uvx", "--with", "mcp<2", "--from", "open-notebook-mcp==0.3.0", "python", "-c", "from open_notebook_mcp.server import mcp; s=mcp.settings; s.host='0.0.0.0'; s.port=8000; s.stateless_http=True; s.json_response=True; s.transport_security=None; mcp.run(transport='streamable-http')"]
+    environment:
+      OPEN_NOTEBOOK_URL: http://thainan-opennotebook_web_1:5055
+      OPEN_NOTEBOOK_PASSWORD: ${APP_PASSWORD}
+      UV_CACHE_DIR: /cache
+    volumes:
+      - ${APP_DATA_DIR}/data/mcp-cache:/cache
+    depends_on:
+      - web
