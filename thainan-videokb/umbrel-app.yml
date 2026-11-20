@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.10.9"
+version: "0.10.10"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Avisos no iPhone pelo pushr: notícia nova do Papiro que passou no seu filtro e reel novo no Alforje (conecte em /selah/pushr com o token da fonte Selah). Product Hunt: logo não aparece mais no lugar da foto.
+  Celular: o Papiro rola a tela inteira, com as abas AlternativeTo e Product Hunt presas no topo; o Voltar sai do Papiro; fechar o card pelo X não reabre ele no Voltar. Papiro: AlternativeTo dos últimos 30 dias em ordem de data, sem filtro por interesse, com os ícones dos apps; avisos do pushr para toda notícia nova do AlternativeTo.
 dependencies: []
 path: ""
 defaultUsername: ""
