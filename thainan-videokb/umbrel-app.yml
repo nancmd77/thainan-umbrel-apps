@@ -4,7 +4,7 @@ name: Selah
 tagline: Seus reels guardados, com gancho, resumo, pontos-chave e linha do tempo
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-videokb/icon-selah.png
 category: Productivity
-version: "0.10.13"
+version: "0.10.14"
 port: 8765
 description: >-
   Selah lê os reels que o Video KB guardou e mostra numa grade calma: vídeo tocando no próprio app,
@@ -18,7 +18,7 @@ repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Avisos do Product Hunt: lançamentos novos agora também chegam no pushr, junto com as notícias do AlternativeTo. IA: a tradução do Papiro e os comentários passam a usar o LiteLLM (o 9Router saiu), então as notícias voltam a chegar em português na hora.
+  Supermemory: o que você guarda no Alforje vindo do Papiro passa a ir pro Supermemory, junto com os reels. Usa a mesma conexão configurada no Video KB.
 dependencies: []
 path: ""
 defaultUsername: ""
