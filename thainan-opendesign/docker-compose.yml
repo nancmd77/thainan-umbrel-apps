@@ -32,6 +32,7 @@ services:
     environment:
       PATH: /opt/od-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       OPENCODE_BIN: /opt/od-tools/bin/opencode
+      OPENCODE_CONFIG: /app/.od/opencode/opencode.json
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=192
       OD_BIND_HOST: 0.0.0.0
