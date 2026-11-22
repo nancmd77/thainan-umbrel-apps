@@ -4,7 +4,7 @@ name: OpenDesign
 tagline: Collaborative design agent workspace (Claude Design alternative)
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-opendesign/icon.png
 category: Productivity
-version: "1.0.4-r5"
+version: "1.0.4-r6"
 port: 7456
 description: >-
   OpenDesign is an open-source collaborative design agent workspace: prototypes,
@@ -23,7 +23,7 @@ repo: https://github.com/nexu-io/open-design
 support: https://github.com/nexu-io/open-design/issues
 gallery: []
 releaseNotes: >-
-  OpenCode lê a configuração de /app/.od/opencode/opencode.json (dados do app), pra usar o LiteLLM como provedor padrão. (2026-11-22)
+  Configuração global do OpenCode (LiteLLM como provedor padrão) montada em /root/.config/opencode. (2026-11-22)
 dependencies: []
 path: ""
 defaultUsername: "open-design"

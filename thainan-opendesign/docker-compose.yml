@@ -43,3 +43,4 @@ services:
     volumes:
       - ${APP_DATA_DIR}/data:/app/.od
       - ${APP_DATA_DIR}/tools:/opt/od-tools:ro
+      - ${APP_DATA_DIR}/data/opencode:/root/.config/opencode
