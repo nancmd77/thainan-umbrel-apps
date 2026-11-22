@@ -5,17 +5,40 @@ services:
       APP_HOST: thainan-opendesign_web_1
       APP_PORT: 7456
       PROXY_AUTH_ADD: "false"
+  tools:
+    image: node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
+    user: "0:0"
+    restart: "no"
+    environment:
+      OPENCODE_VERSION: "1.19.6"
+    command:
+      - sh
+      - -c
+      - >-
+        if [ "$$(cat /tools/.opencode-version 2>/dev/null)" != "$$OPENCODE_VERSION" ]; then
+        rm -rf /tools/lib /tools/bin &&
+        npm install -g --prefix /tools opencode-ai@$$OPENCODE_VERSION &&
+        echo $$OPENCODE_VERSION > /tools/.opencode-version; fi;
+        /tools/bin/opencode --version
+    volumes:
+      - ${APP_DATA_DIR}/tools:/tools
   web:
     image: ghcr.io/nexu-io/od:latest@sha256:e60aec9fb7e07af9f11de58eff62a546c82421d3a24aa57a353b4c2808a1d85c
     user: "0:0"
     restart: on-failure
+    depends_on:
+      tools:
+        condition: service_completed_successfully
     environment:
+      PATH: /opt/od-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      OPENCODE_BIN: /opt/od-tools/bin/opencode
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=192
       OD_BIND_HOST: 0.0.0.0
       OD_PORT: "7456"
       OD_WEB_PORT: "7456"
       OD_API_TOKEN: "${APP_PASSWORD}"
-      OD_ALLOWED_ORIGINS: http://${DEVICE_DOMAIN_NAME}:7456,http://${DEVICE_DOMAIN_NAME},https://${DEVICE_DOMAIN_NAME}:7456
+      OD_ALLOWED_ORIGINS: http://${DEVICE_DOMAIN_NAME}:7456,http://${DEVICE_DOMAIN_NAME},https://${DEVICE_DOMAIN_NAME}:7456,https://opendesign.thainancaldeira.com.br
     volumes:
       - ${APP_DATA_DIR}/data:/app/.od
+      - ${APP_DATA_DIR}/tools:/opt/od-tools:ro
