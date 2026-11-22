@@ -4,7 +4,7 @@ name: Headroom
 tagline: Comprime o contexto antes de chegar no modelo, com as mesmas respostas
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-headroom/icon.png
 category: AI
-version: "0.44.0-r1"
+version: "0.45.0"
 port: 8615
 description: >-
   Headroom comprime saídas de ferramentas, logs, JSON, arquivos e trechos de RAG antes de cada chamada de LLM: menos tokens de entrada, mesmas respostas (a compressão é reversível, o modelo pode pedir o original).
@@ -18,6 +18,6 @@ repo: https://github.com/headroomlabs-ai/headroom
 support: https://github.com/headroomlabs-ai/headroom/issues
 gallery: []
 releaseNotes: >-
-  Variante com compressão de código (tree-sitter) e originais guardados por 2 horas (2026-11-17).
+  Atualizado automaticamente para 0.45.0-code. (2026-11-22)
 dependencies: []
 path: "/dashboard"

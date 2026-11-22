@@ -6,7 +6,7 @@ services:
       APP_PORT: 8787
 
   web:
-    image: ghcr.io/headroomlabs-ai/headroom:0.44.0-code
+    image: ghcr.io/headroomlabs-ai/headroom:0.45.0-code
     restart: unless-stopped
     command: ["--host", "0.0.0.0", "--port", "8787"]
     environment:
