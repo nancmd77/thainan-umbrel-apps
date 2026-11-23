@@ -6,7 +6,7 @@ services:
       APP_PORT: 8080
       PROXY_AUTH_ADD: "false"
   web:
-    image: invoiceshelf/invoiceshelf:latest@sha256:599dc6aa9d7303c9ae0d099397817c7f6002cd6f7af099bc90511d5eae4e9cd2
+    image: invoiceshelf/invoiceshelf:latest@sha256:12b0c62ba1e67b586c9888fcee39385c1989f13f1347afb98aa0b5215025852c
     restart: on-failure
     environment:
       APP_NAME: InvoiceShelf

@@ -4,7 +4,7 @@ storage:
   dataRoot: data
 category: ai
 name: OpenBot
-version: "0.76.1"
+version: "0.77.0"
 tagline: A server for your AI agents
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-openbot/icon.png
 description: >-
@@ -15,7 +15,7 @@ description: >-
   Única diferença do original: apparmor=unconfined, porque o AppArmor do host bloqueia os user
   namespaces do sandbox do Electron.
 releaseNotes: >-
-  Atualizado automaticamente para 0.76.1. (2026-11-22)
+  Atualizado automaticamente para 0.77.0. (2026-11-23)
 developer: Synthetify Labs
 website: https://openbot.run
 dependencies: []
