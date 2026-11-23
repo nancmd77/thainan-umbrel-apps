@@ -6,6 +6,11 @@ D=/data
 H=$D/home
 mkdir -p $D/orca $D/logs $H/.local/bin $H/.npm-global
 chown -R 1000:1000 $D 2>/dev/null || true
+# identidade do git (o Orca recusa criar projeto sem ela)
+if [ ! -f $H/.gitconfig ]; then
+  printf '[user]\n\tname = %s\n\temail = %s\n[init]\n\tdefaultBranch = main\n' "${GIT_NAME:-Thainan Caldeira}" "${GIT_EMAIL:-thainancaldeira75@gmail.com}" > $H/.gitconfig
+  chown 1000:1000 $H/.gitconfig
+fi
 
 get() { curl -fsSL --retry 3 -A thainan-orca "$@"; }
 
