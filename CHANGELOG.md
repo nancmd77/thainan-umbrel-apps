@@ -2,7 +2,21 @@
 
 Organizado por app. Cada entrada informa versão, data da tag anotada, o que mudou e como desfazer: voltar à tag anterior. As descrições abaixo vêm exclusivamente das mensagens das tags anotadas existentes, sem completar detalhes a partir de commits ou suposições. Reverter a versão não restaura dados; veja [como reverter](docs/REVERTER.md).
 
+## thainan-orca
+
+### 1.4.272-r1 — 2026-11-23
+
+- Tag: `thainan-orca-v1.4.272-r1`.
+- O que mudou: app novo. Orca (stablyai/orca) como Remote Orca Server: `orca-ide serve` headless na porta 6768 (LAN e Tailscale). Servidor baixado do GitHub (orca-server-linux-x64, sha256 conferido) e atualizado a cada reinício. Agentes Claude Code, Codex, OpenCode (npm) e agy em `data/home`. Página na porta 8650 (login do Umbrel) gera links de pareamento do PC e do celular.
+- Como desfazer: desinstalar o app.
+
 ## thainan-agy-ponte
+
+### 1.0.1 — 2026-11-23
+
+- Tag: `thainan-agy-ponte-v1.0.1`.
+- O que mudou: prompt acima de 60000 bytes vai para `PEDIDO.md` no diretório do pedido em vez de argumento do `agy -p` (corrige 502 "Argument list too long" em apps com ferramentas e histórico).
+- Como desfazer: voltar à tag `thainan-agy-ponte-v1.0.0`.
 
 ### 1.0.0 — 2026-11-23
 

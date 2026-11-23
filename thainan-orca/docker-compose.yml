@@ -1,0 +1,47 @@
+version: "3.7"
+
+# Orca (stablyai/orca) como Remote Orca Server: `orca-ide serve` headless na porta 6768 (LAN e Tailscale).
+# start.sh e page.py são baixados do repo na partida. O servidor do Orca (orca-server-linux-x64, último
+# release, sha256 conferido) fica em /data/orca e é atualizado a cada reinício (ORCA_VERSION=latest).
+# Agentes (Claude Code, Codex, OpenCode via npm; agy do GitHub) ficam em /data/home, junto com logins e repos.
+# Página do app (porta 8650, login do Umbrel): gera os links de pareamento do Orca do PC e do celular.
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-orca_web_1
+      APP_PORT: 8650
+
+  web:
+    image: node:22-bookworm@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb
+    restart: unless-stopped
+    init: true
+    hostname: thainan-orca
+    ports:
+      - "6768:6768"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      REF: main
+      TZ: America/Sao_Paulo
+      ORCA_VERSION: latest
+      PAIRING_ADDRESS: "192.168.18.171"
+      LAN_ADDRESS: "192.168.18.171"
+      TAILSCALE_ADDRESS: "nonve.taila412b1.ts.net"
+      PAGE_PORT: "8650"
+      AGENTS_NPM: "@anthropic-ai/claude-code @openai/codex opencode-ai"
+      PYTHONUNBUFFERED: "1"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /app /data/cache
+        cd /app
+        for f in start.sh page.py; do
+          if curl -fsSL -m 30 "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/$${REF}/thainan-orca/$$f" -o "$$f.new"; then
+            mv "$$f.new" "$$f"; cp "$$f" "/data/cache/$$f"; echo "baixado $$f"
+          else
+            echo "falhou $$f, usando cache"; cp "/data/cache/$$f" "$$f"
+          fi
+        done
+        exec sh /app/start.sh
+    mem_limit: 6g
