@@ -28,6 +28,7 @@ for part in os.environ.get("MODEL_MAP", "orchestrator-neon=Orchestrator (Neon);o
         a, b = part.split("=", 1)
         MODEL_MAP[a.strip()] = b.strip()
 WORK_ROOT = os.environ.get("WORK_ROOT", "/tmp/agy-req")
+PROMPT_ARG_MAX = int(os.environ.get("PROMPT_ARG_MAX", "60000"))
 LOG_DIR = "/data/logs"
 SEM = threading.BoundedSemaphore(MAX_CONC)
 os.makedirs(WORK_ROOT, exist_ok=True)
@@ -138,6 +139,15 @@ def run_agy(prompt, model_name, timeout):
     wd = tempfile.mkdtemp(prefix="r-", dir=WORK_ROOT)
     try:
         os.chmod(wd, 0o777)
+        # Linux limita cada argumento a 128 KB: prompt grande vai pra arquivo
+        if len(prompt.encode("utf-8")) > PROMPT_ARG_MAX:
+            fp = os.path.join(wd, "PEDIDO.md")
+            with open(fp, "w", encoding="utf-8") as fh:
+                fh.write(prompt)
+            os.chmod(fp, 0o644)
+            prompt = ("A mensagem completa deste pedido (instruções, histórico e a última mensagem do usuário) "
+                      "está no arquivo PEDIDO.md neste diretório. Leia o arquivo inteiro e responda a ele "
+                      "exatamente como se o conteúdo tivesse sido enviado aqui. Não mencione o arquivo na resposta.")
         args = [AGY, "-p", prompt, "--model", model_name, "--output-format", "json",
                 "--print-timeout", f"{timeout}s"] + EXTRA_ARGS
         t0 = time.time()

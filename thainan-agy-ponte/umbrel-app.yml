@@ -4,7 +4,7 @@ name: Ponte do Antigravity (Orchestrator)
 tagline: Usa o Orchestrator do Antigravity CLI como modelo OpenAI-compatible
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-agy-ponte/icon.png
 category: AI
-version: "1.0.0"
+version: "1.0.1"
 port: 8647
 description: >-
   Traduz POST /v1/chat/completions (formato OpenAI, com e sem stream) para o Antigravity CLI (agy) em modo de impressão, com o Orchestrator (planejador Neon ou Argon + executor Hydrogen). Cada pedido roda num diretório temporário próprio, apagado no fim, com fila de até 2 pedidos ao mesmo tempo e tempo máximo de 600 s.
@@ -21,7 +21,7 @@ submission: https://github.com/nancmd77/thainan-umbrel-apps
 repo: https://github.com/nancmd77/thainan-umbrel-apps
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
-releaseNotes: "1.0.0: app novo. Ponte OpenAI para o Orchestrator do agy (Neon e Argon), com página de login. (2026-11-23)"
+releaseNotes: "1.0.1: prompt grande (apps com ferramentas e histórico) vai para arquivo em vez de argumento do agy, corrigindo o erro 502 Argument list too long. (2026-11-23)"
 dependencies: []
 path: ""
 deterministicPassword: true
