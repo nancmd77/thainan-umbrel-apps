@@ -4,6 +4,12 @@ Organizado por app. Cada entrada informa versão, data da tag anotada, o que mud
 
 ## thainan-orca
 
+### 1.4.272-r2 — 2026-11-23
+
+- Tag: `thainan-orca-v1.4.272-r2`.
+- O que mudou: cria `~/.gitconfig` (Thainan Caldeira) na partida, porque o Orca recusa criar projeto sem identidade do git; na primeira partida copia o login do agy da ponte do Antigravity (`thainan-agy-ponte/data/home`, só leitura).
+- Como desfazer: voltar à tag `thainan-orca-v1.4.272-r1`.
+
 ### 1.4.272-r1 — 2026-11-23
 
 - Tag: `thainan-orca-v1.4.272-r1`.

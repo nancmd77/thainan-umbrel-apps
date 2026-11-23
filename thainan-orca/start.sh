@@ -14,6 +14,12 @@ fi
 
 get() { curl -fsSL --retry 3 -A thainan-orca "$@"; }
 
+# login do agy: na primeira partida, copia o login já feito na ponte do Antigravity (thainan-agy-ponte)
+if [ ! -f $H/.agy-login-da-ponte ] && [ -d /ponte-home ] && [ -n "$(ls -A /ponte-home 2>/dev/null)" ]; then
+  cp -an /ponte-home/. $H/ 2>/dev/null && rm -rf $H/.cache/agy-req 2>/dev/null
+  touch $H/.agy-login-da-ponte && chown -R 1000:1000 $H && echo "login do agy copiado da ponte"
+fi
+
 # --- servidor do Orca -------------------------------------------------------
 PIN=${ORCA_VERSION:-latest}
 if [ "$PIN" = latest ]; then
