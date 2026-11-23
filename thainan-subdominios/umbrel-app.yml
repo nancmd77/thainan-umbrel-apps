@@ -4,7 +4,7 @@ name: Acesso Remoto
 tagline: Dashboard do Umbrel por fora, com os tiles abrindo os endereços públicos
 icon: https://github.com/caddyserver.png
 category: Networking
-version: "2.0.10"
+version: "2.0.11"
 port: 8790
 description: >-
   Fica na frente do dashboard do Umbrel (porta 8791, publicada no Cloudflare Tunnel como
@@ -21,7 +21,7 @@ repo: https://github.com/caddyserver/caddy
 support: https://github.com/nancmd77/thainan-umbrel-apps/issues
 gallery: []
 releaseNotes: >-
-  Atalho do OpenDesign (opendesign.thainancaldeira.com.br). (2026-11-22)
+  Atalho da Ponte do Antigravity (agy-ponte.thainancaldeira.com.br). (2026-11-23)
 dependencies: []
 path: ""
 defaultUsername: ""

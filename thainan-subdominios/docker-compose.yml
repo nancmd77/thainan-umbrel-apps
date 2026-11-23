@@ -51,6 +51,7 @@ services:
         8790=acesso.thainancaldeira.com.br
         4312=nod.thainancaldeira.com.br
         7456=opendesign.thainancaldeira.com.br
+        8647=agy-ponte.thainancaldeira.com.br
         7318=nonve-herdr.eu1.netbird.services
     entrypoint: ["/bin/sh", "-c"]
     command:

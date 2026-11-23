@@ -1,0 +1,51 @@
+version: "3.7"
+
+# Ponte OpenAI chat/completions -> Antigravity CLI (agy) no modo Orchestrator (Neon/Argon).
+# Código em server.py e start.py (só biblioteca padrão do Python), baixados do repo na partida.
+# O agy (último release Linux x64 do google-antigravity/antigravity-cli) é baixado em /data/bin
+# e atualizado sozinho a cada partida (AGY_VERSION=latest; ponha uma versão para fixar).
+# Login do agy (conta Google) fica em /data/home (~/.gemini). Página de login: /login,
+# usuário qualquer e a senha do app. A chave da API (Bearer) também é a senha do app.
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thainan-agy-ponte_web_1
+      APP_PORT: 8648
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    image: python:3.12-slim
+    restart: unless-stopped
+    init: true
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      REF: main
+      PORT: "8648"
+      TZ: America/Sao_Paulo
+      PYTHONUNBUFFERED: "1"
+      BRIDGE_KEY: ${APP_PASSWORD}
+      AGY_VERSION: latest
+      AGY_TIMEOUT: "600"
+      MAX_CONC: "2"
+      MODEL_MAP: "orchestrator-neon=Orchestrator (Neon);orchestrator-argon=Orchestrator (Argon)"
+      AGY_EXTRA_ARGS: "--dangerously-skip-permissions"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /app /data/cache /data/logs
+        cd /app
+        python - <<'PY'
+        import os, urllib.request, shutil
+        B = "https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/" + os.environ.get("REF", "main") + "/thainan-agy-ponte/"
+        for f in ["server.py", "start.py"]:
+            try:
+                b = urllib.request.urlopen(B + f, timeout=30).read()
+                open(f, "wb").write(b); open("/data/cache/" + f, "wb").write(b); print("baixado", f, len(b))
+            except Exception as e:
+                print("falhou", f, e, "usando cache"); shutil.copy("/data/cache/" + f, f)
+        PY
+        exec python start.py
+    mem_limit: 2g

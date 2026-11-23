@@ -2,6 +2,14 @@
 
 Organizado por app. Cada entrada informa versão, data da tag anotada, o que mudou e como desfazer: voltar à tag anterior. As descrições abaixo vêm exclusivamente das mensagens das tags anotadas existentes, sem completar detalhes a partir de commits ou suposições. Reverter a versão não restaura dados; veja [como reverter](docs/REVERTER.md).
 
+## thainan-agy-ponte
+
+### 1.0.0 — 2026-11-23
+
+- Tag: `thainan-agy-ponte-v1.0.0`.
+- O que mudou: app novo. Ponte OpenAI `/v1/chat/completions` (com e sem stream) e `/v1/models` → Antigravity CLI (`agy -p --output-format json`) no modo Orchestrator: modelos `orchestrator-neon` e `orchestrator-argon`. Cada pedido em diretório temporário apagado no fim; fila de 2; tempo máximo 600 s. Página `/login` (senha do app) faz o login OAuth do agy num pty e guarda em `data/home`. agy baixado do GitHub e atualizado a cada reinício. Porta 8647 na LAN; rede interna `thainan-agy-ponte_web_1:8648`; chave = senha do app.
+- Como desfazer: desinstalar o app e remover os modelos `orchestrator-*` do LiteLLM.
+
 ## thainan-agentes-ponte
 
 ### 1.0.1 — 2026-11-19

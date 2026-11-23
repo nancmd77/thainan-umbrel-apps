@@ -83,3 +83,5 @@ thainan-headroom:
 thainan-openbot:
   image: ghcr.io/nightly-labs/openbot
   mode: tag
+# thainan-agy-ponte: fora do bump.py de propósito (imagem python:3.12-slim). O próprio app baixa o
+# último release do agy (google-antigravity/antigravity-cli) a cada reinício (AGY_VERSION=latest).
