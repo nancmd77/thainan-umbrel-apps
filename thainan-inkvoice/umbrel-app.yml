@@ -4,7 +4,7 @@ name: Inkvoice
 tagline: Self-hosted invoicing
 icon: https://raw.githubusercontent.com/nancmd77/thainan-umbrel-apps/main/thainan-inkvoice/icon.png
 category: Finance
-version: "1.0.3-r7"
+version: "1.0.3-r8"
 port: 3020
 description: >-
   Inkvoice is a lightweight self-hosted invoicing app (SQLite).
@@ -18,7 +18,7 @@ repo: https://github.com/pigontech/inkvoice
 support: https://github.com/pigontech/inkvoice/issues
 gallery: []
 releaseNotes: >-
-  Nova imagem latest publicada pelo projeto (sha256:18a701d430ef). (2026-11-21)
+  Nova imagem latest publicada pelo projeto (sha256:6ba4658874f1). (2026-11-24)
 dependencies: []
 path: ""
 defaultUsername: ""

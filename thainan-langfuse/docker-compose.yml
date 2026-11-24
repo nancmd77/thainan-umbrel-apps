@@ -37,7 +37,7 @@ services:
       PROXY_AUTH_ADD: "false"
 
   web:
-    image: langfuse/langfuse:4.84.0
+    image: langfuse/langfuse:4.86.0
     restart: unless-stopped
     depends_on:
       postgres:
@@ -65,7 +65,7 @@ services:
       LANGFUSE_INIT_USER_PASSWORD: ${APP_PASSWORD}
 
   worker:
-    image: langfuse/langfuse-worker:4.84.0
+    image: langfuse/langfuse-worker:4.86.0
     restart: unless-stopped
     depends_on:
       postgres:
