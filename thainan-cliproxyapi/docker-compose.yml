@@ -38,7 +38,7 @@ services:
         CFG
         fi
   web:
-    image: eceasy/cli-proxy-api:v8.1.4
+    image: eceasy/cli-proxy-api:v8.1.7
     restart: unless-stopped
     stop_grace_period: 20s
     mem_limit: 768m

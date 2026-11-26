@@ -124,7 +124,7 @@ services:
       - mc alias set myminio http://minio:9000 readest ${APP_THAINAN_READEST_MINIO_ROOT_PASSWORD} && mc mb --ignore-existing myminio/readest-files
 
   client:
-    image: ghcr.io/readest/readest:latest@sha256:e79d24496d6376ea34b9304199799e55428bb8627d02aafd89b0b5de89ca7568
+    image: ghcr.io/readest/readest:latest@sha256:21584233aefe2055617c04b1139640d0ed99235f1b592951470879f2d56f8cb7
     restart: on-failure
     environment:
       SUPABASE_URL: http://kong:8000
